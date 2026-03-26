@@ -15,13 +15,15 @@ datasource db {
 model User {
   id        String   @id @default(uuid())
   name      String
+  lastname  String
+  username  String   @unique
   email     String   @unique
   password  String
   bio       String?
-  avatarUrl String?
+  // avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  birthdate DateTime
   events    Event[]
 
   @@map("users")
