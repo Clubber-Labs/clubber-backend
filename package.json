@@ -27,7 +27,7 @@
     "@fastify/swagger-ui": "^5.2.5",
     "@prisma/client": "^6.19.2",
     "@scalar/fastify-api-reference": "^1.49.3",
-    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.3",
     "dotenv": "^17.3.1",
     "fastify": "^5.8.2",
     "fastify-type-provider-zod": "^6.1.0",
@@ -36,7 +36,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
-    "@types/bcrypt": "^6.0.0",
     "@types/node": "^25.5.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
