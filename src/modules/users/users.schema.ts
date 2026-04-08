@@ -30,3 +30,15 @@ export const createUserSchema = z.object({
 })
 
 export type CreateUserBody = z.infer<typeof createUserSchema>
+
+export const updateUserSchema = createUserSchema
+  .omit({ password: true, email: true })
+  .partial()
+
+export type UpdateUserBody = z.infer<typeof updateUserSchema>
+
+export const userIdParamSchema = z.object({
+  id: z.string().uuid('ID inválido'),
+})
+
+export type UserIdParam = z.infer<typeof userIdParamSchema>
