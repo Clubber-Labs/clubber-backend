@@ -19,30 +19,152 @@ model User {
   username  String   @unique
   email     String   @unique
   password  String
+  phone     String   @unique
   bio       String?
-  // avatarUrl String?
+  avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   birthdate DateTime
-  events    Event[]
+  isPremium Boolean  @default(false)
+  interests String[]
+
+  events        Event[]
+  attendances   Attendance[]
+  comments      Comment[]
+  followers     Follow[] @relation("following")
+  following     Follow[] @relation("follower")
+  notifications Notification[]
+  reports       Report[]
 
   @@map("users")
 }
 
 model Event {
   id          String   @id @default(uuid())
-  title       String
-  description String
+  title       String   @db.VarChar(100)
+  description String   @db.VarChar(500)
   date        DateTime
   latitude    Float
   longitude   Float
+  address     String?
   category    String
   isPublic    Boolean  @default(true)
+  imageUrl    String?
+  maxCapacity Int?
+  canceledAt  DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  attendances Attendance[]
+  comments    Comment[]
+  reports     Report[]
 
   @@map("events")
 }
+
+model Follow {
+  id          String @id @default(uuid())
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+
+  follower User @relation("follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@map("follows")
+}
+
+enum AttendanceStatus{
+  INTERESTED
+  CONFIRMED
+}
+model Attendance {
+  id String @id @default(uuid())
+  status AttendanceStatus
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  eventId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@map("attendances") 
+}
+
+model Comment {
+  id String @id @default(uuid())
+  content String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId String
+  eventId String
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  reports Report[]
+
+  @@map("comments")
+}
+
+enum NotificationType {
+  NEW_FOLLOWER
+  FRIEND_ATTENDING_EVENT
+  EVENT_UPDATED
+  EVENT_CANCELED
+  NEW_COMMENT
+  COMMENT_REPLY
+}
+model Notification {
+  id String @id @default(uuid())
+  type NotificationType
+  read Boolean @default(false)
+  payload Json
+  createdAt DateTime @default(now())
+
+  userId String
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+enum ReportReason {
+  HATE_SPEECH
+  SPAM_OR_FRAUD
+  HARASSMENT
+  INAPPROPRIATE_CONTENT
+  OTHER
+}
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED_INVALID
+  RESOLVED_REMOVED
+}
+
+model Report {
+  id         String       @id @default(uuid())
+  reason     ReportReason
+  details    String?
+  status     ReportStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  resolvedAt DateTime?
+
+  reporterId String
+  reporter   User   @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  // alvo da denúncia (apenas um será preenchido)
+  eventId   String?
+  event     Event?   @relation(fields: [eventId],   references: [id], onDelete: SetNull)
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
+
+  @@map("reports")
+} 
