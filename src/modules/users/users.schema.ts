@@ -26,7 +26,7 @@ export const createUserSchema = z.object({
     .string()
     .max(255, 'Sua bio deve conter no maximo 255 caracteres')
     .optional(),
-  birthdate: z.iso.date(),
+  birthdate: z.coerce.date(),
 })
 
 export type CreateUserBody = z.infer<typeof createUserSchema>
