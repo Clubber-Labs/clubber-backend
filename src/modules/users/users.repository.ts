@@ -12,6 +12,7 @@ export async function findAllUsers() {
       bio: true,
       birthdate: true,
       createdAt: true,
+      events: true,
     },
   })
 }
@@ -28,6 +29,7 @@ export async function findUserById(id: string) {
       bio: true,
       birthdate: true,
       createdAt: true,
+      events: true,
     },
   })
 }

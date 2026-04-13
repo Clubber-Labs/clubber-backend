@@ -26,6 +26,7 @@ model User {
   updatedAt DateTime @updatedAt
   birthdate DateTime
   events    Event[]
+  attendances EventAttendance[]
 
   @@map("users")
 }
@@ -45,5 +46,20 @@ model Event {
   authorId    String
   author      User     @relation(fields: [authorId], references: [id])
 
+  attendances EventAttendance[]
+
   @@map("events")
+}
+
+model EventAttendance {
+  id        String   @id @default(uuid())
+  userId    String
+  eventId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id])
+  event Event @relation(fields: [eventId], references: [id])
+
+  @@unique([userId, eventId])
+  @@map("event_attendances")
 }
