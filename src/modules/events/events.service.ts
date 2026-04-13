@@ -1,3 +1,4 @@
+import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createEvent,
   deleteEvent,
@@ -11,12 +12,8 @@ export async function listPublicEvents() {
   return findAllPublicEvents()
 }
 
-export async function getEventById(id: string) {
-  const event = await findEventById(id)
-  if (!event) {
-    throw { statusCode: 404, message: 'Event not found' }
-  }
-  return event
+export async function getEventById(id: string, requesterId: string) {
+  return ensureEventAccess(id, requesterId)
 }
 
 export async function addEvent(data: CreateEventBody, authorId: string) {

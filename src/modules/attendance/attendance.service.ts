@@ -1,4 +1,4 @@
-import { findEventById } from '../events/events.repository'
+import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createAttendance,
   deleteAttendance,
@@ -11,10 +11,7 @@ export async function confirmAttendance(
   eventId: string,
   type: 'INTERESTED' | 'CONFIRMED' | 'NOT_INTERESTED',
 ) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
+  await ensureEventAccess(eventId, userId)
 
   const existing = await findAttendanceByUserAndEvent(userId, eventId)
   if (existing) {
@@ -25,13 +22,9 @@ export async function confirmAttendance(
 }
 
 export async function cancelAttendance(userId: string, eventId: string) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
+  await ensureEventAccess(eventId, userId)
 
   const existing = await findAttendanceByUserAndEvent(userId, eventId)
-
   if (!existing) {
     throw { statusCode: 404, message: 'Confirmação de presença não encontrada' }
   }
@@ -39,6 +32,7 @@ export async function cancelAttendance(userId: string, eventId: string) {
   return deleteAttendance(userId, eventId)
 }
 
-export async function listAttendances(eventId: string) {
+export async function listAttendances(eventId: string, requesterId: string) {
+  await ensureEventAccess(eventId, requesterId)
   return findAttendancesByEvent(eventId)
 }

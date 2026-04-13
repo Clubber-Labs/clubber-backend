@@ -1,5 +1,5 @@
-import { findEventById } from '../events/events.repository'
 import { findAttendanceByUserAndEvent } from '../attendance/attendance.repository'
+import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createPost,
   deletePost,
@@ -13,17 +13,11 @@ export async function addPost(
   eventId: string,
   body: CreatePostBody,
 ) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
+  await ensureEventAccess(eventId, authorId)
 
   const attendance = await findAttendanceByUserAndEvent(authorId, eventId)
   if (!attendance) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas participantes do evento podem postar',
-    }
+    throw { statusCode: 403, message: 'Apenas participantes do evento podem postar' }
   }
 
   return createPost(authorId, eventId, body.content)
@@ -31,14 +25,11 @@ export async function addPost(
 
 export async function listPostsByEvent(
   eventId: string,
+  requesterId: string,
   limit: number,
   cursor?: string,
 ) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
-
+  await ensureEventAccess(eventId, requesterId)
   const rows = await findPostsByEvent(eventId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   return { data: rows, nextCursor }

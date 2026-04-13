@@ -28,11 +28,13 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   birthdate      DateTime
-  events      Event[]
-  attendances EventAttendance[]
-  posts       Post[]
-  comments    Comment[]
-  reactions   Reaction[]
+  events           Event[]
+  attendances      EventAttendance[]
+  posts            Post[]
+  comments         Comment[]
+  reactions        Reaction[]
+  eventInvitesSent EventInvite[]     @relation("inviter")
+  eventInvitesReceived EventInvite[] @relation("invited")
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
@@ -80,6 +82,7 @@ model Event {
   posts       Post[]
   comments    Comment[]
   reactions   Reaction[]
+  invites     EventInvite[]
 
   @@map("events")
 }
@@ -147,6 +150,22 @@ model Comment {
   @@index([eventId, createdAt])
   @@index([postId, createdAt])
   @@map("comments")
+}
+
+model EventInvite {
+  id          String   @id @default(uuid())
+  eventId     String
+  inviterId   String
+  invitedId   String
+  createdAt   DateTime @default(now())
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  inviter User  @relation("inviter", fields: [inviterId], references: [id])
+  invited User  @relation("invited", fields: [invitedId], references: [id])
+
+  @@unique([eventId, invitedId])
+  @@index([invitedId])
+  @@map("event_invites")
 }
 
 model Reaction {

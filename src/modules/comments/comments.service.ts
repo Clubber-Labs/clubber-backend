@@ -1,4 +1,4 @@
-import { findEventById } from '../events/events.repository'
+import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { findPostById } from '../posts/posts.repository'
 import {
   createComment,
@@ -14,10 +14,7 @@ export async function addCommentToEvent(
   eventId: string,
   body: CreateCommentBody,
 ) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
+  await ensureEventAccess(eventId, authorId)
   return createComment(authorId, body.content, { eventId })
 }
 
@@ -30,18 +27,17 @@ export async function addCommentToPost(
   if (!post) {
     throw { statusCode: 404, message: 'Post não encontrado' }
   }
+  await ensureEventAccess(post.eventId, authorId)
   return createComment(authorId, body.content, { postId })
 }
 
 export async function listEventComments(
   eventId: string,
+  requesterId: string,
   limit: number,
   cursor?: string,
 ) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
+  await ensureEventAccess(eventId, requesterId)
   const rows = await findCommentsByEvent(eventId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   return { data: rows, nextCursor }
@@ -49,6 +45,7 @@ export async function listEventComments(
 
 export async function listPostComments(
   postId: string,
+  requesterId: string,
   limit: number,
   cursor?: string,
 ) {
@@ -56,6 +53,7 @@ export async function listPostComments(
   if (!post) {
     throw { statusCode: 404, message: 'Post não encontrado' }
   }
+  await ensureEventAccess(post.eventId, requesterId)
   const rows = await findCommentsByPost(postId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   return { data: rows, nextCursor }

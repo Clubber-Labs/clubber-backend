@@ -28,7 +28,7 @@ export async function postEventComment(request: FastifyRequest, reply: FastifyRe
 export async function getEventComments(request: FastifyRequest, reply: FastifyReply) {
   const { eventId } = request.params as EventCommentParam
   const { limit, cursor } = request.query as PaginationQuery
-  const result = await listEventComments(eventId, limit, cursor)
+  const result = await listEventComments(eventId, request.user.sub, limit, cursor)
   return reply.send(result)
 }
 
@@ -51,7 +51,7 @@ export async function postPostComment(request: FastifyRequest, reply: FastifyRep
 export async function getPostComments(request: FastifyRequest, reply: FastifyReply) {
   const { postId } = request.params as PostCommentParam
   const { limit, cursor } = request.query as PaginationQuery
-  const result = await listPostComments(postId, limit, cursor)
+  const result = await listPostComments(postId, request.user.sub, limit, cursor)
   return reply.send(result)
 }
 

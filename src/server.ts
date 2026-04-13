@@ -18,6 +18,7 @@ import { postsRoutes } from './modules/posts/posts.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { feedRoutes } from './modules/feed/feed.routes'
+import { eventInvitesRoutes } from './modules/event-invites/event-invites.routes'
 
 const app = fastify().withTypeProvider<ZodTypeProvider>()
 
@@ -72,6 +73,7 @@ app.register(postsRoutes)
 app.register(commentsRoutes)
 app.register(reactionsRoutes)
 app.register(feedRoutes)
+app.register(eventInvitesRoutes)
 
 app.listen({ port: 3333, host: '0.0.0.0' }).then(() => {
   console.log('🔥 Server is running on http://localhost:3333')

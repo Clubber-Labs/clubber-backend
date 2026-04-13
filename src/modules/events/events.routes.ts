@@ -25,7 +25,14 @@ export async function eventsRoutes(app: FastifyInstance) {
 
   api.get('/events', getEvents)
 
-  api.get('/events/:id', { schema: { params: eventParamSchema } }, getEvent)
+  api.get(
+    '/events/:id',
+    {
+      schema: { params: eventParamSchema },
+      onRequest: [app.authenticate],
+    },
+    getEvent,
+  )
 
   api.post(
     '/events',

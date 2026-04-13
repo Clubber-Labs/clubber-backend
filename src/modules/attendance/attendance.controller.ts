@@ -30,6 +30,6 @@ export async function getAttendances(
   reply: FastifyReply,
 ) {
   const { eventId } = request.params as EventParams
-  const attendances = await listAttendances(eventId)
+  const attendances = await listAttendances(eventId, request.user.sub)
   return reply.send(attendances)
 }

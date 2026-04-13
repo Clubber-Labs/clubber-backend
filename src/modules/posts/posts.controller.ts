@@ -11,7 +11,7 @@ export async function postPost(request: FastifyRequest, reply: FastifyReply) {
 export async function getPosts(request: FastifyRequest, reply: FastifyReply) {
   const { eventId } = request.params as EventIdParam
   const { limit, cursor } = request.query as PaginationQuery
-  const result = await listPostsByEvent(eventId, limit, cursor)
+  const result = await listPostsByEvent(eventId, request.user.sub, limit, cursor)
   return reply.send(result)
 }
 
