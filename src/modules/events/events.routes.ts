@@ -25,11 +25,18 @@ export async function eventsRoutes(app: FastifyInstance) {
 
   api.get('/events', getEvents)
 
-  api.get('/events/:id', { schema: { params: eventParamSchema } }, getEvent)
+  api.get(
+    '/events/:id',
+    {
+      schema: { params: eventParamSchema },
+      onRequest: [app.authenticate],
+    },
+    getEvent,
+  )
 
   api.post(
     '/events',
-    { schema: { body: createEventSchema }, preHandler: [app.authenticate] },
+    { schema: { body: createEventSchema }, onRequest: [app.authenticate] },
     postEvent,
   )
 
@@ -37,14 +44,14 @@ export async function eventsRoutes(app: FastifyInstance) {
     '/events/:id',
     {
       schema: { params: eventParamSchema, body: updateEventSchema },
-      preHandler: [app.authenticate],
+      onRequest: [app.authenticate],
     },
     putEvent,
   )
 
   api.delete(
     '/events/:id',
-    { schema: { params: eventParamSchema }, preHandler: [app.authenticate] },
+    { schema: { params: eventParamSchema }, onRequest: [app.authenticate] },
     deleteEventHandler,
   )
 }

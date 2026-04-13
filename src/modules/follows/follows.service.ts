@@ -32,7 +32,10 @@ export async function followUser(followerId: string, followingId: string) {
   return createFollow(followerId, followingId, status)
 }
 
-export async function approveFollowRequest(ownerId: string, followerId: string) {
+export async function approveFollowRequest(
+  ownerId: string,
+  followerId: string,
+) {
   const follow = await findFollow(followerId, ownerId)
   if (!follow) {
     throw { statusCode: 404, message: 'Solicitação não encontrada' }

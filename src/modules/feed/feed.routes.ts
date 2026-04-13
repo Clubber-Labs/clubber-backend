@@ -4,16 +4,21 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { login, me } from './auth.controller'
-import { loginBodySchema } from './auth.schema'
+import { getMainFeed } from './feed.controller'
+import { feedQuerySchema } from './feed.schema'
 
-export async function authRoutes(app: FastifyInstance) {
+export async function feedRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
 
   const api = app.withTypeProvider<ZodTypeProvider>()
 
-  api.post('/auth/login', { schema: { body: loginBodySchema } }, login)
-
-  api.get('/auth/me', { onRequest: [app.authenticate] }, me)
+  api.get(
+    '/feed',
+    {
+      schema: { querystring: feedQuerySchema },
+      onRequest: [app.authenticate],
+    },
+    getMainFeed,
+  )
 }

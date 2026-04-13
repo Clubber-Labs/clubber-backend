@@ -28,8 +28,13 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   birthdate      DateTime
-  events         Event[]
-  attendances EventAttendance[]
+  events           Event[]
+  attendances      EventAttendance[]
+  posts            Post[]
+  comments         Comment[]
+  reactions        Reaction[]
+  eventInvitesSent EventInvite[]     @relation("inviter")
+  eventInvitesReceived EventInvite[] @relation("invited")
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
@@ -49,7 +54,7 @@ model Follow {
   followerId  String
   following   User         @relation("following", fields: [followingId], references: [id])
   followingId String
-  status      FollowStatus @default(ACCEPTED)
+  status      FollowStatus @default(PENDING)
   createdAt   DateTime     @default(now())
 
   @@unique([followerId, followingId])
@@ -74,19 +79,109 @@ model Event {
   author      User     @relation(fields: [authorId], references: [id])
 
   attendances EventAttendance[]
+  posts       Post[]
+  comments    Comment[]
+  reactions   Reaction[]
+  invites     EventInvite[]
 
   @@map("events")
 }
 
+enum AttendanceType {
+  INTERESTED
+  CONFIRMED
+  NOT_INTERESTED
+}
+
 model EventAttendance {
-  id        String   @id @default(uuid())
+  id        String         @id @default(uuid())
+  type      AttendanceType @default(CONFIRMED)
   userId    String
   eventId   String
-  createdAt DateTime @default(now())
+  createdAt DateTime       @default(now())
 
-  user  User  @relation(fields: [userId], references: [id])
-  event Event @relation(fields: [eventId], references: [id])
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 
   @@unique([userId, eventId])
+  @@index([eventId, createdAt])
   @@map("event_attendances")
+}
+
+enum ReactionType {
+  LIKE
+  LOVE
+  HAHA
+  WOW
+  SAD
+  ANGRY
+}
+
+model Post {
+  id        String   @id @default(uuid())
+  content   String
+  authorId  String
+  eventId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  comments  Comment[]
+  reactions Reaction[]
+
+  @@index([eventId, createdAt])
+  @@map("posts")
+}
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  authorId  String
+  eventId   String?
+  postId    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  author User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event  Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  post   Post?  @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, createdAt])
+  @@index([postId, createdAt])
+  @@map("comments")
+}
+
+model EventInvite {
+  id          String   @id @default(uuid())
+  eventId     String
+  inviterId   String
+  invitedId   String
+  createdAt   DateTime @default(now())
+
+  event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  inviter User  @relation("inviter", fields: [inviterId], references: [id])
+  invited User  @relation("invited", fields: [invitedId], references: [id])
+
+  @@unique([eventId, invitedId])
+  @@index([invitedId])
+  @@map("event_invites")
+}
+
+model Reaction {
+  id        String       @id @default(uuid())
+  type      ReactionType
+  userId    String
+  eventId   String?
+  postId    String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  post  Post?  @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId], map: "reactions_user_event_unique")
+  @@unique([userId, postId], map: "reactions_user_post_unique")
+  @@map("reactions")
 }

@@ -9,7 +9,7 @@ import {
   postAttendance,
   removeAttendance,
 } from './attendance.controller'
-import { eventParamsSchema } from './attendance.schema'
+import { attendanceBodySchema, eventParamsSchema } from './attendance.schema'
 
 export async function attendanceRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)
@@ -19,7 +19,10 @@ export async function attendanceRoutes(app: FastifyInstance) {
 
   api.post(
     '/events/:eventId/attendances',
-    { schema: { params: eventParamsSchema }, onRequest: [app.authenticate] },
+    {
+      schema: { params: eventParamsSchema, body: attendanceBodySchema },
+      onRequest: [app.authenticate],
+    },
     postAttendance,
   )
 

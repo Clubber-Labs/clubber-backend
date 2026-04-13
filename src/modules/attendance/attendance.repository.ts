@@ -1,3 +1,4 @@
+import type { AttendanceType } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
 export async function findAttendanceByUserAndEvent(
@@ -11,9 +12,13 @@ export async function findAttendanceByUserAndEvent(
   })
 }
 
-export async function createAttendance(userId: string, eventId: string) {
+export async function createAttendance(
+  userId: string,
+  eventId: string,
+  type: AttendanceType,
+) {
   return prisma.eventAttendance.create({
-    data: { userId, eventId },
+    data: { userId, eventId, type },
   })
 }
 

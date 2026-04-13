@@ -1,5 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import type { EventParams } from './attendance.schema'
+import type { AttendanceBody, EventParams } from './attendance.schema'
 import {
   cancelAttendance,
   confirmAttendance,
@@ -11,7 +11,8 @@ export async function postAttendance(
   reply: FastifyReply,
 ) {
   const { eventId } = request.params as EventParams
-  const attendance = await confirmAttendance(request.user.sub, eventId)
+  const { type } = request.body as AttendanceBody
+  const attendance = await confirmAttendance(request.user.sub, eventId, type)
   return reply.status(201).send(attendance)
 }
 
@@ -29,6 +30,6 @@ export async function getAttendances(
   reply: FastifyReply,
 ) {
   const { eventId } = request.params as EventParams
-  const attendances = await listAttendances(eventId)
+  const attendances = await listAttendances(eventId, request.user.sub)
   return reply.send(attendances)
 }
