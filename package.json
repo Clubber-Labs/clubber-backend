@@ -12,7 +12,8 @@
     "check": "biome check --write",
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
-    "db:generate": "prisma generate"
+    "db:generate": "prisma generate",
+    "db:seed": "tsx prisma/seed.ts"
   },
   "keywords": [],
   "author": "",
@@ -38,6 +39,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.8",
+    "@faker-js/faker": "^10.4.0",
     "@types/node": "^25.5.0",
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
