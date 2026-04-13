@@ -1,11 +1,17 @@
+import type { FollowStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
-type FollowStatus = 'PENDING' | 'ACCEPTED'
+const followerSelect = {
+  id: true,
+  name: true,
+  lastname: true,
+  username: true,
+} as const
 
 export async function createFollow(
   followerId: string,
   followingId: string,
-  status: FollowStatus = 'ACCEPTED',
+  status: FollowStatus,
 ) {
   return prisma.$transaction(async (tx) => {
     const follow = await tx.follow.create({
@@ -74,27 +80,31 @@ export async function findFollow(followerId: string, followingId: string) {
   })
 }
 
-export async function findFollowers(userId: string, limit: number, cursor?: string) {
+export async function findFollowers(
+  userId: string,
+  limit: number,
+  cursor?: string,
+) {
   return prisma.follow.findMany({
     where: { followingId: userId, status: 'ACCEPTED' },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { id: 'desc' },
-    include: {
-      follower: { select: { id: true, name: true, lastname: true, username: true } },
-    },
+    include: { follower: { select: followerSelect } },
   })
 }
 
-export async function findFollowing(userId: string, limit: number, cursor?: string) {
+export async function findFollowing(
+  userId: string,
+  limit: number,
+  cursor?: string,
+) {
   return prisma.follow.findMany({
     where: { followerId: userId, status: 'ACCEPTED' },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { id: 'desc' },
-    include: {
-      following: { select: { id: true, name: true, lastname: true, username: true } },
-    },
+    include: { following: { select: followerSelect } },
   })
 }
 
@@ -102,8 +112,6 @@ export async function findPendingRequests(userId: string) {
   return prisma.follow.findMany({
     where: { followingId: userId, status: 'PENDING' },
     orderBy: { createdAt: 'desc' },
-    include: {
-      follower: { select: { id: true, name: true, lastname: true, username: true } },
-    },
+    include: { follower: { select: followerSelect } },
   })
 }
