@@ -5,7 +5,10 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import { getInvites, postInvite } from './event-invites.controller'
-import { eventInviteParamSchema, inviteUsersBodySchema } from './event-invites.schema'
+import {
+  eventInviteParamSchema,
+  inviteUsersBodySchema,
+} from './event-invites.schema'
 
 export async function eventInvitesRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)

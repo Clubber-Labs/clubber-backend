@@ -59,13 +59,39 @@ export async function listPostComments(
   return { data: rows, nextCursor }
 }
 
-export async function removeComment(commentId: string, requesterId: string) {
+export async function removeComment(
+  commentId: string,
+  requesterId: string,
+  scopeId: string, // eventId ou postId dependendo de onde o comentário está
+) {
   const comment = await findCommentById(commentId)
   if (!comment) {
     throw { statusCode: 404, message: 'Comentário não encontrado' }
   }
+
+  // Valida que o comentário pertence ao escopo da rota
+  const belongsToScope =
+    comment.eventId === scopeId || comment.postId === scopeId
+  if (!belongsToScope) {
+    throw { statusCode: 404, message: 'Comentário não encontrado neste escopo' }
+  }
+
+  // Verifica acesso ao evento pai
+  let eventId = comment.eventId
+  if (!eventId && comment.postId) {
+    const post = await findPostById(comment.postId)
+    eventId = post?.eventId ?? null
+  }
+  if (!eventId) {
+    throw { statusCode: 404, message: 'Comentário sem evento associado' }
+  }
+  await ensureEventAccess(eventId, requesterId)
+
   if (comment.authorId !== requesterId) {
-    throw { statusCode: 403, message: 'Sem permissão para deletar este comentário' }
+    throw {
+      statusCode: 403,
+      message: 'Sem permissão para deletar este comentário',
+    }
   }
   return deleteComment(commentId)
 }

@@ -15,7 +15,10 @@ export async function confirmAttendance(
 
   const existing = await findAttendanceByUserAndEvent(userId, eventId)
   if (existing) {
-    throw { statusCode: 409, message: 'Você já registrou uma intenção neste evento' }
+    throw {
+      statusCode: 409,
+      message: 'Você já registrou uma intenção neste evento',
+    }
   }
 
   return createAttendance(userId, eventId, type)

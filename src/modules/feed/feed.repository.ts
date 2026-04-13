@@ -8,20 +8,28 @@ const authorSelect = {
 } as const
 
 export async function findFeedEvents(
+  viewerId: string,
   followingIds: string[],
   limit: number,
   cursor?: string,
 ) {
   return prisma.event.findMany({
     where: {
-      OR: [
-        // Eventos criados por quem você segue
-        { authorId: { in: followingIds } },
-        // Eventos em que alguém que você segue confirmou presença ou interesse
+      AND: [
+        // Eventos de quem você segue ou com checkin de quem você segue
         {
-          attendances: {
-            some: { userId: { in: followingIds } },
-          },
+          OR: [
+            { authorId: { in: followingIds } },
+            { attendances: { some: { userId: { in: followingIds } } } },
+          ],
+        },
+        // Apenas eventos que o viewer pode ver
+        {
+          OR: [
+            { isPublic: true },
+            { authorId: viewerId },
+            { invites: { some: { invitedId: viewerId } } },
+          ],
         },
       ],
     },

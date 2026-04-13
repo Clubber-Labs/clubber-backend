@@ -16,14 +16,20 @@ export async function inviteToEvent(
     throw { statusCode: 404, message: 'Evento não encontrado' }
   }
   if (event.authorId !== inviterId) {
-    throw { statusCode: 403, message: 'Apenas o autor pode convidar participantes' }
+    throw {
+      statusCode: 403,
+      message: 'Apenas o autor pode convidar participantes',
+    }
   }
   if (event.isPublic) {
-    throw { statusCode: 400, message: 'Eventos públicos não precisam de convites' }
+    throw {
+      statusCode: 400,
+      message: 'Eventos públicos não precisam de convites',
+    }
   }
 
   // Se userIds não foi fornecido, convida todos os seguidores
-  const targetIds = body.userIds ?? (await findFollowerIds(inviterId))
+  const targetIds = body?.userIds ?? (await findFollowerIds(inviterId))
 
   if (targetIds.length === 0) {
     throw { statusCode: 400, message: 'Nenhum usuário para convidar' }

@@ -9,16 +9,16 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { authRoutes } from './modules/auth/auth.routes'
-import { eventsRoutes } from './modules/events/events.routes'
-import { followsRoutes } from './modules/follows/follows.routes'
-import { usersRoutes } from './modules/users/users.routes'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
-import { postsRoutes } from './modules/posts/posts.routes'
+import { authRoutes } from './modules/auth/auth.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
-import { reactionsRoutes } from './modules/reactions/reactions.routes'
-import { feedRoutes } from './modules/feed/feed.routes'
 import { eventInvitesRoutes } from './modules/event-invites/event-invites.routes'
+import { eventsRoutes } from './modules/events/events.routes'
+import { feedRoutes } from './modules/feed/feed.routes'
+import { followsRoutes } from './modules/follows/follows.routes'
+import { postsRoutes } from './modules/posts/posts.routes'
+import { reactionsRoutes } from './modules/reactions/reactions.routes'
+import { usersRoutes } from './modules/users/users.routes'
 
 const app = fastify().withTypeProvider<ZodTypeProvider>()
 

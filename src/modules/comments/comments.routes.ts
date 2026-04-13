@@ -40,7 +40,10 @@ export async function commentsRoutes(app: FastifyInstance) {
   api.get(
     '/events/:eventId/comments',
     {
-      schema: { params: eventCommentParamSchema, querystring: paginationSchema },
+      schema: {
+        params: eventCommentParamSchema,
+        querystring: paginationSchema,
+      },
       onRequest: [app.authenticate],
     },
     getEventComments,

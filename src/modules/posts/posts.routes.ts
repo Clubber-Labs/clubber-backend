@@ -5,7 +5,12 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import { deletePost, getPosts, postPost } from './posts.controller'
-import { createPostSchema, eventIdParamSchema, paginationSchema, postParamSchema } from './posts.schema'
+import {
+  createPostSchema,
+  eventIdParamSchema,
+  paginationSchema,
+  postParamSchema,
+} from './posts.schema'
 
 export async function postsRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)

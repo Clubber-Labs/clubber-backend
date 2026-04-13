@@ -17,7 +17,10 @@ export async function addPost(
 
   const attendance = await findAttendanceByUserAndEvent(authorId, eventId)
   if (!attendance) {
-    throw { statusCode: 403, message: 'Apenas participantes do evento podem postar' }
+    throw {
+      statusCode: 403,
+      message: 'Apenas participantes do evento podem postar',
+    }
   }
 
   return createPost(authorId, eventId, body.content)
@@ -35,10 +38,17 @@ export async function listPostsByEvent(
   return { data: rows, nextCursor }
 }
 
-export async function removePost(postId: string, requesterId: string) {
+export async function removePost(
+  eventId: string,
+  postId: string,
+  requesterId: string,
+) {
   const post = await findPostById(postId)
   if (!post) {
     throw { statusCode: 404, message: 'Post não encontrado' }
+  }
+  if (post.eventId !== eventId) {
+    throw { statusCode: 404, message: 'Post não encontrado neste evento' }
   }
   if (post.authorId !== requesterId) {
     throw { statusCode: 403, message: 'Sem permissão para deletar este post' }
