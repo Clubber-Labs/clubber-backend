@@ -15,6 +15,7 @@ export async function findAllUsers() {
       followingCount: true,
       birthdate: true,
       createdAt: true,
+      events: true,
     },
   })
 }
@@ -34,6 +35,7 @@ export async function findUserById(id: string) {
       followingCount: true,
       birthdate: true,
       createdAt: true,
+      events: true,
     },
   })
 }

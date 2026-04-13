@@ -1,46 +1,53 @@
 import type { FastifyInstance } from 'fastify'
 import {
-  deleteFollowHandler,
+  serializerCompiler,
+  validatorCompiler,
+  type ZodTypeProvider,
+} from 'fastify-type-provider-zod'
+import {
+  deleteFollow,
+  deleteFollowRequest,
   getFollowers,
   getFollowing,
-  postApproveFollow,
+  getFollowRequests,
+  postApproveFollowRequest,
   postFollow,
-  postRejectFollow,
 } from './follows.controller'
 import {
-  followActionSchema,
+  followerIdParamSchema,
   followUserIdParamSchema,
-  followUserSchema,
   paginationSchema,
 } from './follows.schema'
 
 export async function followsRoutes(app: FastifyInstance) {
-  app.post(
-    '/follows',
-    { schema: { body: followUserSchema }, onRequest: [app.authenticate] },
+  app.setValidatorCompiler(validatorCompiler)
+  app.setSerializerCompiler(serializerCompiler)
+
+  const api = app.withTypeProvider<ZodTypeProvider>()
+
+  // Seguir um usuário
+  api.post(
+    '/users/:userId/follow',
+    {
+      schema: { params: followUserIdParamSchema },
+      onRequest: [app.authenticate],
+    },
     postFollow,
   )
 
-  app.post(
-    '/follows/approve',
-    { schema: { body: followActionSchema }, onRequest: [app.authenticate] },
-    postApproveFollow,
+  // Deixar de seguir um usuário
+  api.delete(
+    '/users/:userId/follow',
+    {
+      schema: { params: followUserIdParamSchema },
+      onRequest: [app.authenticate],
+    },
+    deleteFollow,
   )
 
-  app.post(
-    '/follows/reject',
-    { schema: { body: followActionSchema }, onRequest: [app.authenticate] },
-    postRejectFollow,
-  )
-
-  app.delete(
-    '/follows/unfollow',
-    { schema: { body: followUserSchema }, onRequest: [app.authenticate] },
-    deleteFollowHandler,
-  )
-
-  app.get(
-    '/follows/:id/followers',
+  // Listar seguidores de um usuário
+  api.get(
+    '/users/:userId/followers',
     {
       schema: {
         params: followUserIdParamSchema,
@@ -50,8 +57,9 @@ export async function followsRoutes(app: FastifyInstance) {
     getFollowers,
   )
 
-  app.get(
-    '/follows/:id/following',
+  // Listar quem um usuário segue
+  api.get(
+    '/users/:userId/following',
     {
       schema: {
         params: followUserIdParamSchema,
@@ -59,5 +67,32 @@ export async function followsRoutes(app: FastifyInstance) {
       },
     },
     getFollowing,
+  )
+
+  // Listar solicitações de follow pendentes do usuário autenticado
+  api.get(
+    '/users/me/follow-requests',
+    { onRequest: [app.authenticate] },
+    getFollowRequests,
+  )
+
+  // Aceitar solicitação de follow
+  api.post(
+    '/users/me/follow-requests/:followerId/accept',
+    {
+      schema: { params: followerIdParamSchema },
+      onRequest: [app.authenticate],
+    },
+    postApproveFollowRequest,
+  )
+
+  // Rejeitar solicitação de follow
+  api.delete(
+    '/users/me/follow-requests/:followerId',
+    {
+      schema: { params: followerIdParamSchema },
+      onRequest: [app.authenticate],
+    },
+    deleteFollowRequest,
   )
 }

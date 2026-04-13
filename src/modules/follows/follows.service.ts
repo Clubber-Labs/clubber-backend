@@ -6,6 +6,7 @@ import {
   findFollow,
   findFollowers,
   findFollowing,
+  findPendingFollowRequests,
 } from './follows.repository'
 
 export async function followUser(followerId: string, followingId: string) {
@@ -15,16 +16,16 @@ export async function followUser(followerId: string, followingId: string) {
 
   const targetUser = await findUserById(followingId)
   if (!targetUser) {
-    throw { statusCode: 404, message: 'Usuário a ser seguido não encontrado' }
+    throw { statusCode: 404, message: 'Usuário não encontrado' }
   }
 
-  const alreadyFollowing = await findFollow(followerId, followingId)
-  if (alreadyFollowing) {
-    const msg =
-      alreadyFollowing.status === 'PENDING'
+  const existing = await findFollow(followerId, followingId)
+  if (existing) {
+    const message =
+      existing.status === 'PENDING'
         ? 'Solicitação de follow já enviada'
         : 'Você já segue este usuário'
-    throw { statusCode: 400, message: msg }
+    throw { statusCode: 409, message }
   }
 
   const status = targetUser.isPrivate ? 'PENDING' : 'ACCEPTED'
@@ -37,8 +38,11 @@ export async function approveFollowRequest(
   followerId: string,
 ) {
   const follow = await findFollow(followerId, ownerId)
-  if (!follow || follow.status !== 'PENDING') {
-    throw { statusCode: 400, message: 'Solicitação não encontrada' }
+  if (!follow) {
+    throw { statusCode: 404, message: 'Solicitação não encontrada' }
+  }
+  if (follow.status !== 'PENDING') {
+    throw { statusCode: 409, message: 'Solicitação já foi processada' }
   }
 
   return acceptFollowRequest(follow.id)
@@ -46,8 +50,11 @@ export async function approveFollowRequest(
 
 export async function rejectFollowRequest(ownerId: string, followerId: string) {
   const follow = await findFollow(followerId, ownerId)
-  if (!follow || follow.status !== 'PENDING') {
-    throw { statusCode: 400, message: 'Solicitação não encontrada' }
+  if (!follow) {
+    throw { statusCode: 404, message: 'Solicitação não encontrada' }
+  }
+  if (follow.status !== 'PENDING') {
+    throw { statusCode: 409, message: 'Solicitação já foi processada' }
   }
 
   return deleteFollow(followerId, ownerId)
@@ -56,7 +63,7 @@ export async function rejectFollowRequest(ownerId: string, followerId: string) {
 export async function unfollowUser(followerId: string, followingId: string) {
   const follow = await findFollow(followerId, followingId)
   if (!follow) {
-    throw { statusCode: 400, message: 'Você não segue este usuário' }
+    throw { statusCode: 404, message: 'Você não segue este usuário' }
   }
 
   return deleteFollow(followerId, followingId)
@@ -68,11 +75,7 @@ async function ensureCanViewFollowList(userId: string, requesterId?: string) {
     throw { statusCode: 404, message: 'Usuário não encontrado' }
   }
 
-  if (!user.isPrivate) {
-    return user
-  }
-
-  if (requesterId && requesterId === userId) {
+  if (!user.isPrivate || requesterId === userId) {
     return user
   }
 
@@ -108,4 +111,9 @@ export async function listFollowing(
   await ensureCanViewFollowList(userId, requesterId)
   const following = await findFollowing(userId, limit, cursor)
   return following.map((f) => f.following)
+}
+
+export async function listPendingFollowRequests(userId: string) {
+  const requests = await findPendingFollowRequests(userId)
+  return requests.map((f) => f.follower)
 }
