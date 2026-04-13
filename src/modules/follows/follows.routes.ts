@@ -41,13 +41,23 @@ export async function followsRoutes(app: FastifyInstance) {
 
   app.get(
     '/follows/:id/followers',
-    { schema: { params: followUserIdParamSchema, querystring: paginationSchema } },
+    {
+      schema: {
+        params: followUserIdParamSchema,
+        querystring: paginationSchema,
+      },
+    },
     getFollowers,
   )
 
   app.get(
     '/follows/:id/following',
-    { schema: { params: followUserIdParamSchema, querystring: paginationSchema } },
+    {
+      schema: {
+        params: followUserIdParamSchema,
+        querystring: paginationSchema,
+      },
+    },
     getFollowing,
   )
 }

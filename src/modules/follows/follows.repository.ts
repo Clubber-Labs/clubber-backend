@@ -1,6 +1,6 @@
+import type { FollowStatus } from '@prisma/client'
 import { uuidv7 } from 'uuidv7'
 import { prisma } from '../../lib/prisma'
-import type { FollowStatus } from '@prisma/client'
 
 export async function createFollow(
   followerId: string,

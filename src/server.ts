@@ -20,7 +20,7 @@ app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
 app.setErrorHandler((error: Error, _request, reply) => {
-  const statusCode = (error as {statusCode?: number}).statusCode ?? 500
+  const statusCode = (error as { statusCode?: number }).statusCode ?? 500
   const message = error.message ?? 'Internal Server Error'
   reply.status(statusCode).send({ message })
 })

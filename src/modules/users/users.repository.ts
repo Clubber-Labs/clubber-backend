@@ -56,11 +56,11 @@ export async function createUser(
   },
 ) {
   return prisma.user.create({
-     data: {
+    data: {
       ...data,
-      birthdate: new Date(data.birthdate)
-     } 
-    })
+      birthdate: new Date(data.birthdate),
+    },
+  })
 }
 
 export async function updateUser(id: string, data: UpdateUserBody) {
