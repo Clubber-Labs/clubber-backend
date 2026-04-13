@@ -4,6 +4,7 @@ import {
   deleteAttendance,
   findAttendanceByUserAndEvent,
   findAttendancesByEvent,
+  updateAttendance,
 } from './attendance.repository'
 
 export async function confirmAttendance(
@@ -15,10 +16,10 @@ export async function confirmAttendance(
 
   const existing = await findAttendanceByUserAndEvent(userId, eventId)
   if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já registrou uma intenção neste evento',
+    if (existing.type === type) {
+      return existing
     }
+    return updateAttendance(userId, eventId, type)
   }
 
   return createAttendance(userId, eventId, type)

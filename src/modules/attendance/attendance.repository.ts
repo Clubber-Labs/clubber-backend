@@ -22,6 +22,17 @@ export async function createAttendance(
   })
 }
 
+export async function updateAttendance(
+  userId: string,
+  eventId: string,
+  type: AttendanceType,
+) {
+  return prisma.eventAttendance.update({
+    where: { userId_eventId: { userId, eventId } },
+    data: { type },
+  })
+}
+
 export async function deleteAttendance(userId: string, eventId: string) {
   return prisma.eventAttendance.delete({
     where: {

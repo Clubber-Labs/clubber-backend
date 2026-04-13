@@ -19,7 +19,7 @@ export async function getEvents(_request: FastifyRequest, reply: FastifyReply) {
 
 export async function getEvent(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as EventParams
-  const event = await getEventById(id, request.user.sub)
+  const event = await getEventById(id, request.user?.sub)
   return reply.send(event)
 }
 
