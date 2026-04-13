@@ -1,50 +1,29 @@
-export const createEventSchema = {
-  body: {
-    type: 'object',
-    required: [
-      'title',
-      'description',
-      'date',
-      'latitude',
-      'longitude',
-      'category',
-    ],
-    propertiesc: {
-      title: { type: 'string' },
-      description: { type: 'string' },
-      date: { type: 'string', format: 'date-time' },
-      latitude: { type: 'number' },
-      longitude: { type: 'number' },
-      category: { type: 'string' },
-      isPublic: { type: 'boolean' },
-    },
-  },
-} as const
+import { z } from 'zod'
 
-export const updateEventSchema = {
-  params: {
-    type: 'object',
-    required: ['id'],
-    properties: { id: { type: 'string' } },
-  },
-  body: {
-    type: 'object',
-    properties: {
-      title: { type: 'string' },
-      description: { type: 'string' },
-      date: { type: 'string', format: 'date-time' },
-      latitude: { type: 'number' },
-      longitude: { type: 'number' },
-      category: { type: 'string' },
-      isPublic: { type: 'boolean' },
-    },
-  },
-} as const
+export const createEventSchema = z.object({
+  title: z.string().min(3),
+  description: z.string().min(10),
+  date: z.coerce.date(),
+  latitude: z.number(),
+  longitude: z.number(),
+  category: z.string().min(2),
+  isPublic: z.boolean().default(true),
+})
 
-export const eventParamsSchema = {
-  params: {
-    type: 'object',
-    required: ['id'],
-    properties: { id: { type: 'string' } },
-  },
-} as const
+export const updateEventSchema = z.object({
+  title: z.string().min(3).optional(),
+  description: z.string().min(10).optional(),
+  date: z.coerce.date().optional(),
+  latitude: z.number().optional(),
+  longitude: z.number().optional(),
+  category: z.string().min(2).optional(),
+  isPublic: z.boolean().optional(),
+})
+
+export const eventParamSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export type CreateEventBody = z.infer<typeof createEventSchema>
+export type UpdateEventBody = z.infer<typeof updateEventSchema>
+export type EventParams = z.infer<typeof eventParamSchema>
