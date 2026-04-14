@@ -1,4 +1,9 @@
-import { AttendanceType, FollowStatus, PrismaClient, ReactionType } from '@prisma/client'
+import {
+  AttendanceType,
+  FollowStatus,
+  PrismaClient,
+  ReactionType,
+} from '@prisma/client'
 import { faker } from '@faker-js/faker/locale/pt_BR'
 import bcrypt from 'bcryptjs'
 
@@ -59,7 +64,11 @@ async function main() {
         .slice(0, 20),
       email: faker.internet.email({ firstName, lastName }).toLowerCase(),
       password: PASSWORD_HASH,
-      phone: faker.phone.number({ style: 'national' }).replace(/\D/g, '').slice(0, 11).padEnd(11, '0'),
+      phone: faker.phone
+        .number({ style: 'national' })
+        .replace(/\D/g, '')
+        .slice(0, 11)
+        .padEnd(11, '0'),
       bio: i % 3 === 0 ? faker.lorem.sentence() : null,
       isPrivate: i % 4 === 0, // 25% perfis privados
       birthdate: faker.date.birthdate({ min: 18, max: 40, mode: 'age' }),
@@ -134,7 +143,11 @@ async function main() {
     const alreadyExists = followPairs.some(([x, y]) => x === a.id && y === b.id)
     if (!alreadyExists) {
       await prisma.follow.create({
-        data: { followerId: a.id, followingId: b.id, status: FollowStatus.PENDING },
+        data: {
+          followerId: a.id,
+          followingId: b.id,
+          status: FollowStatus.PENDING,
+        },
       })
     }
   }
@@ -153,15 +166,17 @@ async function main() {
   }
 
   const eventsData = users.flatMap((author, i) =>
-    Array.from({ length: faker.number.int({ min: 1, max: 3 }) }).map((_, j) => ({
-      title: faker.lorem.words({ min: 2, max: 5 }),
-      description: faker.lorem.paragraph(),
-      date: faker.date.soon({ days: 30 }),
-      ...curitibaCoords(),
-      category: pick(CATEGORIES),
-      isPublic: !(i % 5 === 0 && j === 0), // ~20% privados
-      authorId: author.id,
-    })),
+    Array.from({ length: faker.number.int({ min: 1, max: 3 }) }).map(
+      (_, j) => ({
+        title: faker.lorem.words({ min: 2, max: 5 }),
+        description: faker.lorem.paragraph(),
+        date: faker.date.soon({ days: 30 }),
+        ...curitibaCoords(),
+        category: pick(CATEGORIES),
+        isPublic: !(i % 5 === 0 && j === 0), // ~20% privados
+        authorId: author.id,
+      }),
+    ),
   )
 
   const events = await Promise.all(
@@ -226,7 +241,9 @@ async function main() {
         // Para eventos privados só quem foi convidado pode ter presença
         if (!event.isPublic) {
           const invited = await prisma.eventInvite.findUnique({
-            where: { eventId_invitedId: { eventId: event.id, invitedId: user.id } },
+            where: {
+              eventId_invitedId: { eventId: event.id, invitedId: user.id },
+            },
           })
           if (!invited) continue
         }
@@ -240,13 +257,20 @@ async function main() {
     }
   }
 
-  await prisma.eventAttendance.createMany({ data: attendancesToCreate, skipDuplicates: true })
+  await prisma.eventAttendance.createMany({
+    data: attendancesToCreate,
+    skipDuplicates: true,
+  })
   console.log(`   ✓ ${attendancesToCreate.length} presenças criadas`)
 
   // ── 6. Reações em eventos ────────────────────────────────────────────────────
   console.log('❤️  Criando reações em eventos...')
 
-  const eventReactions: Array<{ userId: string; eventId: string; type: ReactionType }> = []
+  const eventReactions: Array<{
+    userId: string
+    eventId: string
+    type: ReactionType
+  }> = []
   const eventReactionPairs = new Set<string>()
 
   for (const event of publicEvents) {
@@ -255,18 +279,29 @@ async function main() {
       const key = `${user.id}-${event.id}`
       if (!eventReactionPairs.has(key)) {
         eventReactionPairs.add(key)
-        eventReactions.push({ userId: user.id, eventId: event.id, type: pick(REACTION_TYPES) })
+        eventReactions.push({
+          userId: user.id,
+          eventId: event.id,
+          type: pick(REACTION_TYPES),
+        })
       }
     }
   }
 
-  await prisma.reaction.createMany({ data: eventReactions, skipDuplicates: true })
+  await prisma.reaction.createMany({
+    data: eventReactions,
+    skipDuplicates: true,
+  })
   console.log(`   ✓ ${eventReactions.length} reações em eventos`)
 
   // ── 7. Comentários em eventos ────────────────────────────────────────────────
   console.log('💬 Criando comentários em eventos...')
 
-  const eventComments: Array<{ authorId: string; eventId: string; content: string }> = []
+  const eventComments: Array<{
+    authorId: string
+    eventId: string
+    content: string
+  }> = []
 
   for (const event of publicEvents) {
     const commenters = sample(users, faker.number.int({ min: 0, max: 4 }))
@@ -312,9 +347,17 @@ async function main() {
   if (posts.length > 0) {
     console.log('💬 Criando reações e comentários em posts...')
 
-    const postReactions: Array<{ userId: string; postId: string; type: ReactionType }> = []
+    const postReactions: Array<{
+      userId: string
+      postId: string
+      type: ReactionType
+    }> = []
     const postReactionPairs = new Set<string>()
-    const postComments: Array<{ authorId: string; postId: string; content: string }> = []
+    const postComments: Array<{
+      authorId: string
+      postId: string
+      content: string
+    }> = []
 
     for (const post of posts) {
       const reactors = sample(users, faker.number.int({ min: 0, max: 5 }))
@@ -322,7 +365,11 @@ async function main() {
         const key = `${user.id}-${post.id}`
         if (!postReactionPairs.has(key)) {
           postReactionPairs.add(key)
-          postReactions.push({ userId: user.id, postId: post.id, type: pick(REACTION_TYPES) })
+          postReactions.push({
+            userId: user.id,
+            postId: post.id,
+            type: pick(REACTION_TYPES),
+          })
         }
       }
 
@@ -336,10 +383,15 @@ async function main() {
       }
     }
 
-    await prisma.reaction.createMany({ data: postReactions, skipDuplicates: true })
+    await prisma.reaction.createMany({
+      data: postReactions,
+      skipDuplicates: true,
+    })
     await prisma.comment.createMany({ data: postComments })
 
-    console.log(`   ✓ ${postReactions.length} reações e ${postComments.length} comentários em posts`)
+    console.log(
+      `   ✓ ${postReactions.length} reações e ${postComments.length} comentários em posts`,
+    )
   }
 
   // ── Resumo ───────────────────────────────────────────────────────────────────
@@ -351,7 +403,8 @@ async function main() {
   console.log(`   📝 Posts:       ${posts.length}`)
   console.log('\n   🔑 Senha de todos os usuários: senha123')
   console.log('   📋 Usuários criados:')
-  for (const u of users.slice(0, 5)) console.log(`      ${u.email} (${u.username})`)
+  for (const u of users.slice(0, 5))
+    console.log(`      ${u.email} (${u.username})`)
   if (users.length > 5) console.log(`      ... e mais ${users.length - 5}`)
 }
 

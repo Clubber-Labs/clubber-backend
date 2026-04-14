@@ -1,9 +1,9 @@
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
-  createAttendance,
   deleteAttendance,
   findAttendanceByUserAndEvent,
   findAttendancesByEvent,
+  upsertAttendance,
 } from './attendance.repository'
 
 export async function confirmAttendance(
@@ -12,16 +12,7 @@ export async function confirmAttendance(
   type: 'INTERESTED' | 'CONFIRMED' | 'NOT_INTERESTED',
 ) {
   await ensureEventAccess(eventId, userId)
-
-  const existing = await findAttendanceByUserAndEvent(userId, eventId)
-  if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já registrou uma intenção neste evento',
-    }
-  }
-
-  return createAttendance(userId, eventId, type)
+  return upsertAttendance(userId, eventId, type)
 }
 
 export async function cancelAttendance(userId: string, eventId: string) {

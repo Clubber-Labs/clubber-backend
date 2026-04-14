@@ -12,7 +12,7 @@ export async function listPublicEvents() {
   return findAllPublicEvents()
 }
 
-export async function getEventById(id: string, requesterId: string) {
+export async function getEventById(id: string, requesterId?: string) {
   return ensureEventAccess(id, requesterId)
 }
 

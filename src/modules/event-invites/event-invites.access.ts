@@ -3,10 +3,10 @@ import { findInvite } from './event-invites.repository'
 
 /**
  * Garante que o usuário tem acesso ao evento.
- * Eventos públicos: qualquer usuário autenticado.
- * Eventos privados: apenas o autor ou convidados.
+ * Eventos públicos: qualquer um (autenticado ou não).
+ * Eventos privados: apenas o autor ou convidados (requer autenticação).
  */
-export async function ensureEventAccess(eventId: string, requesterId: string) {
+export async function ensureEventAccess(eventId: string, requesterId?: string) {
   const event = await findEventById(eventId)
   if (!event) {
     throw { statusCode: 404, message: 'Evento não encontrado' }
@@ -14,6 +14,13 @@ export async function ensureEventAccess(eventId: string, requesterId: string) {
 
   if (event.isPublic) {
     return event
+  }
+
+  if (!requesterId) {
+    throw {
+      statusCode: 401,
+      message: 'Autenticação necessária para acessar este evento',
+    }
   }
 
   if (event.authorId === requesterId) {

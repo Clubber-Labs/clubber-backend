@@ -29,7 +29,7 @@ export async function eventsRoutes(app: FastifyInstance) {
     '/events/:id',
     {
       schema: { params: eventParamSchema },
-      onRequest: [app.authenticate],
+      onRequest: [app.authenticateOptional],
     },
     getEvent,
   )
