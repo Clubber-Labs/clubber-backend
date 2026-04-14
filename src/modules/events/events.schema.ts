@@ -24,6 +24,16 @@ export const eventParamSchema = z.object({
   id: z.string().uuid(),
 })
 
+export const listEventsQuerySchema = z.object({
+  category: z.string().optional(),
+  dateFrom: z.coerce.date().optional(),
+  dateTo: z.coerce.date().optional(),
+  cursor: z.string().uuid().optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+})
+
+
 export type CreateEventBody = z.infer<typeof createEventSchema>
 export type UpdateEventBody = z.infer<typeof updateEventSchema>
 export type EventParams = z.infer<typeof eventParamSchema>
+export type ListEventsQuery = z.infer<typeof listEventsQuerySchema>

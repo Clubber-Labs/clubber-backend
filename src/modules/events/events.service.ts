@@ -2,14 +2,29 @@ import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createEvent,
   deleteEvent,
-  findAllPublicEvents,
+  findPublicEvents,
   findEventById,
   updateEvent,
+  findEventsByAuthor,
 } from './events.repository'
-import type { CreateEventBody, UpdateEventBody } from './events.schema'
+import type { CreateEventBody, ListEventsQuery, UpdateEventBody } from './events.schema'
 
-export async function listPublicEvents() {
-  return findAllPublicEvents()
+export async function listEvents(query: ListEventsQuery) {
+  const { category, dateFrom, dateTo, limit, cursor } = query
+  const events = await findPublicEvents({ category, dateFrom, dateTo }, limit, cursor)
+  const nextCursor = events.length === limit ? events[events.length - 1].id : null
+  return { data: events, nextCursor }
+}
+
+export async function listUserEvents(
+  authorId: string,
+  requesterId: string,
+  query: ListEventsQuery,
+) {
+  const { limit, cursor } = query
+  const events = await findEventsByAuthor(authorId, requesterId, limit, cursor)
+  const nextCursor = events.length === limit ? events[events.length - 1].id : null
+  return { data: events, nextCursor }
 }
 
 export async function getEventById(id: string, requesterId?: string) {

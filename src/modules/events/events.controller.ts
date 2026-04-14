@@ -2,18 +2,20 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type {
   CreateEventBody,
   EventParams,
+  ListEventsQuery,
   UpdateEventBody,
 } from './events.schema'
 import {
   addEvent,
   editEvent,
   getEventById,
-  listPublicEvents,
+  listEvents,
   removeEvent,
 } from './events.service'
 
-export async function getEvents(_request: FastifyRequest, reply: FastifyReply) {
-  const events = await listPublicEvents()
+export async function getEvents(request: FastifyRequest, reply: FastifyReply) {
+  const query = request.query as ListEventsQuery
+  const events = await listEvents(query)
   return reply.send(events)
 }
 
