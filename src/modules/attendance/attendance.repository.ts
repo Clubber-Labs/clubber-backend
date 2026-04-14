@@ -12,24 +12,15 @@ export async function findAttendanceByUserAndEvent(
   })
 }
 
-export async function createAttendance(
+export async function upsertAttendance(
   userId: string,
   eventId: string,
   type: AttendanceType,
 ) {
-  return prisma.eventAttendance.create({
-    data: { userId, eventId, type },
-  })
-}
-
-export async function updateAttendance(
-  userId: string,
-  eventId: string,
-  type: AttendanceType,
-) {
-  return prisma.eventAttendance.update({
+  return prisma.eventAttendance.upsert({
     where: { userId_eventId: { userId, eventId } },
-    data: { type },
+    create: { userId, eventId, type },
+    update: { type },
   })
 }
 

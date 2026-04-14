@@ -49,6 +49,16 @@ app.decorate(
   },
 )
 
+app.decorate(
+  'authenticateOptional',
+  async (request: FastifyRequest, _reply: FastifyReply) => {
+    if (request.headers.authorization) {
+      const payload = await request.jwtVerify<{ sub: string }>()
+      request.user = payload
+    }
+  },
+)
+
 app.register(fastifySwagger, {
   openapi: {
     info: {
