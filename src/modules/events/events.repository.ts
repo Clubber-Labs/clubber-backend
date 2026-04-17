@@ -1,5 +1,10 @@
+import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
-import type { CreateEventBody, UpdateEventBody, ListEventsQuery } from './events.schema'
+import type {
+  CreateEventBody,
+  ListEventsQuery,
+  UpdateEventBody,
+} from './events.schema'
 
 const authorSelect = {
   id: true,
@@ -32,7 +37,7 @@ export async function findPublicEvents(
     include: {
       author: { select: authorSelect },
       _count: {
-        select: { attendees: true, reactions: true, comments: true },
+        select: { attendances: true, reactions: true, comments: true },
       },
     },
   })
@@ -49,18 +54,16 @@ export async function findAllPublicEvents() {
 
 export async function findEventsByAuthor(
   authorId: string,
-  viewerId: string,
   limit: number,
+  viewerId?: string,
   cursor?: string,
 ) {
+  const where: Prisma.EventWhereInput = {
+    authorId,
+    ...(viewerId !== authorId && { isPublic: true }),
+  }
   return prisma.event.findMany({
-    where: {
-      authorId,
-      OR: [
-        { isPublic: true },
-        { authorId: viewerId },
-      ],
-    },
+    where,
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { date: 'asc' },
@@ -76,17 +79,23 @@ export async function findEventsByAuthor(
 export async function findEventById(id: string) {
   return prisma.event.findUnique({
     where: { id },
-    include: { author: { select: authorSelect } },
+    include: {
+      author: { select: authorSelect },
+      _count: { select: { attendances: true, reactions: true, comments: true } }
+    },
   })
 }
 
-export async function findEventByIdEnriched(id: string, viewerId: string) {
+/*
+export async function findEventById(id: string, viewerId: string) {
   const [event, viewerAttendance] = await Promise.all([
     prisma.event.findUnique({
       where: { id },
       include: {
         author: { select: authorSelect },
-        _count: { select: { attendees: true, reactions: true, comments: true } },
+        _count: {
+          select: { attendees: true, reactions: true, comments: true },
+        },
         attendances: {
           take: 3,
           orderBy: { createdAt: 'desc' },
@@ -103,9 +112,8 @@ export async function findEventByIdEnriched(id: string, viewerId: string) {
   if (!event) return null
 
   return { ...event, viewerAttendance }
-
 }
-
+*/
 export async function createEvent(
   data: CreateEventBody & { authorId: string },
 ) {

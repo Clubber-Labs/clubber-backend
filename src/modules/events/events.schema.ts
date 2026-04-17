@@ -32,7 +32,17 @@ export const listEventsQuerySchema = z.object({
   limit: z.number().int().min(1).max(50).default(20),
 })
 
+export const userEventsParamsSchema = z.object({
+  userId: z.string().uuid(),
+})
 
+export const userEventsQuerySchema = z.object({
+  cursor: z.string().uuid().optional(),
+  limit: z.number().int().min(1).max(50).default(20),
+})
+
+export type UserEventsParams = z.infer<typeof userEventsParamsSchema>
+export type UserEventsQuery = z.infer<typeof userEventsQuerySchema>
 export type CreateEventBody = z.infer<typeof createEventSchema>
 export type UpdateEventBody = z.infer<typeof updateEventSchema>
 export type EventParams = z.infer<typeof eventParamSchema>
