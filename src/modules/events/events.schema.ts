@@ -29,7 +29,7 @@ export const listEventsQuerySchema = z.object({
   dateFrom: z.coerce.date().optional(),
   dateTo: z.coerce.date().optional(),
   cursor: z.string().uuid().optional(),
-  limit: z.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
 })
 
 export const userEventsParamsSchema = z.object({
@@ -38,7 +38,7 @@ export const userEventsParamsSchema = z.object({
 
 export const userEventsQuerySchema = z.object({
   cursor: z.string().uuid().optional(),
-  limit: z.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
 })
 
 export type UserEventsParams = z.infer<typeof userEventsParamsSchema>

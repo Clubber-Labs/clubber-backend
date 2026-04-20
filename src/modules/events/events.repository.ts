@@ -33,7 +33,7 @@ export async function findPublicEvents(
     },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
-    orderBy: { date: 'asc' },
+    orderBy: [{ date: 'asc' }, { id: 'asc' }],
     include: {
       author: { select: authorSelect },
       _count: {
@@ -66,7 +66,7 @@ export async function findEventsByAuthor(
     where,
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
-    orderBy: { date: 'asc' },
+    orderBy: [{ date: 'asc' }, { id: 'asc' }],
     include: {
       author: { select: authorSelect },
       _count: {
@@ -86,34 +86,6 @@ export async function findEventById(id: string) {
   })
 }
 
-/*
-export async function findEventById(id: string, viewerId: string) {
-  const [event, viewerAttendance] = await Promise.all([
-    prisma.event.findUnique({
-      where: { id },
-      include: {
-        author: { select: authorSelect },
-        _count: {
-          select: { attendees: true, reactions: true, comments: true },
-        },
-        attendances: {
-          take: 3,
-          orderBy: { createdAt: 'desc' },
-          include: { user: { select: authorSelect } },
-        },
-      },
-    }),
-    prisma.eventAttendance.findUnique({
-      where: { userId_eventId: { userId: viewerId, eventId: id } },
-      select: { type: true },
-    }),
-  ])
-
-  if (!event) return null
-
-  return { ...event, viewerAttendance }
-}
-*/
 export async function createEvent(
   data: CreateEventBody & { authorId: string },
 ) {

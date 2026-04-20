@@ -18,7 +18,6 @@ import {
 } from './users.schema'
 import { getUserEvents } from '../events/events.controller'
 import { userEventsQuerySchema } from '../events/events.schema'
-import { optional } from 'zod'
 
 async function optionalAuthenticate(request: FastifyRequest) {
   try {
@@ -46,7 +45,20 @@ export async function usersRoutes(app: FastifyInstance) {
       },
       onRequest: [optionalAuthenticate]
     },
-    getUserEvents,
+    async (request, reply) => {
+      const { id, ...params } = request.params as { id: string } & Record<string, unknown>
+      return getUserEvents(
+        {
+          ...request,
+          params: {
+            ...params,
+            id,
+            userId: id,
+          },
+        },
+        reply,
+      )
+    },
   )
 
   api.post('/users', { schema: { body: createUserSchema } }, postUser)
