@@ -185,3 +185,37 @@ model Reaction {
   @@unique([userId, postId], map: "reactions_user_post_unique")
   @@map("reactions")
 }
+
+enum ReportReason {
+  HATE_SPEECH
+  SPAM_OR_FRAUD
+  HARASSMENT
+  INAPPROPRIATE_CONTENT
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED_INVALID
+  RESOLVED_REMOVED
+}
+
+model Report {
+  id     String @id @default(uuid())
+  reason ReportReason 
+  details String?
+  status  ReportStatus @default(PENDING)
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+
+  reporterId String
+  reporter User @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+
+  eventId String?
+  event Event? @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  commentId String?
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: SetNull)
+
+  @@map("reports")
+}
