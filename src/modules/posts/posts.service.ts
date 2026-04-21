@@ -16,7 +16,7 @@ export async function addPost(
   await ensureEventAccess(eventId, authorId)
 
   const attendance = await findAttendanceByUserAndEvent(authorId, eventId)
-  if (!attendance) {
+  if (!attendance || attendance.type !== 'CONFIRMED') {
     throw {
       statusCode: 403,
       message: 'Apenas participantes do evento podem postar',

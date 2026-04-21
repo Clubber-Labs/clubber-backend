@@ -11,7 +11,7 @@ export const createEventSchema = z.object({
   isPublic: z.boolean().default(true),
   imageUrl: z.string().optional(),
   maxCapacity: z.number().optional(),
-  canceledAt:  z.coerce.date().optional(),
+  canceledAt: z.coerce.date().optional(),
 })
 
 export const updateEventSchema = z.object({

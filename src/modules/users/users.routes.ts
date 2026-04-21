@@ -4,6 +4,8 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { getUserEvents } from '../events/events.controller'
+import { userEventsQuerySchema } from '../events/events.schema'
 import {
   deleteUserHandler,
   getUser,
@@ -16,8 +18,6 @@ import {
   updateUserSchema,
   userIdParamSchema,
 } from './users.schema'
-import { getUserEvents } from '../events/events.controller'
-import { userEventsQuerySchema } from '../events/events.schema'
 
 async function optionalAuthenticate(request: FastifyRequest) {
   try {
@@ -37,16 +37,20 @@ export async function usersRoutes(app: FastifyInstance) {
 
   api.get('/users/:id', { schema: { params: userIdParamSchema } }, getUser)
 
-  api.get('/users/:id/events',
+  api.get(
+    '/users/:id/events',
     {
       schema: {
         params: userIdParamSchema,
-        querystring: userEventsQuerySchema
+        querystring: userEventsQuerySchema,
       },
-      onRequest: [optionalAuthenticate]
+      onRequest: [optionalAuthenticate],
     },
     async (request, reply) => {
-      const { id, ...params } = request.params as { id: string } & Record<string, unknown>
+      const { id, ...params } = request.params as { id: string } & Record<
+        string,
+        unknown
+      >
       return getUserEvents(
         {
           ...request,

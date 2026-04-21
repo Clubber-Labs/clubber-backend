@@ -32,7 +32,8 @@ export async function listUserEvents(
   cursor?: string,
 ) {
   const events = await findEventsByAuthor(authorId, limit, viewerId, cursor)
-  const nextCursor = events.length === limit ? events[events.length - 1].id : null
+  const nextCursor =
+    events.length === limit ? events[events.length - 1].id : null
   return { data: events, nextCursor }
 }
 

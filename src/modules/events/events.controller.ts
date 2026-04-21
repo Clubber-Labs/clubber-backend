@@ -16,12 +16,10 @@ import {
   removeEvent,
 } from './events.service'
 
-function getEventsResponseData<T>(result: T | { data: T; nextCursor?: string | null }): T {
-  if (
-    result !== null &&
-    typeof result === 'object' &&
-    'data' in result
-  ) {
+function getEventsResponseData<T>(
+  result: T | { data: T; nextCursor?: string | null },
+): T {
+  if (result !== null && typeof result === 'object' && 'data' in result) {
     return result.data
   }
   return result
@@ -38,7 +36,10 @@ export async function getEvent(request: FastifyRequest, reply: FastifyReply) {
   return reply.send(event)
 }
 
-export async function getUserEvents(request: FastifyRequest, reply: FastifyReply) {
+export async function getUserEvents(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
   const { userId } = request.params as UserEventsParams
   const { limit, cursor } = request.query as UserEventsQuery
   const viewerId = (request.user as { sub: string } | undefined)?.sub

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 import type {
   CreateEventBody,
@@ -24,11 +24,11 @@ export async function findPublicEvents(
       ...(filters.category && { category: filters.category }),
       ...(filters.dateFrom || filters.dateTo
         ? {
-          date: {
-            ...(filters.dateFrom && { gte: new Date(filters.dateFrom) }),
-            ...(filters.dateTo && { lte: new Date(filters.dateTo) }),
-          },
-        }
+            date: {
+              ...(filters.dateFrom && { gte: new Date(filters.dateFrom) }),
+              ...(filters.dateTo && { lte: new Date(filters.dateTo) }),
+            },
+          }
         : {}),
     },
     take: limit,
@@ -81,7 +81,9 @@ export async function findEventById(id: string) {
     where: { id },
     include: {
       author: { select: authorSelect },
-      _count: { select: { attendances: true, reactions: true, comments: true } }
+      _count: {
+        select: { attendances: true, reactions: true, comments: true },
+      },
     },
   })
 }

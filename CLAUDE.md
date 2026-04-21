@@ -15,16 +15,26 @@
 ## Scripts disponíveis
 
 ```bash
+# Desenvolvimento
 pnpm dev          # sobe o servidor em modo watch
 pnpm build        # compila TypeScript
 pnpm start        # roda o build compilado
+
+# Qualidade de código
 pnpm check        # lint + format com auto-fix (Biome)
 pnpm lint         # apenas lint
 pnpm format       # apenas format
 
+# Banco de dados
 pnpm db:migrate   # executa migrations pendentes
 pnpm db:studio    # abre o Prisma Studio
-pnpm db:generate  # gera o Prisma Client
+pnpm db:generate  # regenera o Prisma Client
+pnpm db:seed      # popula o banco de desenvolvimento com dados fictícios
+
+# Testes
+pnpm test         # roda todos os testes uma vez
+pnpm test:watch   # modo watch — ideal para TDD
+pnpm test:coverage # relatório de cobertura
 ```
 
 ---
@@ -170,27 +180,13 @@ Rotas protegidas usam o hook `authenticate` registrado no `server.ts`:
 app.get('/rota-protegida', { onRequest: [app.authenticate] }, handler)
 ```
 
-O `id` do usuário autenticado é acessado via `request.user.sub` no controller.
+Para rotas que devem funcionar com ou sem token (ex.: ver evento público), use `authenticateOptional`:
 
----
-
-## Banco de dados
-
-Variáveis de ambiente no `.env`:
-
-```
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/conectai_dev"
-JWT_SECRET="conectai_secret_dev"
-PORT=3333
-NODE_ENV=development
+```ts
+app.get('/events/:id', { onRequest: [app.authenticateOptional] }, handler)
 ```
 
-Após alterar o `prisma/schema.prisma`, rode:
-
-```bash
-pnpm db:migrate   # cria e aplica a migration
-pnpm db:generate  # regenera o Prisma Client
-```
+O `id` do usuário autenticado é acessado via `request.user.sub` no controller. Para rotas com auth opcional, use `request.user?.sub`.
 
 ---
 
@@ -244,6 +240,155 @@ export async function getUser(request, reply) {
   const user = await getUserById(request.params.id)
   return reply.send(user)
 }
+```
+
+---
+
+## Testes
+
+O projeto usa **Vitest** com testes de integração por módulo. Cada teste roda contra um banco PostgreSQL real dedicado (`conectai_test`), sem mocks — garantindo que queries, constraints e regras de negócio sejam testadas de ponta a ponta.
+
+### Configuração inicial (uma vez por ambiente)
+
+**1. Criar o banco de teste:**
+
+O Prisma cria o banco automaticamente ao rodar as migrations:
+
+```bash
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/conectai_test" npx prisma migrate deploy
+```
+
+**2. Criar o arquivo `.env.test`** na raiz do projeto (já existe no repositório):
+
+```env
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/conectai_test"
+JWT_SECRET="conectai_secret_test"
+NODE_ENV=test
+```
+
+> O banco de teste é completamente separado do banco de desenvolvimento. Nunca use `conectai_dev` aqui.
+
+---
+
+### Como rodar os testes
+
+```bash
+pnpm test           # roda todos os testes uma vez (CI)
+pnpm test:watch     # modo watch — fica observando mudanças (TDD)
+pnpm test:coverage  # roda e gera relatório de cobertura em /coverage
+```
+
+---
+
+### Estrutura dos testes
+
+```
+src/
+├── test/
+│   ├── app.ts          → instância do Fastify configurada para testes
+│   ├── factories.ts    → funções para criar dados no banco (makeUser, makeEvent, etc.)
+│   ├── prisma.ts       → cliente Prisma apontando para o banco de teste
+│   ├── setup.ts        → limpa todas as tabelas após cada teste (afterEach)
+│   └── global-setup.ts → carrega o .env.test antes de qualquer import
+└── modules/
+    └── <módulo>/
+        └── <módulo>.test.ts  → testes do módulo
+```
+
+---
+
+### Padrão de escrita de testes (TDD)
+
+Seguimos o modelo **Red → Green → Refactor**:
+
+1. Escreva o teste descrevendo o comportamento esperado — ele vai falhar
+2. Implemente o código mínimo para o teste passar
+3. Refatore mantendo todos os testes verdes
+
+**Estrutura de um arquivo de teste:**
+
+```ts
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { FastifyInstance } from 'fastify'
+import { buildApp } from '../../test/app'
+import { makeUser, makeEvent } from '../../test/factories'
+import { testPrisma } from '../../test/prisma'
+
+let app: FastifyInstance
+
+function token(app: FastifyInstance, userId: string) {
+  return app.jwt.sign({ sub: userId })
+}
+
+beforeAll(async () => {
+  app = buildApp()
+  await app.ready()
+})
+
+afterAll(async () => {
+  await app.close()
+  await testPrisma.$disconnect()
+})
+
+describe('POST /events', () => {
+  it('cria evento autenticado', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { title: 'Festa', /* ... */ },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ authorId: user.id })
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({ method: 'POST', url: '/events', body: {} })
+    expect(res.statusCode).toBe(401)
+  })
+})
+```
+
+**Regras:**
+- Um arquivo de teste por módulo: `<módulo>.test.ts` dentro da pasta do módulo
+- Use `makeUser()`, `makeEvent()` etc. das factories — nunca insira dados manualmente com SQL
+- Teste sempre os cenários de **sucesso** e os de **erro** (401, 403, 404, 409)
+- O `afterEach` no `setup.ts` limpa o banco automaticamente — não se preocupe com limpeza manual
+- Não use mocks do Prisma — teste contra o banco real
+
+---
+
+### Factories disponíveis
+
+| Função | O que cria |
+|---|---|
+| `makeUser(overrides?)` | Usuário com senha `senha123` |
+| `makeEvent(authorId, overrides?)` | Evento público ou privado |
+| `makeFollow(followerId, followingId, status?)` | Relacionamento de follow |
+| `makeAttendance(userId, eventId, type?)` | Presença em evento |
+| `makeInvite(eventId, inviterId, invitedId)` | Convite para evento privado |
+
+---
+
+## Banco de dados
+
+Variáveis de ambiente no `.env`:
+
+```
+DATABASE_URL="postgresql://postgres:postgres@localhost:5432/conectai_dev"
+JWT_SECRET="conectai_secret_dev"
+PORT=3333
+NODE_ENV=development
+```
+
+Após alterar o `prisma/schema.prisma`, rode:
+
+```bash
+pnpm db:migrate   # cria e aplica a migration
+pnpm db:generate  # regenera o Prisma Client
 ```
 
 ---
