@@ -1,4 +1,4 @@
-import type { ReactionType } from '@prisma/client'
+import { Prisma, type ReactionType } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
 export async function upsertEventReaction(
@@ -15,7 +15,15 @@ export async function upsertEventReaction(
       data: { type },
     })
   }
-  return prisma.reaction.create({ data: { userId, eventId, type } })
+  try {
+    return await prisma.reaction.create({ data: { userId, eventId, type } })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const conflict = await prisma.reaction.findFirst({ where: { userId, eventId } })
+      if (conflict) return prisma.reaction.update({ where: { id: conflict.id }, data: { type } })
+    }
+    throw e
+  }
 }
 
 export async function upsertPostReaction(
@@ -32,7 +40,15 @@ export async function upsertPostReaction(
       data: { type },
     })
   }
-  return prisma.reaction.create({ data: { userId, postId, type } })
+  try {
+    return await prisma.reaction.create({ data: { userId, postId, type } })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const conflict = await prisma.reaction.findFirst({ where: { userId, postId } })
+      if (conflict) return prisma.reaction.update({ where: { id: conflict.id }, data: { type } })
+    }
+    throw e
+  }
 }
 
 export async function deleteEventReaction(userId: string, eventId: string) {

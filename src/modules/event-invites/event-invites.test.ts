@@ -46,12 +46,10 @@ describe('POST /events/:eventId/invites', () => {
     await makeFollow(follower2.id, author.id)
     const event = await makeEvent(author.id, { isPublic: false })
 
-    // convida usuários específicos como fallback (comportamento equivalente)
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
       headers: { authorization: `Bearer ${token(app, author.id)}` },
-      body: { userIds: [follower1.id, follower2.id] },
     })
 
     expect(res.statusCode).toBe(201)
