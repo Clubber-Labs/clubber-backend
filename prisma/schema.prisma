@@ -70,10 +70,14 @@ model Event {
   date        DateTime
   latitude    Float
   longitude   Float
+  address     String?
   category    String
   isPublic    Boolean  @default(true)
+  imageUrl    String?
+  maxCapacity Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  canceledAt  DateTime?
 
   authorId    String
   author      User     @relation(fields: [authorId], references: [id])

@@ -1,4 +1,3 @@
-import { findAttendanceByUserAndEvent } from '../attendance/attendance.repository'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createPost,
@@ -14,15 +13,6 @@ export async function addPost(
   body: CreatePostBody,
 ) {
   await ensureEventAccess(eventId, authorId)
-
-  const attendance = await findAttendanceByUserAndEvent(authorId, eventId)
-  if (!attendance) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas participantes do evento podem postar',
-    }
-  }
-
   return createPost(authorId, eventId, body.content)
 }
 

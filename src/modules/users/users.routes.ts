@@ -1,9 +1,11 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { getUserEvents } from '../events/events.controller'
+import { userEventsQuerySchema } from '../events/events.schema'
 import {
   deleteUserHandler,
   getUser,
@@ -17,6 +19,14 @@ import {
   userIdParamSchema,
 } from './users.schema'
 
+async function optionalAuthenticate(request: FastifyRequest) {
+  try {
+    await request.jwtVerify()
+  } catch (error) {
+    // Ignore JWT verification errors for optional authentication
+  }
+}
+
 export async function usersRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
@@ -26,6 +36,34 @@ export async function usersRoutes(app: FastifyInstance) {
   api.get('/users', getUsers)
 
   api.get('/users/:id', { schema: { params: userIdParamSchema } }, getUser)
+
+  api.get(
+    '/users/:id/events',
+    {
+      schema: {
+        params: userIdParamSchema,
+        querystring: userEventsQuerySchema,
+      },
+      onRequest: [optionalAuthenticate],
+    },
+    async (request, reply) => {
+      const { id, ...params } = request.params as { id: string } & Record<
+        string,
+        unknown
+      >
+      return getUserEvents(
+        {
+          ...request,
+          params: {
+            ...params,
+            id,
+            userId: id,
+          },
+        },
+        reply,
+      )
+    },
+  )
 
   api.post('/users', { schema: { body: createUserSchema } }, postUser)
 

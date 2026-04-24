@@ -1,4 +1,4 @@
-import type { ReactionType } from '@prisma/client'
+import { Prisma, type ReactionType } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
 export async function upsertEventReaction(
@@ -6,11 +6,24 @@ export async function upsertEventReaction(
   eventId: string,
   type: ReactionType,
 ) {
-  return prisma.reaction.upsert({
-    where: { userId_eventId: { userId, eventId } },
-    create: { userId, eventId, type },
-    update: { type },
+  const existing = await prisma.reaction.findFirst({
+    where: { userId, eventId },
   })
+  if (existing) {
+    return prisma.reaction.update({
+      where: { id: existing.id },
+      data: { type },
+    })
+  }
+  try {
+    return await prisma.reaction.create({ data: { userId, eventId, type } })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const conflict = await prisma.reaction.findFirst({ where: { userId, eventId } })
+      if (conflict) return prisma.reaction.update({ where: { id: conflict.id }, data: { type } })
+    }
+    throw e
+  }
 }
 
 export async function upsertPostReaction(
@@ -18,11 +31,24 @@ export async function upsertPostReaction(
   postId: string,
   type: ReactionType,
 ) {
-  return prisma.reaction.upsert({
-    where: { userId_postId: { userId, postId } },
-    create: { userId, postId, type },
-    update: { type },
+  const existing = await prisma.reaction.findFirst({
+    where: { userId, postId },
   })
+  if (existing) {
+    return prisma.reaction.update({
+      where: { id: existing.id },
+      data: { type },
+    })
+  }
+  try {
+    return await prisma.reaction.create({ data: { userId, postId, type } })
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      const conflict = await prisma.reaction.findFirst({ where: { userId, postId } })
+      if (conflict) return prisma.reaction.update({ where: { id: conflict.id }, data: { type } })
+    }
+    throw e
+  }
 }
 
 export async function deleteEventReaction(userId: string, eventId: string) {
