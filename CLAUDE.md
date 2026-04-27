@@ -436,6 +436,20 @@ chore/update-dependencies
 - Uma branch deve ter **um único objetivo** — não misturar features e fixes
 - Deletar a branch após o merge do PR
 
+### Repositório remoto
+
+O repositório oficial do projeto é:
+
+```
+git@github.com:ConnectAI-Labs/connectai-backend.git
+```
+
+Configure o remote corretamente antes de fazer push:
+
+```bash
+git remote set-url origin git@github.com:ConnectAI-Labs/connectai-backend.git
+```
+
 ### Fluxo de trabalho
 
 ```
@@ -443,7 +457,7 @@ chore/update-dependencies
 2. git checkout -b feat/nome-da-feature
 3. Desenvolver e commitar
 4. git push origin feat/nome-da-feature
-5. Abrir PR no GitHub
+5. Abrir PR no GitHub (ConnectAI-Labs/connectai-backend)
 6. Aguardar code review e aprovação
 7. Merge feito pelo owner do repositório
 ```

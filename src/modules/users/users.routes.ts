@@ -15,6 +15,7 @@ import {
 } from './users.controller'
 import {
   createUserSchema,
+  listUsersQuerySchema,
   updateUserSchema,
   userIdParamSchema,
 } from './users.schema'
@@ -22,8 +23,8 @@ import {
 async function optionalAuthenticate(request: FastifyRequest) {
   try {
     await request.jwtVerify()
-  } catch (error) {
-    // Ignore JWT verification errors for optional authentication
+  } catch {
+    // ignora — autenticação opcional
   }
 }
 
@@ -33,7 +34,7 @@ export async function usersRoutes(app: FastifyInstance) {
 
   const api = app.withTypeProvider<ZodTypeProvider>()
 
-  api.get('/users', getUsers)
+  api.get('/users', { schema: { querystring: listUsersQuerySchema } }, getUsers)
 
   api.get('/users/:id', { schema: { params: userIdParamSchema } }, getUser)
 
@@ -69,13 +70,19 @@ export async function usersRoutes(app: FastifyInstance) {
 
   api.put(
     '/users/:id',
-    { schema: { params: userIdParamSchema, body: updateUserSchema } },
+    {
+      schema: { params: userIdParamSchema, body: updateUserSchema },
+      onRequest: [app.authenticate],
+    },
     putUser,
   )
 
   api.delete(
     '/users/:id',
-    { schema: { params: userIdParamSchema } },
+    {
+      schema: { params: userIdParamSchema },
+      onRequest: [app.authenticate],
+    },
     deleteUserHandler,
   )
 }

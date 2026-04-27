@@ -72,3 +72,23 @@ export async function makeInvite(
     data: { eventId, inviterId, invitedId },
   })
 }
+
+export async function makeReaction(
+  userId: string,
+  eventId: string,
+  type: 'LIKE' | 'LOVE' | 'HAHA' | 'WOW' | 'SAD' | 'ANGRY' = 'LIKE',
+) {
+  return testPrisma.reaction.create({
+    data: { userId, eventId, type },
+  })
+}
+
+export async function makeComment(
+  authorId: string,
+  eventId: string,
+  content = 'Comentário de teste',
+) {
+  return testPrisma.comment.create({
+    data: { authorId, eventId, content },
+  })
+}
