@@ -10,8 +10,10 @@ import {
 } from './users.repository'
 import type { CreateUserBody, UpdateUserBody } from './users.schema'
 
-export async function listUsers() {
-  return findAllUsers()
+export async function listUsers(limit: number, cursor?: string) {
+  const users = await findAllUsers(limit, cursor)
+  const nextCursor = users.length === limit ? users[users.length - 1].id : null
+  return { data: users, nextCursor }
 }
 
 export async function getUserById(id: string) {
