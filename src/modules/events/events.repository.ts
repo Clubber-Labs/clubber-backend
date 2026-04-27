@@ -13,12 +13,78 @@ const authorSelect = {
   username: true,
 } as const
 
+function buildEventIncludes(viewerId?: string): Prisma.EventInclude {
+  return {
+    author: { select: authorSelect },
+    _count: {
+      select: { attendances: true, reactions: true, comments: true },
+    },
+    comments: {
+      orderBy: { createdAt: 'desc' },
+      take: 2,
+      include: { author: { select: authorSelect } },
+    },
+    ...(viewerId && {
+      reactions: {
+        where: { userId: viewerId },
+        select: { type: true },
+        take: 1,
+      },
+      attendances: {
+        where: { userId: viewerId },
+        select: { type: true },
+        take: 1,
+      },
+    }),
+  }
+}
+
+type PrismaEvent = Prisma.EventGetPayload<{
+  include: {
+    author: { select: typeof authorSelect }
+    _count: { select: { attendances: true; reactions: true; comments: true } }
+    comments: {
+      include: { author: { select: typeof authorSelect } }
+    }
+    reactions: { select: { type: true } }
+    attendances: { select: { type: true } }
+  }
+}>
+
+export type NormalizedEvent = Omit<PrismaEvent, 'reactions' | 'attendances' | 'comments'> & {
+  recentComments: {
+    id: string
+    content: string
+    createdAt: Date
+    author: { id: string; name: string; lastname: string; username: string }
+  }[]
+  userReaction: string | null
+  userAttendance: string | null
+}
+
+function normalizeEvent(event: PrismaEvent, viewerId?: string): NormalizedEvent {
+  const { reactions, attendances, comments, ...rest } = event
+
+  return {
+    ...rest,
+    recentComments: (comments ?? []).map(c => ({
+      id: c.id,
+      content: c.content,
+      createdAt: c.createdAt,
+      author: c.author,
+    })),
+    userReaction: viewerId && reactions?.length ? reactions[0].type : null,
+    userAttendance: viewerId && attendances?.length ? attendances[0].type : null,
+  }
+}
+
 export async function findPublicEvents(
   filters: Pick<ListEventsQuery, 'category' | 'dateFrom' | 'dateTo'>,
   limit: number,
   cursor?: string,
+  viewerId?: string,
 ) {
-  return prisma.event.findMany({
+  const events = await prisma.event.findMany({
     where: {
       isPublic: true,
       ...(filters.category && { category: filters.category }),
@@ -34,13 +100,10 @@ export async function findPublicEvents(
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ date: 'asc' }, { id: 'asc' }],
-    include: {
-      author: { select: authorSelect },
-      _count: {
-        select: { attendances: true, reactions: true, comments: true },
-      },
-    },
-  })
+    include: buildEventIncludes(viewerId),
+  }) as unknown as PrismaEvent[]
+
+  return events.map(e => normalizeEvent(e, viewerId))
 }
 
 /** @deprecated Use findPublicEvents */
@@ -62,30 +125,25 @@ export async function findEventsByAuthor(
     authorId,
     ...(viewerId !== authorId && { isPublic: true }),
   }
-  return prisma.event.findMany({
+  const events = await prisma.event.findMany({
     where,
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ date: 'asc' }, { id: 'asc' }],
-    include: {
-      author: { select: authorSelect },
-      _count: {
-        select: { attendances: true, reactions: true, comments: true },
-      },
-    },
-  })
+    include: buildEventIncludes(viewerId),
+  }) as unknown as PrismaEvent[]
+
+  return events.map(e => normalizeEvent(e, viewerId))
 }
 
-export async function findEventById(id: string) {
-  return prisma.event.findUnique({
+export async function findEventById(id: string, viewerId?: string) {
+  const event = await prisma.event.findUnique({
     where: { id },
-    include: {
-      author: { select: authorSelect },
-      _count: {
-        select: { attendances: true, reactions: true, comments: true },
-      },
-    },
-  })
+    include: buildEventIncludes(viewerId),
+  }) as unknown as PrismaEvent | null
+
+  if (!event) return null
+  return normalizeEvent(event, viewerId)
 }
 
 export async function createEvent(

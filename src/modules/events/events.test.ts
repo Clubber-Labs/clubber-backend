@@ -29,8 +29,8 @@ describe('GET /events', () => {
     const res = await app.inject({ method: 'GET', url: '/events' })
 
     expect(res.statusCode).toBe(200)
-    const events = res.json()
-    expect(events.every((e: { isPublic: boolean }) => e.isPublic)).toBe(true)
+    const { data } = res.json()
+    expect(data.every((e: { isPublic: boolean }) => e.isPublic)).toBe(true)
   })
 })
 

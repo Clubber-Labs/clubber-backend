@@ -16,18 +16,11 @@ import {
   removeEvent,
 } from './events.service'
 
-function getEventsResponseData<T>(
-  result: T | { data: T; nextCursor?: string | null },
-): T {
-  if (result !== null && typeof result === 'object' && 'data' in result) {
-    return result.data
-  }
-  return result
-}
 export async function getEvents(request: FastifyRequest, reply: FastifyReply) {
   const query = request.query as ListEventsQuery
-  const events = await listEvents(query)
-  return reply.send(getEventsResponseData(events))
+  const viewerId = (request.user as { sub: string } | undefined)?.sub
+  const result = await listEvents(query, viewerId)
+  return reply.send(result)
 }
 
 export async function getEvent(request: FastifyRequest, reply: FastifyReply) {
