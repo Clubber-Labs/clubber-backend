@@ -18,7 +18,7 @@ export async function findFeedEvents(
       AND: [
         {
           OR: [
-            { authorId: { in: followingIds } },
+            { authorId: { in: [...followingIds, viewerId] } },
             { attendances: { some: { userId: { in: followingIds } } } },
           ],
         },
