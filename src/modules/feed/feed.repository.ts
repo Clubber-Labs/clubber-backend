@@ -39,7 +39,8 @@ export async function findFeedEvents(
       attendances: {
         where: { userId: { in: [...followingIds, viewerId] } },
         include: { user: { select: authorSelect } },
-        take: 3,
+        orderBy: { createdAt: 'desc' as const },
+        take: 4,
       },
       reactions: {
         where: { userId: viewerId },

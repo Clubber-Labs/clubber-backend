@@ -104,7 +104,7 @@ describe('GET /feed', () => {
 
   it('exibe os próprios eventos mesmo sem seguir ninguém', async () => {
     const viewer = await makeUser()
-    await makeEvent(viewer.id, { isPublic: true })
+    const event = await makeEvent(viewer.id, { isPublic: true })
 
     const res = await app.inject({
       method: 'GET',
@@ -113,7 +113,7 @@ describe('GET /feed', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json().data.length).toBeGreaterThan(0)
+    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(true)
   })
 
   it('retorna 401 sem autenticação', async () => {

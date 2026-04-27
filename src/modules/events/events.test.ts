@@ -29,8 +29,36 @@ describe('GET /events', () => {
     const res = await app.inject({ method: 'GET', url: '/events' })
 
     expect(res.statusCode).toBe(200)
-    const { data } = res.json()
-    expect(data.every((e: { isPublic: boolean }) => e.isPublic)).toBe(true)
+    const body = res.json()
+    expect(body).toHaveProperty('data')
+    expect(body).toHaveProperty('nextCursor')
+    expect(
+      body.data.every(
+        (e: { isPublic: boolean; recentComments: unknown[] }) =>
+          e.isPublic && Array.isArray(e.recentComments),
+      ),
+    ).toBe(true)
+  })
+
+  it('retorna userReaction e userAttendance quando autenticado', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.data.length).toBeGreaterThan(0)
+    expect(body.data[0]).toMatchObject({
+      recentComments: [],
+      userReaction: null,
+      userAttendance: null,
+    })
   })
 })
 
