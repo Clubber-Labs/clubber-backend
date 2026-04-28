@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import type {
   CreateUserBody,
+  ListUsersQuery,
   UpdateUserBody,
   UserIdParam,
 } from './users.schema'
@@ -14,9 +15,10 @@ import {
 } from './users.service'
 import { validateImageMimetype } from '../../lib/storage/validate-mimetype'
 
-export async function getUsers(_request: FastifyRequest, reply: FastifyReply) {
-  const users = await listUsers()
-  return reply.send(users)
+export async function getUsers(request: FastifyRequest, reply: FastifyReply) {
+  const { limit, cursor } = request.query as ListUsersQuery
+  const result = await listUsers(limit, cursor)
+  return reply.send(result)
 }
 
 export async function getUser(request: FastifyRequest, reply: FastifyReply) {
@@ -27,11 +29,14 @@ export async function getUser(request: FastifyRequest, reply: FastifyReply) {
 
 export async function postUser(request: FastifyRequest, reply: FastifyReply) {
   const user = await registerUser(request.body as CreateUserBody)
-  return reply.status(201).send(user)
+  const token = await reply.jwtSign({ sub: user.id })
+  return reply.status(201).send({ user, token })
 }
 
 export async function putUser(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as UserIdParam
+  if (request.user.sub !== id)
+    throw { statusCode: 403, message: 'Você não tem permissão para editar este usuário' }
   const user = await editUser(id, request.body as UpdateUserBody)
   return reply.send(user)
 }
@@ -41,6 +46,8 @@ export async function deleteUserHandler(
   reply: FastifyReply,
 ) {
   const { id } = request.params as UserIdParam
+  if (request.user.sub !== id)
+    throw { statusCode: 403, message: 'Você não tem permissão para deletar este usuário' }
   await removeUser(id)
   return reply.status(204).send()
 }

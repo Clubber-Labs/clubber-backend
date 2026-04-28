@@ -108,10 +108,12 @@ export async function findFollowing(
   })
 }
 
-export async function findPendingRequests(userId: string) {
+export async function findPendingRequests(userId: string, limit: number, cursor?: string) {
   return prisma.follow.findMany({
     where: { followingId: userId, status: 'PENDING' },
     orderBy: { createdAt: 'desc' },
+    take: limit,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
     include: { follower: { select: followerSelect } },
   })
 }

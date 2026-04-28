@@ -43,3 +43,10 @@ export const userIdParamSchema = z.object({
 })
 
 export type UserIdParam = z.infer<typeof userIdParamSchema>
+
+export const listUsersQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().uuid().optional(),
+})
+
+export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>

@@ -148,8 +148,8 @@ describe('GET /users/me/follow-requests', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    // listPendingRequests retorna array direto (não paginado)
-    expect(res.json()).toHaveLength(1)
+    expect(res.json()).toHaveProperty('data')
+    expect(res.json().data).toHaveLength(1)
   })
 })
 

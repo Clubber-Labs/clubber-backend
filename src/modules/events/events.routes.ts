@@ -15,6 +15,7 @@ import {
 import {
   createEventSchema,
   eventParamSchema,
+  listEventsQuerySchema,
   updateEventSchema,
 } from './events.schema'
 
@@ -24,7 +25,14 @@ export async function eventsRoutes(app: FastifyInstance) {
 
   const api = app.withTypeProvider<ZodTypeProvider>()
 
-  api.get('/events', getEvents)
+  api.get(
+    '/events',
+    {
+      schema: { querystring: listEventsQuerySchema },
+      onRequest: [app.authenticateOptional],
+    },
+    getEvents,
+  )
 
   api.get(
     '/events/:id',

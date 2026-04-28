@@ -43,9 +43,12 @@ app.register(fastifyMultipart, {
     fileSize: 5 * 1024 * 1024, // 5MB limite por arquivo
   },
 })
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET não configurado. Defina a variável de ambiente antes de iniciar o servidor.')
+}
 
 app.register(fastifyJwt, {
-  secret: process.env.JWT_SECRET ?? 'fallback_secret',
+  secret: process.env.JWT_SECRET,
 })
 
 app.decorate(
