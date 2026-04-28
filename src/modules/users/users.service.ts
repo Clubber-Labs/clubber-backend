@@ -1,4 +1,6 @@
 import { hash } from 'bcryptjs'
+import { imageProcessorService } from '../../lib/image-processor'
+import { storageService } from '../../lib/storage'
 import {
   createUser,
   deleteUser,
@@ -57,4 +59,31 @@ export async function editUser(id: string, data: UpdateUserBody) {
 export async function removeUser(id: string) {
   await getUserById(id)
   return deleteUser(id)
+}
+
+export async function changeUserAvatar(
+  userId: string,
+  buffer: Buffer,
+  filename: string,
+) {
+  const user = await getUserById(userId)
+
+  // Deletar avatar anterior do storage se existir
+  if (user.avatarUrl) {
+    const oldKey = `users/${userId}/${user.avatarUrl.split('/').pop()}`
+    await storageService.delete(oldKey)
+  }
+
+  const processed = await imageProcessorService.processProfileAvatar(buffer)
+
+  const uploadResult = await storageService.upload(
+    {
+      buffer: processed.buffer,
+      filename,
+      mimetype: 'image/webp',
+    },
+    `users/${userId}`,
+  )
+
+  return updateUser(userId, { avatarUrl: uploadResult.url })
 }

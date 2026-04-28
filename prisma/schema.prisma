@@ -21,7 +21,7 @@ model User {
   password       String
   phone          String   @unique
   bio            String?
-  // avatarUrl String?
+  avatarUrl      String?
   isPrivate      Boolean  @default(false)
   followersCount Int      @default(0)
   followingCount Int      @default(0)
@@ -73,7 +73,6 @@ model Event {
   address     String?
   category    String
   isPublic    Boolean  @default(true)
-  imageUrl    String?
   maxCapacity Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -87,6 +86,7 @@ model Event {
   comments    Comment[]
   reactions   Reaction[]
   invites     EventInvite[]
+  images      EventImage[]
 
   @@map("events")
 }
@@ -188,4 +188,19 @@ model Reaction {
   @@unique([userId, eventId], map: "reactions_user_event_unique")
   @@unique([userId, postId], map: "reactions_user_post_unique")
   @@map("reactions")
+}
+
+model EventImage {
+  id        String   @id @default(uuid())
+  url       String
+  key       String
+  format    String
+  size      Int
+  order     Int      @default(0)
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([eventId, order])
+  @@map("event_images")
 }

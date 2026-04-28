@@ -9,12 +9,14 @@ import type {
 } from './events.schema'
 import {
   addEvent,
+  addEventImage,
   editEvent,
   getEventById,
   listEvents,
   listUserEvents,
   removeEvent,
 } from './events.service'
+import { validateImageMimetype } from '../../lib/storage/validate-mimetype'
 
 function getEventsResponseData<T>(
   result: T | { data: T; nextCursor?: string | null },
@@ -67,4 +69,28 @@ export async function deleteEventHandler(
   const { id } = request.params as EventParams
   await removeEvent(id, request.user.sub)
   return reply.status(204).send()
+}
+
+export async function uploadEventImageHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as EventParams
+  const data = await request.file()
+
+  if (!data) {
+    throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
+  }
+
+  validateImageMimetype(data.mimetype)
+
+  const fileBuffer = await data.toBuffer()
+  const eventImage = await addEventImage(
+    id,
+    fileBuffer,
+    data.filename,
+    request.user.sub,
+  )
+
+  return reply.status(201).send(eventImage)
 }

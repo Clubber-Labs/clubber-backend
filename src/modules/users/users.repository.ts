@@ -1,5 +1,6 @@
+import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
-import type { CreateUserBody, UpdateUserBody } from './users.schema'
+import type { CreateUserBody } from './users.schema'
 
 export async function findAllUsers() {
   return prisma.user.findMany({
@@ -10,6 +11,7 @@ export async function findAllUsers() {
       username: true,
       email: true,
       bio: true,
+      avatarUrl: true,
       isPrivate: true,
       followersCount: true,
       followingCount: true,
@@ -30,6 +32,7 @@ export async function findUserById(id: string) {
       username: true,
       email: true,
       bio: true,
+      avatarUrl: true,
       isPrivate: true,
       followersCount: true,
       followingCount: true,
@@ -58,7 +61,7 @@ export async function createUser(
   return prisma.user.create({ data })
 }
 
-export async function updateUser(id: string, data: UpdateUserBody) {
+export async function updateUser(id: string, data: Prisma.UserUpdateInput) {
   return prisma.user.update({ where: { id }, data })
 }
 

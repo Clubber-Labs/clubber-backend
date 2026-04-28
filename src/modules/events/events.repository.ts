@@ -106,3 +106,7 @@ export async function updateEvent(id: string, data: UpdateEventBody) {
 export async function deleteEvent(id: string) {
   return prisma.event.delete({ where: { id } })
 }
+
+export async function createEventImage(data: Prisma.EventImageCreateInput) {
+  return prisma.eventImage.create({ data })
+}

@@ -1,6 +1,9 @@
+import { imageProcessorService } from '../../lib/image-processor'
+import { storageService } from '../../lib/storage'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createEvent,
+  createEventImage,
   deleteEvent,
   findEventById,
   findEventsByAuthor,
@@ -69,4 +72,44 @@ export async function removeEvent(id: string, requesterId: string) {
     throw { statusCode: 403, message: 'Forbidden' }
   }
   return deleteEvent(id)
+}
+
+export async function addEventImage(
+  id: string,
+  fileBuffer: Buffer,
+  filename: string,
+  requesterId: string,
+) {
+  const event = await findEventById(id)
+  if (!event) {
+    throw { statusCode: 404, message: 'Event not found' }
+  }
+  if (event.authorId !== requesterId) {
+    throw { statusCode: 403, message: 'Forbidden' }
+  }
+
+  const processed = await imageProcessorService.processEventGallery(fileBuffer)
+
+  const uploadResult = await storageService.upload(
+    {
+      buffer: processed.buffer,
+      filename,
+      mimetype: 'image/webp',
+    },
+    `events/${id}`,
+  )
+
+  try {
+    return await createEventImage({
+      url: uploadResult.url,
+      key: uploadResult.key,
+      format: processed.format,
+      size: processed.size,
+      event: { connect: { id } },
+    })
+  } catch (err) {
+    // Rollback: remove a imagem órfã do storage
+    await storageService.delete(uploadResult.key)
+    throw err
+  }
 }

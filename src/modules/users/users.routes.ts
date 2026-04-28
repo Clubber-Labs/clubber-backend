@@ -12,6 +12,7 @@ import {
   getUsers,
   postUser,
   putUser,
+  uploadUserAvatar,
 } from './users.controller'
 import {
   createUserSchema,
@@ -77,5 +78,11 @@ export async function usersRoutes(app: FastifyInstance) {
     '/users/:id',
     { schema: { params: userIdParamSchema } },
     deleteUserHandler,
+  )
+
+  api.patch(
+    '/users/me/avatar',
+    { onRequest: [app.authenticate] },
+    uploadUserAvatar,
   )
 }

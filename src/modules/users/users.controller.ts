@@ -5,12 +5,14 @@ import type {
   UserIdParam,
 } from './users.schema'
 import {
+  changeUserAvatar,
   editUser,
   getUserById,
   listUsers,
   registerUser,
   removeUser,
 } from './users.service'
+import { validateImageMimetype } from '../../lib/storage/validate-mimetype'
 
 export async function getUsers(_request: FastifyRequest, reply: FastifyReply) {
   const users = await listUsers()
@@ -41,4 +43,25 @@ export async function deleteUserHandler(
   const { id } = request.params as UserIdParam
   await removeUser(id)
   return reply.status(204).send()
+}
+
+export async function uploadUserAvatar(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const data = await request.file()
+  if (!data) {
+    throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
+  }
+
+  validateImageMimetype(data.mimetype)
+
+  const fileBuffer = await data.toBuffer()
+  const user = await changeUserAvatar(
+    request.user.sub,
+    fileBuffer,
+    data.filename,
+  )
+
+  return reply.send(user)
 }
