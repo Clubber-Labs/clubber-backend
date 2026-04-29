@@ -2,6 +2,9 @@
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatarUrl" TEXT;
 ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "avatarKey" TEXT;
 
+-- Remove coluna imageUrl legada da tabela de eventos
+ALTER TABLE "events" DROP COLUMN IF EXISTS "imageUrl";
+
 -- Tabela de imagens de evento
 CREATE TABLE IF NOT EXISTS "event_images" (
     "id" TEXT NOT NULL,

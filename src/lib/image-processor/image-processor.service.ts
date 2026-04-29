@@ -13,18 +13,22 @@ async function process(
   resize: sharp.ResizeOptions & { width: number; height: number },
   quality: number,
 ): Promise<ProcessedImage> {
-  const processed = await sharp(buffer)
-    .resize(resize)
-    .webp({ quality })
-    .toBuffer()
-  const metadata = await sharp(processed).metadata()
+  try {
+    const processed = await sharp(buffer)
+      .resize(resize)
+      .webp({ quality })
+      .toBuffer()
+    const metadata = await sharp(processed).metadata()
 
-  return {
-    buffer: processed,
-    format: 'webp',
-    width: metadata.width ?? resize.width,
-    height: metadata.height ?? resize.height,
-    size: processed.length,
+    return {
+      buffer: processed,
+      format: 'webp',
+      width: metadata.width ?? resize.width,
+      height: metadata.height ?? resize.height,
+      size: processed.length,
+    }
+  } catch {
+    throw { statusCode: 400, message: 'Imagem inválida ou corrompida' }
   }
 }
 

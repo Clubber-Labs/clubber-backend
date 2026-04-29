@@ -62,10 +62,10 @@ export async function removeUser(id: string, logger: Logger) {
   if (!current) {
     throw { statusCode: 404, message: 'Usuário não encontrado' }
   }
+  await deleteUser(id)
   if (current.avatarKey) {
     await deleteUploaded(current.avatarKey, logger)
   }
-  return deleteUser(id)
 }
 
 export async function changeUserAvatar(
