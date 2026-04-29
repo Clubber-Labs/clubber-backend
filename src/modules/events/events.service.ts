@@ -87,8 +87,8 @@ export async function removeEvent(
     }
 
   const images = (await findEventImageKeys(id)) as { key: string }[]
-  await deleteEvent(id)
   await Promise.all(images.map((img) => deleteUploaded(img.key, logger)))
+  await deleteEvent(id)
 }
 
 export async function addEventImage(
@@ -108,12 +108,11 @@ export async function addEventImage(
   const uploaded = await uploadEventImage(buffer, id)
 
   try {
-    return await createEventImage({
+    return await createEventImage(id, {
       url: uploaded.url,
       key: uploaded.key,
       format: uploaded.format,
       size: uploaded.size,
-      event: { connect: { id } },
     })
   } catch (err) {
     await deleteUploaded(uploaded.key, logger)

@@ -192,8 +192,16 @@ export async function deleteEvent(id: string) {
   return prisma.event.delete({ where: { id } })
 }
 
-export async function createEventImage(data: Prisma.EventImageCreateInput) {
-  return prisma.eventImage.create({ data })
+export async function createEventImage(
+  eventId: string,
+  data: Omit<Prisma.EventImageUncheckedCreateInput, 'eventId' | 'order'>,
+) {
+  const agg = await prisma.eventImage.aggregate({
+    where: { eventId },
+    _max: { order: true },
+  })
+  const nextOrder = (agg._max.order ?? -1) + 1
+  return prisma.eventImage.create({ data: { ...data, eventId, order: nextOrder } })
 }
 
 export async function findEventImageKeys(eventId: string) {

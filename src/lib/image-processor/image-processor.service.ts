@@ -14,18 +14,17 @@ async function process(
   quality: number,
 ): Promise<ProcessedImage> {
   try {
-    const processed = await sharp(buffer)
+    const { data, info } = await sharp(buffer)
       .resize(resize)
       .webp({ quality })
-      .toBuffer()
-    const metadata = await sharp(processed).metadata()
+      .toBuffer({ resolveWithObject: true })
 
     return {
-      buffer: processed,
+      buffer: data,
       format: 'webp',
-      width: metadata.width ?? resize.width,
-      height: metadata.height ?? resize.height,
-      size: processed.length,
+      width: info.width ?? resize.width,
+      height: info.height ?? resize.height,
+      size: info.size ?? data.length,
     }
   } catch {
     throw { statusCode: 400, message: 'Imagem inválida ou corrompida' }
