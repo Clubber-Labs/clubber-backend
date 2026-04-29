@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { assertImageMimetype } from '../../lib/uploads'
 import type {
   CreateEventBody,
   EventParams,
@@ -9,6 +10,7 @@ import type {
 } from './events.schema'
 import {
   addEvent,
+  addEventImage,
   editEvent,
   getEventById,
   listEvents,
@@ -58,6 +60,27 @@ export async function deleteEventHandler(
   reply: FastifyReply,
 ) {
   const { id } = request.params as EventParams
-  await removeEvent(id, request.user.sub)
+  await removeEvent(id, request.user.sub, request.log)
   return reply.status(204).send()
+}
+
+export async function uploadEventImageHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as EventParams
+  const data = await request.file()
+  if (!data) {
+    throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
+  }
+  assertImageMimetype(data.mimetype)
+
+  const buffer = await data.toBuffer()
+  const eventImage = await addEventImage(
+    id,
+    buffer,
+    request.user.sub,
+    request.log,
+  )
+  return reply.status(201).send(eventImage)
 }

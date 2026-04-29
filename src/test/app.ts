@@ -1,4 +1,5 @@
 import fastifyJwt from '@fastify/jwt'
+import fastifyMultipart from '@fastify/multipart'
 import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
 import {
   serializerCompiler,
@@ -27,6 +28,8 @@ export function buildApp() {
     const message = error.message ?? 'Internal Server Error'
     reply.status(statusCode).send({ message })
   })
+
+  app.register(fastifyMultipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 
   app.register(fastifyJwt, {
     secret: process.env.JWT_SECRET ?? 'test_secret',

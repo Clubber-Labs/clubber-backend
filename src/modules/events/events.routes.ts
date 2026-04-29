@@ -10,6 +10,7 @@ import {
   getEvents,
   postEvent,
   putEvent,
+  uploadEventImageHandler,
 } from './events.controller'
 import {
   createEventSchema,
@@ -61,5 +62,11 @@ export async function eventsRoutes(app: FastifyInstance) {
     '/events/:id',
     { schema: { params: eventParamSchema }, onRequest: [app.authenticate] },
     deleteEventHandler,
+  )
+
+  api.post(
+    '/events/:id/images',
+    { schema: { params: eventParamSchema }, onRequest: [app.authenticate] },
+    uploadEventImageHandler,
   )
 }

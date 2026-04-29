@@ -7,6 +7,7 @@ export default defineConfig({
     envFiles: ['.env.test'],
     globalSetup: ['src/test/global-setup.ts'],
     setupFiles: ['src/test/setup.ts'],
+    include: ['src/**/*.test.ts'],
     fileParallelism: false,
     coverage: {
       provider: 'v8',

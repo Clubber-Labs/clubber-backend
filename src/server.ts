@@ -1,5 +1,7 @@
 import { fastifyCors } from '@fastify/cors'
 import fastifyJwt from '@fastify/jwt'
+import fastifyMultipart from '@fastify/multipart'
+import fastifyStatic from '@fastify/static'
 import { fastifySwagger } from '@fastify/swagger'
 import ScalarApiReference from '@scalar/fastify-api-reference'
 import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
@@ -9,6 +11,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { env } from './lib/env'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
@@ -33,16 +36,25 @@ app.setErrorHandler((error: Error, _request, reply) => {
 
 app.register(fastifyCors, {
   origin: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
 })
 
-if (!process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET não configurado. Defina a variável de ambiente antes de iniciar o servidor.')
+app.register(fastifyMultipart, {
+  limits: {
+    fileSize: 5 * 1024 * 1024, // 5MB limite por arquivo
+  },
+})
+
+if (env.STORAGE_DRIVER === 'local') {
+  app.register(fastifyStatic, {
+    root: env.UPLOADS_DIR,
+    prefix: '/uploads/',
+  })
 }
 
 app.register(fastifyJwt, {
-  secret: process.env.JWT_SECRET,
+  secret: env.JWT_SECRET,
 })
 
 app.decorate(
@@ -89,6 +101,6 @@ app.register(reactionsRoutes)
 app.register(feedRoutes)
 app.register(eventInvitesRoutes)
 
-app.listen({ port: 3333, host: '0.0.0.0' }).then(() => {
-  console.log('🔥 Server is running on http://localhost:3333')
+app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
+  console.log(`🔥 Server is running on http://localhost:${env.PORT}`)
 })

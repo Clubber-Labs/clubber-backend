@@ -10,7 +10,10 @@ export async function checkEventAccess(
   if (event.isPublic) return
 
   if (!requesterId) {
-    throw { statusCode: 401, message: 'Autenticação necessária para acessar este evento' }
+    throw {
+      statusCode: 401,
+      message: 'Autenticação necessária para acessar este evento',
+    }
   }
 
   if (event.authorId === requesterId) return

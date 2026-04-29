@@ -115,7 +115,9 @@ describe('GET /feed', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(true)
+    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(
+      true,
+    )
   })
 
   it('retorna eventos onde seguido reagiu', async () => {
@@ -133,7 +135,9 @@ describe('GET /feed', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(true)
+    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(
+      true,
+    )
   })
 
   it('retorna eventos onde seguido comentou', async () => {
@@ -151,7 +155,9 @@ describe('GET /feed', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(true)
+    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(
+      true,
+    )
   })
 
   it('retorna 401 sem autenticação', async () => {
@@ -188,7 +194,10 @@ describe('GET /feed — reason', () => {
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found?.reason).toMatchObject({ kind: 'friend_created', user: { id: followed.id } })
+    expect(found?.reason).toMatchObject({
+      kind: 'friend_created',
+      user: { id: followed.id },
+    })
   })
 
   it('reason friend_attending quando seguido confirmou presença', async () => {
@@ -206,7 +215,11 @@ describe('GET /feed — reason', () => {
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found?.reason).toMatchObject({ kind: 'friend_attending', user: { id: followed.id }, type: 'CONFIRMED' })
+    expect(found?.reason).toMatchObject({
+      kind: 'friend_attending',
+      user: { id: followed.id },
+      type: 'CONFIRMED',
+    })
   })
 
   it('reason friend_reacted quando seguido reagiu', async () => {
@@ -224,7 +237,11 @@ describe('GET /feed — reason', () => {
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found?.reason).toMatchObject({ kind: 'friend_reacted', user: { id: followed.id }, type: 'LIKE' })
+    expect(found?.reason).toMatchObject({
+      kind: 'friend_reacted',
+      user: { id: followed.id },
+      type: 'LIKE',
+    })
   })
 
   it('reason friend_commented quando seguido comentou', async () => {

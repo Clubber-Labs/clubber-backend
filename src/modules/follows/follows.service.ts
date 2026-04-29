@@ -113,7 +113,11 @@ export async function listFollowing(
   return { data: rows.map((r) => r.following), nextCursor }
 }
 
-export async function listPendingRequests(userId: string, limit: number, cursor?: string) {
+export async function listPendingRequests(
+  userId: string,
+  limit: number,
+  cursor?: string,
+) {
   const rows = await findPendingRequests(userId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   return { data: rows.map((r) => r.follower), nextCursor }
