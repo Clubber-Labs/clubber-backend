@@ -225,5 +225,7 @@ model Report {
   commentId String?
   comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
 
+  @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
+  @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
   @@map("reports")
 }
