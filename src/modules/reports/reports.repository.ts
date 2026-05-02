@@ -9,13 +9,19 @@ export async function findCommentById(commentId: string) {
   return prisma.comment.findUnique({ where: { id: commentId } })
 }
 
-export async function findExistingEventReport(reporterId: string, eventId: string) {
+export async function findExistingEventReport(
+  reporterId: string,
+  eventId: string,
+) {
   return prisma.report.findFirst({
     where: { reporterId, eventId, status: 'PENDING' },
   })
 }
 
-export async function findExistingCommentReport(reporterId: string, commentId: string) {
+export async function findExistingCommentReport(
+  reporterId: string,
+  commentId: string,
+) {
   return prisma.report.findFirst({
     where: { reporterId, commentId, status: 'PENDING' },
   })

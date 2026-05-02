@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeComment, makeEvent, makeReport, makeUser } from '../../test/factories'
+import {
+  makeComment,
+  makeEvent,
+  makeReport,
+  makeUser,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -34,7 +39,11 @@ describe('POST /events/:eventId/report', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(res.json()).toMatchObject({ reporterId: reporter.id, eventId: event.id, reason: 'SPAM_OR_FRAUD' })
+    expect(res.json()).toMatchObject({
+      reporterId: reporter.id,
+      eventId: event.id,
+      reason: 'SPAM_OR_FRAUD',
+    })
   })
 
   it('retorna 401 sem autenticação', async () => {
@@ -109,7 +118,11 @@ describe('POST /comments/:commentId/report', () => {
     })
 
     expect(res.statusCode).toBe(201)
-    expect(res.json()).toMatchObject({ reporterId: reporter.id, commentId: comment.id, reason: 'HATE_SPEECH' })
+    expect(res.json()).toMatchObject({
+      reporterId: reporter.id,
+      commentId: comment.id,
+      reason: 'HATE_SPEECH',
+    })
   })
 
   it('retorna 401 sem autenticação', async () => {
