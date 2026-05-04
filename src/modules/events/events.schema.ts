@@ -28,7 +28,7 @@ export const eventParamSchema = z.object({
 })
 
 export const listEventsQuerySchema = z.object({
-  category: z.string().optional(),
+  category: z.union([z.string(), z.array(z.string())]).optional(),
   dateFrom: z.coerce.date().optional(),
   dateTo: z.coerce.date().optional(),
   cursor: z.string().uuid().optional(),
