@@ -85,7 +85,10 @@ export async function followsRoutes(app: FastifyInstance) {
   // Listar solicitações de follow pendentes do usuário autenticado
   api.get(
     '/users/me/follow-requests',
-    { onRequest: [app.authenticate] },
+    {
+      schema: { querystring: paginationSchema },
+      onRequest: [app.authenticate],
+    },
     getPendingRequests,
   )
 

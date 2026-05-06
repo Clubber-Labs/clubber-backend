@@ -9,7 +9,6 @@ export const createEventSchema = z.object({
   address: z.string().optional(),
   category: z.string().min(2),
   isPublic: z.boolean().default(true),
-  imageUrl: z.string().optional(),
   maxCapacity: z.number().optional(),
   canceledAt: z.coerce.date().optional(),
 })
@@ -29,7 +28,17 @@ export const eventParamSchema = z.object({
 })
 
 export const listEventsQuerySchema = z.object({
-  category: z.string().optional(),
+  category: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .transform((value) => {
+      if (value === undefined) return undefined
+      const list = (Array.isArray(value) ? value : [value])
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
+      const unique = Array.from(new Set(list))
+      return unique.length > 0 ? unique : undefined
+    }),
   dateFrom: z.coerce.date().optional(),
   dateTo: z.coerce.date().optional(),
   cursor: z.string().uuid().optional(),

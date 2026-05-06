@@ -65,8 +65,9 @@ export async function getPendingRequests(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const requests = await listPendingRequests(request.user.sub)
-  return reply.send(requests)
+  const { limit, cursor } = request.query as PaginationQuery
+  const result = await listPendingRequests(request.user.sub, limit, cursor)
+  return reply.send(result)
 }
 
 export async function postApproveFollow(

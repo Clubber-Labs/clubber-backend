@@ -10,10 +10,12 @@ import {
   getEvents,
   postEvent,
   putEvent,
+  uploadEventImageHandler,
 } from './events.controller'
 import {
   createEventSchema,
   eventParamSchema,
+  listEventsQuerySchema,
   updateEventSchema,
 } from './events.schema'
 
@@ -23,7 +25,14 @@ export async function eventsRoutes(app: FastifyInstance) {
 
   const api = app.withTypeProvider<ZodTypeProvider>()
 
-  api.get('/events', getEvents)
+  api.get(
+    '/events',
+    {
+      schema: { querystring: listEventsQuerySchema },
+      onRequest: [app.authenticateOptional],
+    },
+    getEvents,
+  )
 
   api.get(
     '/events/:id',
@@ -53,5 +62,11 @@ export async function eventsRoutes(app: FastifyInstance) {
     '/events/:id',
     { schema: { params: eventParamSchema }, onRequest: [app.authenticate] },
     deleteEventHandler,
+  )
+
+  api.post(
+    '/events/:id/images',
+    { schema: { params: eventParamSchema }, onRequest: [app.authenticate] },
+    uploadEventImageHandler,
   )
 }

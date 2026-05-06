@@ -1,5 +1,11 @@
-import { afterEach } from 'vitest'
+import { afterEach, beforeAll } from 'vitest'
+import { setStorage } from '../lib/storage'
+import { fakeStorage } from './fake-storage'
 import { testPrisma } from './prisma'
+
+beforeAll(() => {
+  setStorage(fakeStorage)
+})
 
 const dbUrl = process.env.DATABASE_URL ?? ''
 
@@ -20,4 +26,5 @@ afterEach(async () => {
     testPrisma.follow.deleteMany(),
     testPrisma.user.deleteMany(),
   ])
+  fakeStorage.reset()
 })

@@ -1,8 +1,10 @@
 import { hash } from 'bcryptjs'
+import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import {
   createUser,
   deleteUser,
   findAllUsers,
+  findUserAvatarKey,
   findUserByEmail,
   findUserById,
   findUserByUsername,
@@ -10,8 +12,12 @@ import {
 } from './users.repository'
 import type { CreateUserBody, UpdateUserBody } from './users.schema'
 
-export async function listUsers() {
-  return findAllUsers()
+type Logger = { error: (msg: string) => void }
+
+export async function listUsers(limit: number, cursor?: string) {
+  const users = await findAllUsers(limit, cursor)
+  const nextCursor = users.length === limit ? users[users.length - 1].id : null
+  return { data: users, nextCursor }
 }
 
 export async function getUserById(id: string) {
@@ -35,10 +41,7 @@ export async function registerUser(data: CreateUserBody) {
 
   const passwordHash = await hash(data.password, 10)
 
-  return createUser({
-    ...data,
-    password: passwordHash,
-  })
+  return createUser({ ...data, password: passwordHash })
 }
 
 export async function editUser(id: string, data: UpdateUserBody) {
@@ -54,7 +57,40 @@ export async function editUser(id: string, data: UpdateUserBody) {
   return updateUser(id, data)
 }
 
-export async function removeUser(id: string) {
-  await getUserById(id)
-  return deleteUser(id)
+export async function removeUser(id: string, logger: Logger) {
+  const current = await findUserAvatarKey(id)
+  if (!current) {
+    throw { statusCode: 404, message: 'Usuário não encontrado' }
+  }
+  await deleteUser(id)
+  if (current.avatarKey) {
+    await deleteUploaded(current.avatarKey, logger)
+  }
+}
+
+export async function changeUserAvatar(
+  userId: string,
+  buffer: Buffer,
+  logger: Logger,
+) {
+  const current = await findUserAvatarKey(userId)
+  if (!current) {
+    throw { statusCode: 404, message: 'Usuário não encontrado' }
+  }
+
+  const uploaded = await uploadAvatar(buffer, userId)
+
+  try {
+    const updated = await updateUser(userId, {
+      avatarUrl: uploaded.url,
+      avatarKey: uploaded.key,
+    })
+    if (current.avatarKey) {
+      await deleteUploaded(current.avatarKey, logger)
+    }
+    return updated
+  } catch (err) {
+    await deleteUploaded(uploaded.key, logger)
+    throw err
+  }
 }

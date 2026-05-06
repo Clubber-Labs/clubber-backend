@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import { makeEvent, makeInvite, makeUser } from '../../test/factories'
+import { fakeStorage } from '../../test/fake-storage'
+import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -29,8 +31,65 @@ describe('GET /events', () => {
     const res = await app.inject({ method: 'GET', url: '/events' })
 
     expect(res.statusCode).toBe(200)
-    const events = res.json()
-    expect(events.every((e: { isPublic: boolean }) => e.isPublic)).toBe(true)
+    const body = res.json()
+    expect(body).toHaveProperty('data')
+    expect(body).toHaveProperty('nextCursor')
+    expect(
+      body.data.every(
+        (e: { isPublic: boolean; recentComments: unknown[] }) =>
+          e.isPublic && Array.isArray(e.recentComments),
+      ),
+    ).toBe(true)
+  })
+
+  it('filtra por múltiplas categorias (?category=A&category=B)', async () => {
+    const user = await makeUser()
+    await makeEvent(user.id, { category: 'Festa', isPublic: true })
+    await makeEvent(user.id, { category: 'Show', isPublic: true })
+    await makeEvent(user.id, { category: 'Esporte', isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?category=Festa&category=Show',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    const categorias = body.data.map((e: { category: string }) => e.category)
+    expect(categorias).toEqual(expect.arrayContaining(['Festa', 'Show']))
+    expect(categorias).not.toContain('Esporte')
+  })
+
+  it('ignora category vazia e não filtra', async () => {
+    const user = await makeUser()
+    await makeEvent(user.id, { category: 'Festa', isPublic: true })
+    await makeEvent(user.id, { category: 'Show', isPublic: true })
+
+    const res = await app.inject({ method: 'GET', url: '/events?category=' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.length).toBe(2)
+  })
+
+  it('retorna userReaction e userAttendance quando autenticado', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.data.length).toBeGreaterThan(0)
+    expect(body.data[0]).toMatchObject({
+      recentComments: [],
+      userReaction: null,
+      userAttendance: null,
+    })
   })
 })
 
@@ -177,6 +236,111 @@ describe('DELETE /events/:id', () => {
       method: 'DELETE',
       url: `/events/${event.id}`,
       headers: { authorization: `Bearer ${token(app, other.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+})
+
+describe('POST /events/:id/images', () => {
+  it('autor sobe imagem válida', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: {
+        authorization: `Bearer ${token(app, author.id)}`,
+        'content-type': contentType,
+      },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ format: 'webp', eventId: event.id })
+    expect(fakeStorage.uploads).toHaveLength(1)
+    expect(fakeStorage.uploads[0].key).toContain(`events/${event.id}/`)
+
+    const detail = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+    expect(detail.statusCode).toBe(200)
+    expect(detail.json().images).toHaveLength(1)
+    expect(detail.json().images[0]).toMatchObject({ format: 'webp', order: 0 })
+  })
+
+  it('retorna 400 sem arquivo', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: {
+        authorization: `Bearer ${token(app, author.id)}`,
+        'content-type': 'multipart/form-data; boundary=----X',
+      },
+      payload: '------X--\r\n',
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 com mimetype inválido', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const { body, contentType } = multipartFormData(
+      Buffer.from('fake'),
+      'file',
+      'doc.pdf',
+      'application/pdf',
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: {
+        authorization: `Bearer ${token(app, author.id)}`,
+        'content-type': contentType,
+      },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: { 'content-type': contentType },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('retorna 403 se requester não for o autor', async () => {
+    const author = await makeUser()
+    const other = await makeUser()
+    const event = await makeEvent(author.id)
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: {
+        authorization: `Bearer ${token(app, other.id)}`,
+        'content-type': contentType,
+      },
+      payload: body,
     })
 
     expect(res.statusCode).toBe(403)

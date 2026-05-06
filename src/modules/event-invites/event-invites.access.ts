@@ -1,20 +1,13 @@
-import { findEventById } from '../events/events.repository'
+import { findEventAccess } from '../events/events.repository'
 import { findInvite } from './event-invites.repository'
 
-/**
- * Garante que o usuário tem acesso ao evento.
- * Eventos públicos: qualquer um (autenticado ou não).
- * Eventos privados: apenas o autor ou convidados (requer autenticação).
- */
-export async function ensureEventAccess(eventId: string, requesterId?: string) {
-  const event = await findEventById(eventId)
-  if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
-  }
+type EventAccessInfo = { id: string; isPublic: boolean; authorId: string }
 
-  if (event.isPublic) {
-    return event
-  }
+export async function checkEventAccess(
+  event: EventAccessInfo,
+  requesterId?: string,
+): Promise<void> {
+  if (event.isPublic) return
 
   if (!requesterId) {
     throw {
@@ -23,14 +16,23 @@ export async function ensureEventAccess(eventId: string, requesterId?: string) {
     }
   }
 
-  if (event.authorId === requesterId) {
-    return event
-  }
+  if (event.authorId === requesterId) return
 
-  const invite = await findInvite(eventId, requesterId)
+  const invite = await findInvite(event.id, requesterId)
   if (!invite) {
     throw { statusCode: 403, message: 'Você não tem acesso a este evento' }
   }
+}
 
+/**
+ * Garante que o usuário tem acesso ao evento.
+ * Usa um select mínimo — preferir checkEventAccess quando o evento já foi carregado.
+ */
+export async function ensureEventAccess(eventId: string, requesterId?: string) {
+  const event = await findEventAccess(eventId)
+  if (!event) {
+    throw { statusCode: 404, message: 'Evento não encontrado' }
+  }
+  await checkEventAccess(event, requesterId)
   return event
 }
