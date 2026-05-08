@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { testPrisma } from './prisma'
+import { hash } from 'node:crypto';
 
 let counter = 0
 function uid() {
@@ -20,6 +21,7 @@ export async function makeUser(
       phone: `119${id.slice(-8).padStart(8, '0')}`,
       birthdate: new Date('2000-01-01'),
       isPrivate: overrides.isPrivate ?? false,
+      role: 'USER',
     },
   })
 }
@@ -110,5 +112,22 @@ export async function makeComment(
 ) {
   return testPrisma.comment.create({
     data: { authorId, eventId, content },
+  })
+}
+
+export async function makeAdmin(
+  overrides?: Partial<{ username: string }>
+) {
+  return testPrisma.user.create({
+    data: {
+      name: 'Admin',
+      lastname: 'Teste',
+      username: overrides?.username ?? `admin_${uid()}`,
+      email: `admin_${uid()}@test.com`,
+      password: bcrypt.hashSync('senha123', 1),
+      phone: `119${id.slice(-8).padStart(8, '0')}`,
+      birthdate: new Date('2000-01-01'),
+      role: 'ADMIN',
+    }
   })
 }

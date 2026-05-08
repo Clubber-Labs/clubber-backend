@@ -29,7 +29,7 @@ export async function getUser(request: FastifyRequest, reply: FastifyReply) {
 
 export async function postUser(request: FastifyRequest, reply: FastifyReply) {
   const user = await registerUser(request.body as CreateUserBody)
-  const token = await reply.jwtSign({ sub: user.id })
+  const token = await reply.jwtSign({ sub: user.id, role: user.role })
   return reply.status(201).send({ user, token })
 }
 

@@ -20,10 +20,12 @@ const userProfileSelect = {
   email: true,
   phone: true,
   birthdate: true,
+  role: true,
 } as const
 
 export async function findAllUsers(limit: number, cursor?: string) {
   return prisma.user.findMany({
+    where: { isBanned: false },
     select: userPublicListSelect,
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
