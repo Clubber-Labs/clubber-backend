@@ -9,6 +9,7 @@ import type {
 import {
   changeUserAvatar,
   editUser,
+  getMe as getMeService,
   getUserById,
   listUsers,
   registerUser,
@@ -21,9 +22,14 @@ export async function getUsers(request: FastifyRequest, reply: FastifyReply) {
   return reply.send(result)
 }
 
+export async function getMe(request: FastifyRequest, reply: FastifyReply) {
+  const user = await getMeService(request.user.sub)
+  return reply.send(user)
+}
+
 export async function getUser(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as UserIdParam
-  const user = await getUserById(id)
+  const user = await getUserById(id, request.user?.sub)
   return reply.send(user)
 }
 

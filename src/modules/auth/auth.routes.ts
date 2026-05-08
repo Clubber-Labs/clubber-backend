@@ -4,7 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { login, me } from './auth.controller'
+import { login } from './auth.controller'
 import { loginBodySchema } from './auth.schema'
 
 export async function authRoutes(app: FastifyInstance) {
@@ -26,6 +26,4 @@ export async function authRoutes(app: FastifyInstance) {
     },
     login,
   )
-
-  api.get('/auth/me', { onRequest: [app.authenticate] }, me)
 }

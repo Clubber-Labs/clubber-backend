@@ -11,6 +11,7 @@ const authorSelect = {
   name: true,
   lastname: true,
   username: true,
+  avatarUrl: true,
 } as const
 
 const eventImageSelect = {
@@ -73,12 +74,14 @@ type PrismaEvent = PrismaSharedEvent & {
   attendances?: { type: string }[]
 }
 
+type AuthorPayload = Prisma.UserGetPayload<{ select: typeof authorSelect }>
+
 export type SharedEvent = Omit<PrismaSharedEvent, 'comments'> & {
   recentComments: {
     id: string
     content: string
     createdAt: Date
-    author: { id: string; name: string; lastname: string; username: string }
+    author: AuthorPayload
   }[]
 }
 
@@ -122,7 +125,9 @@ export async function findPublicEvents(
   const events = (await prisma.event.findMany({
     where: {
       isPublic: true,
-      ...(filters.category && { category: filters.category }),
+      ...(filters.category && filters.category.length > 0
+        ? { category: { in: filters.category } }
+        : {}),
       ...(filters.dateFrom || filters.dateTo
         ? {
             date: {

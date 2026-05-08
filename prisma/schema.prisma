@@ -41,6 +41,7 @@ model User {
   following Follow[] @relation("follower")
   followers Follow[] @relation("following")
 
+  reports Report[] @relation("reporterReports")
   @@map("users")
 }
 
@@ -87,6 +88,7 @@ model Event {
   comments    Comment[]
   reactions   Reaction[]
   invites     EventInvite[]
+  reports     Report[]
   images      EventImage[]
 
   @@map("events")
@@ -151,7 +153,8 @@ model Comment {
   author User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
   event  Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
   post   Post?  @relation(fields: [postId], references: [id], onDelete: Cascade)
-
+  reports Report[]
+  
   @@index([eventId, createdAt])
   @@index([postId, createdAt])
   @@map("comments")
@@ -189,6 +192,46 @@ model Reaction {
   @@unique([userId, eventId], map: "reactions_user_event_unique")
   @@unique([userId, postId], map: "reactions_user_post_unique")
   @@map("reactions")
+}
+
+enum ReportReason {
+  HATE_SPEECH
+  SPAM_OR_FRAUD
+  HARASSMENT
+  INAPPROPRIATE_CONTENT
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  REVIEWED
+  RESOLVED_INVALID
+  RESOLVED_REMOVED
+}
+
+model Report {
+  id         String       @id @default(uuid())
+  reason     ReportReason
+  details    String?
+  status     ReportStatus @default(PENDING)
+  createdAt  DateTime     @default(now())
+  resolvedAt DateTime?
+
+  reporterId String
+  reporter   User   @relation("reporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  eventId   String?
+  event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  commentId String?
+  comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
+
+  @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
+  @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
+  @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
+  @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
+  
+  @@map("reports")
 }
 
 model EventImage {

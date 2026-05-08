@@ -26,7 +26,7 @@ export async function makeUser(
 
 export async function makeEvent(
   authorId: string,
-  overrides: { isPublic?: boolean } = {},
+  overrides: { isPublic?: boolean; category?: string } = {},
 ) {
   const id = uid()
   return testPrisma.event.create({
@@ -36,7 +36,7 @@ export async function makeEvent(
       date: new Date(Date.now() + 86400000),
       latitude: -25.4,
       longitude: -49.3,
-      category: 'Festa',
+      category: overrides.category ?? 'Festa',
       isPublic: overrides.isPublic ?? true,
       authorId,
     },
@@ -70,6 +70,31 @@ export async function makeInvite(
 ) {
   return testPrisma.eventInvite.create({
     data: { eventId, inviterId, invitedId },
+  })
+}
+
+export async function makeReport(
+  reporterId: string,
+  overrides: {
+    eventId?: string
+    commentId?: string
+    reason?:
+      | 'HATE_SPEECH'
+      | 'SPAM_OR_FRAUD'
+      | 'HARASSMENT'
+      | 'INAPPROPRIATE_CONTENT'
+      | 'OTHER'
+    status?: 'PENDING' | 'REVIEWED' | 'RESOLVED_INVALID' | 'RESOLVED_REMOVED'
+  } = {},
+) {
+  return testPrisma.report.create({
+    data: {
+      reporterId,
+      reason: overrides.reason ?? 'SPAM_OR_FRAUD',
+      status: overrides.status ?? 'PENDING',
+      eventId: overrides.eventId,
+      commentId: overrides.commentId,
+    },
   })
 }
 

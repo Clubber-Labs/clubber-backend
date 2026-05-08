@@ -34,7 +34,10 @@ export async function findAllUsers(limit: number, cursor?: string) {
 export async function findUserById(id: string) {
   return prisma.user.findUnique({
     where: { id },
-    select: userProfileSelect,
+    select: {
+      ...userProfileSelect,
+      _count: { select: { events: true } },
+    },
   })
 }
 

@@ -51,6 +51,35 @@ describe('GET /events', () => {
     ).toBe(true)
   })
 
+  it('filtra por múltiplas categorias (?category=A&category=B)', async () => {
+    const user = await makeUser()
+    await makeEvent(user.id, { category: 'Festa', isPublic: true })
+    await makeEvent(user.id, { category: 'Show', isPublic: true })
+    await makeEvent(user.id, { category: 'Esporte', isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?category=Festa&category=Show',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    const categorias = body.data.map((e: { category: string }) => e.category)
+    expect(categorias).toEqual(expect.arrayContaining(['Festa', 'Show']))
+    expect(categorias).not.toContain('Esporte')
+  })
+
+  it('ignora category vazia e não filtra', async () => {
+    const user = await makeUser()
+    await makeEvent(user.id, { category: 'Festa', isPublic: true })
+    await makeEvent(user.id, { category: 'Show', isPublic: true })
+
+    const res = await app.inject({ method: 'GET', url: '/events?category=' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.length).toBe(2)
+  })
+
   it('retorna userReaction e userAttendance quando autenticado', async () => {
     const author = await makeUser()
     const viewer = await makeUser()

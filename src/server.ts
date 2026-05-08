@@ -24,6 +24,7 @@ import { followsRoutes } from './modules/follows/follows.routes'
 import { healthRoutes } from './modules/health/health.routes'
 import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
+import { reportsRoutes } from './modules/reports/reports.routes'
 import { usersRoutes } from './modules/users/users.routes'
 
 const app = fastify().withTypeProvider<ZodTypeProvider>()
@@ -109,6 +110,7 @@ app.register(commentsRoutes)
 app.register(reactionsRoutes)
 app.register(feedRoutes)
 app.register(eventInvitesRoutes)
+app.register(reportsRoutes)
 
 app.addHook('onClose', async () => {
   if (redis) await redis.quit()

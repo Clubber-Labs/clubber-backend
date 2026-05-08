@@ -30,7 +30,7 @@ type SharedListResult = {
 export async function listEvents(query: ListEventsQuery, viewerId?: string) {
   const cacheKey = cache.key(
     'events:public',
-    query.category,
+    query.category ? [...query.category].sort().join(',') : undefined,
     query.dateFrom?.toISOString(),
     query.dateTo?.toISOString(),
     query.limit,
