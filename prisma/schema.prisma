@@ -70,6 +70,7 @@ model Event {
   title       String
   description String
   date        DateTime
+  endDate     DateTime?
   latitude    Float
   longitude   Float
   address     String?
@@ -91,6 +92,8 @@ model Event {
   reports     Report[]
   images      EventImage[]
 
+  @@index([date])
+  @@index([isPublic, date])
   @@map("events")
 }
 

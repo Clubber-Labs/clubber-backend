@@ -1,5 +1,10 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import { buildLifecycleWhere } from '../../lib/event-filters'
+import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
+import type { FeedQuery } from './feed.schema'
+
+const PREFERRED_CATEGORIES_LIMIT = 3
 
 const authorSelect = {
   id: true,
@@ -76,15 +81,41 @@ function resolveReason(
   return { kind: 'self_interaction' }
 }
 
-export async function findFeedEvents(
+export async function findFeedCandidates(
   viewerId: string,
   followingIds: string[],
-  limit: number,
-  cursor?: string,
+  query: FeedQuery,
+  take: number,
 ) {
+  const now = new Date()
+
+  const lifecycleWhere = buildLifecycleWhere({
+    includePast: query.includePast,
+    status: query.status,
+    now,
+  })
+
+  const dateRange =
+    query.dateFrom || query.dateTo
+      ? {
+          date: {
+            ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+            ...(query.dateTo && { lte: new Date(query.dateTo) }),
+          },
+        }
+      : null
+
+  const categoryWhere =
+    query.category && query.category.length > 0
+      ? { category: { in: query.category } }
+      : null
+
   const events = await prisma.event.findMany({
     where: {
       AND: [
+        lifecycleWhere,
+        ...(categoryWhere ? [categoryWhere] : []),
+        ...(dateRange ? [dateRange] : []),
         {
           OR: [
             { authorId: { in: [...followingIds, viewerId] } },
@@ -102,8 +133,7 @@ export async function findFeedEvents(
         },
       ],
     },
-    take: limit,
-    ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    take,
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: {
       author: { select: authorSelect },
@@ -243,6 +273,7 @@ export async function findFeedEvents(
       userReaction,
       userAttendance,
       reason,
+      status: computeEventStatus(event, now),
     }
   })
 }
@@ -253,4 +284,26 @@ export async function findFollowingIds(userId: string) {
     select: { followingId: true },
   })
   return follows.map((f) => f.followingId)
+}
+
+/**
+ * Top categorias do histórico do usuário (eventos criados ou com presença).
+ * Retorna até PREFERRED_CATEGORIES_LIMIT, em ordem de frequência decrescente.
+ */
+export async function findUserPreferredCategories(
+  userId: string,
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ category: string }[]>(
+    Prisma.sql`
+      SELECT e.category
+      FROM events e
+      LEFT JOIN event_attendances a
+        ON a."eventId" = e.id AND a."userId" = ${userId}
+      WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
+      GROUP BY e.category
+      ORDER BY COUNT(*) DESC
+      LIMIT ${PREFERRED_CATEGORIES_LIMIT}
+    `,
+  )
+  return rows.map((r) => r.category)
 }

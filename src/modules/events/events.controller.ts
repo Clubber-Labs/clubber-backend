@@ -4,6 +4,7 @@ import type {
   CreateEventBody,
   EventParams,
   ListEventsQuery,
+  MapEventsQuery,
   UpdateEventBody,
   UserEventsParams,
   UserEventsQuery,
@@ -14,6 +15,7 @@ import {
   editEvent,
   getEventById,
   listEvents,
+  listEventsForMap,
   listUserEvents,
   removeEvent,
 } from './events.service'
@@ -23,6 +25,15 @@ export async function getEvents(request: FastifyRequest, reply: FastifyReply) {
   const viewerId = (request.user as { sub: string } | undefined)?.sub
   const result = await listEvents(query, viewerId)
   return reply.send(result)
+}
+
+export async function getEventsMap(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const query = request.query as MapEventsQuery
+  const points = await listEventsForMap(query)
+  return reply.send(points)
 }
 
 export async function getEvent(request: FastifyRequest, reply: FastifyReply) {

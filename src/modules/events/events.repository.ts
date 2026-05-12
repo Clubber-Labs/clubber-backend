@@ -1,8 +1,20 @@
 import type { Prisma } from '@prisma/client'
+import { buildLifecycleWhere } from '../../lib/event-filters'
+import {
+  computeEventStatus,
+  type EventStatus,
+} from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
+import {
+  type Bbox,
+  findEventIdsByDistance,
+  findEventIdsInBbox,
+  findEventIdsWithinRadius,
+} from '../../lib/spatial'
 import type {
   CreateEventBody,
   ListEventsQuery,
+  MapEventsQuery,
   UpdateEventBody,
 } from './events.schema'
 
@@ -79,11 +91,13 @@ export type NormalizedEvent = Omit<
   }[]
   userReaction: string | null
   userAttendance: string | null
+  status: EventStatus
 }
 
 function normalizeEvent(
   event: PrismaEvent,
   viewerId?: string,
+  now: Date = new Date(),
 ): NormalizedEvent {
   const { reactions, attendances, comments, ...rest } = event
 
@@ -98,18 +112,53 @@ function normalizeEvent(
     userReaction: viewerId && reactions?.length ? reactions[0].type : null,
     userAttendance:
       viewerId && attendances?.length ? attendances[0].type : null,
+    status: computeEventStatus(event, now),
   }
 }
 
 export async function findPublicEvents(
-  filters: Pick<ListEventsQuery, 'category' | 'dateFrom' | 'dateTo'>,
+  filters: Pick<
+    ListEventsQuery,
+    | 'category'
+    | 'status'
+    | 'includePast'
+    | 'dateFrom'
+    | 'dateTo'
+    | 'nearLat'
+    | 'nearLng'
+    | 'radiusKm'
+    | 'orderBy'
+  >,
   limit: number,
   cursor?: string,
   viewerId?: string,
+  now: Date = new Date(),
 ) {
+  let spatialIdFilter: string[] | undefined
+
+  if (filters.orderBy === 'distance' && filters.nearLat !== undefined && filters.nearLng !== undefined) {
+    spatialIdFilter = await findEventIdsByDistance(
+      { latitude: filters.nearLat, longitude: filters.nearLng },
+      limit,
+    )
+    if (spatialIdFilter.length === 0) return []
+  } else if (filters.radiusKm !== undefined && filters.nearLat !== undefined && filters.nearLng !== undefined) {
+    spatialIdFilter = await findEventIdsWithinRadius(
+      { latitude: filters.nearLat, longitude: filters.nearLng },
+      filters.radiusKm,
+    )
+    if (spatialIdFilter.length === 0) return []
+  }
+
   const events = (await prisma.event.findMany({
     where: {
       isPublic: true,
+      ...buildLifecycleWhere({
+        includePast: filters.includePast ?? false,
+        status: filters.status,
+        now,
+      }),
+      ...(spatialIdFilter && { id: { in: spatialIdFilter } }),
       ...(filters.category && filters.category.length > 0
         ? { category: { in: filters.category } }
         : {}),
@@ -123,21 +172,19 @@ export async function findPublicEvents(
         : {}),
     },
     take: limit,
-    ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    ...(cursor && filters.orderBy !== 'distance' && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ date: 'asc' }, { id: 'asc' }],
     include: buildEventIncludes(viewerId),
   })) as unknown as PrismaEvent[]
 
-  return events.map((e) => normalizeEvent(e, viewerId))
-}
+  const ordered =
+    filters.orderBy === 'distance' && spatialIdFilter
+      ? spatialIdFilter
+          .map((id) => events.find((e) => e.id === id))
+          .filter((e): e is PrismaEvent => e !== undefined)
+      : events
 
-/** @deprecated Use findPublicEvents */
-export async function findAllPublicEvents() {
-  return prisma.event.findMany({
-    where: { isPublic: true },
-    include: { author: { select: authorSelect } },
-    orderBy: { date: 'asc' },
-  })
+  return ordered.map((e) => normalizeEvent(e, viewerId, now))
 }
 
 export async function findEventsByAuthor(
@@ -145,6 +192,7 @@ export async function findEventsByAuthor(
   limit: number,
   viewerId?: string,
   cursor?: string,
+  now: Date = new Date(),
 ) {
   const where: Prisma.EventWhereInput = {
     authorId,
@@ -158,7 +206,7 @@ export async function findEventsByAuthor(
     include: buildEventIncludes(viewerId),
   })) as unknown as PrismaEvent[]
 
-  return events.map((e) => normalizeEvent(e, viewerId))
+  return events.map((e) => normalizeEvent(e, viewerId, now))
 }
 
 export async function findEventAccess(id: string) {
@@ -168,14 +216,116 @@ export async function findEventAccess(id: string) {
   })
 }
 
-export async function findEventById(id: string, viewerId?: string) {
+export async function findEventById(
+  id: string,
+  viewerId?: string,
+  now: Date = new Date(),
+) {
   const event = (await prisma.event.findUnique({
     where: { id },
     include: buildEventIncludes(viewerId),
   })) as unknown as PrismaEvent | null
 
   if (!event) return null
-  return normalizeEvent(event, viewerId)
+  return normalizeEvent(event, viewerId, now)
+}
+
+export type MapEventPoint = {
+  id: string
+  latitude: number
+  longitude: number
+  weight: number
+}
+
+/**
+ * Boost aditivo no peso do heatmap por status do evento.
+ * Garante que ONGOING sem confirmados ainda apareça com calor visível,
+ * e que SOON tenha leve destaque sobre UPCOMING distante.
+ */
+const STATUS_HEATMAP_BOOST: Record<EventStatus, number> = {
+  ONGOING: 20,
+  SOON: 5,
+  UPCOMING: 0,
+  PAST: 0,
+  CANCELED: 0,
+}
+
+/**
+ * Eventos para o heatmap dentro do bbox.
+ * Peso = 2 * CONFIRMED + 1 * INTERESTED + STATUS_HEATMAP_BOOST[status].
+ * Mobile renderiza heatmap a partir desses pontos brutos.
+ */
+export async function findEventsForMap(
+  query: MapEventsQuery,
+  now: Date = new Date(),
+): Promise<MapEventPoint[]> {
+  const bbox: Bbox = {
+    north: query.bboxNorth,
+    south: query.bboxSouth,
+    east: query.bboxEast,
+    west: query.bboxWest,
+  }
+
+  const idsInBbox = await findEventIdsInBbox(bbox)
+  if (idsInBbox.length === 0) return []
+
+  const events = await prisma.event.findMany({
+    where: {
+      id: { in: idsInBbox },
+      ...buildLifecycleWhere({
+        includePast: false,
+        status: query.status,
+        now,
+      }),
+      ...(query.category && query.category.length > 0
+        ? { category: { in: query.category } }
+        : {}),
+      ...(query.dateFrom || query.dateTo
+        ? {
+            date: {
+              ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+              ...(query.dateTo && { lte: new Date(query.dateTo) }),
+            },
+          }
+        : {}),
+    },
+    select: {
+      id: true,
+      latitude: true,
+      longitude: true,
+      date: true,
+      endDate: true,
+      canceledAt: true,
+    },
+  })
+  if (events.length === 0) return []
+
+  const eventIds = events.map((e) => e.id)
+  const grouped = await prisma.eventAttendance.groupBy({
+    by: ['eventId', 'type'],
+    where: { eventId: { in: eventIds } },
+    _count: { _all: true },
+  })
+
+  const engagement = new Map<string, number>()
+  for (const row of grouped) {
+    const w =
+      row.type === 'CONFIRMED' ? 2 : row.type === 'INTERESTED' ? 1 : 0
+    engagement.set(
+      row.eventId,
+      (engagement.get(row.eventId) ?? 0) + row._count._all * w,
+    )
+  }
+
+  return events.map((e) => {
+    const status = computeEventStatus(e, now)
+    return {
+      id: e.id,
+      latitude: e.latitude,
+      longitude: e.longitude,
+      weight: (engagement.get(e.id) ?? 0) + STATUS_HEATMAP_BOOST[status],
+    }
+  })
 }
 
 export async function createEvent(
@@ -185,6 +335,7 @@ export async function createEvent(
     data: {
       ...data,
       date: new Date(data.date),
+      ...(data.endDate && { endDate: new Date(data.endDate) }),
     },
   })
 }

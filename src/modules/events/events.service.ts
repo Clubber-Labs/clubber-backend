@@ -8,28 +8,30 @@ import {
   findEventById,
   findEventImageKeys,
   findEventsByAuthor,
+  findEventsForMap,
   findPublicEvents,
   updateEvent,
 } from './events.repository'
 import type {
   CreateEventBody,
   ListEventsQuery,
+  MapEventsQuery,
   UpdateEventBody,
 } from './events.schema'
 
 type Logger = { error: (msg: string) => void }
 
 export async function listEvents(query: ListEventsQuery, viewerId?: string) {
-  const { category, dateFrom, dateTo, limit, cursor } = query
-  const events = await findPublicEvents(
-    { category, dateFrom, dateTo },
-    limit,
-    cursor,
-    viewerId,
-  )
+  const events = await findPublicEvents(query, query.limit, query.cursor, viewerId)
   const nextCursor =
-    events.length === limit ? (events[events.length - 1].id as string) : null
+    query.orderBy !== 'distance' && events.length === query.limit
+      ? (events[events.length - 1].id as string)
+      : null
   return { data: events, nextCursor }
+}
+
+export async function listEventsForMap(query: MapEventsQuery) {
+  return findEventsForMap(query)
 }
 
 export async function listUserEvents(
