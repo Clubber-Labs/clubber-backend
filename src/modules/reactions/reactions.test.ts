@@ -230,6 +230,55 @@ describe('POST /comments/:commentId/reactions', () => {
 
     expect(res.statusCode).toBe(404)
   })
+
+  it('curtir comentário de post (resolve evento via post)', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    await makeAttendance(author.id, event.id, 'CONFIRMED')
+    const post = await makePost(app, author.id, event.id)
+    const commentRes = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário no post' },
+    })
+    const comment = commentRes.json()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/comments/${comment.id}/reactions`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      userId: author.id,
+      commentId: comment.id,
+    })
+  })
+
+  it('retorna 403 ao curtir comentário de post em evento privado sem acesso', async () => {
+    const author = await makeUser()
+    const stranger = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeAttendance(author.id, event.id, 'CONFIRMED')
+    const post = await makePost(app, author.id, event.id)
+    const commentRes = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário em evento privado' },
+    })
+    const comment = commentRes.json()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/comments/${comment.id}/reactions`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
 })
 
 describe('DELETE /comments/:commentId/reactions', () => {

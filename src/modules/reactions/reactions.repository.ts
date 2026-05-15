@@ -9,7 +9,7 @@ export async function createEventReaction(userId: string, eventId: string) {
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === 'P2002'
     ) {
-      return prisma.reaction.findUnique({
+      return prisma.reaction.findUniqueOrThrow({
         where: { userId_eventId: { userId, eventId } },
       })
     }
@@ -25,7 +25,7 @@ export async function createPostReaction(userId: string, postId: string) {
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === 'P2002'
     ) {
-      return prisma.reaction.findUnique({
+      return prisma.reaction.findUniqueOrThrow({
         where: { userId_postId: { userId, postId } },
       })
     }
@@ -46,7 +46,7 @@ export async function createCommentReaction(
       e instanceof Prisma.PrismaClientKnownRequestError &&
       e.code === 'P2002'
     ) {
-      return prisma.commentReaction.findUnique({
+      return prisma.commentReaction.findUniqueOrThrow({
         where: { userId_commentId: { userId, commentId } },
       })
     }

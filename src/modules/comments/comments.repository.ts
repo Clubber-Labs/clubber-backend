@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
-const authorSelect = {
+export const commentAuthorSelect = {
   id: true,
   name: true,
   lastname: true,
@@ -9,9 +9,11 @@ const authorSelect = {
   avatarUrl: true,
 } as const
 
-function buildCommentInclude(viewerId?: string): Prisma.CommentInclude {
+const authorSelect = commentAuthorSelect
+
+export function buildCommentInclude(viewerId?: string): Prisma.CommentInclude {
   return {
-    author: { select: authorSelect },
+    author: { select: commentAuthorSelect },
     _count: { select: { reactions: true } },
     ...(viewerId && {
       reactions: {
