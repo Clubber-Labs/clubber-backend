@@ -10,9 +10,6 @@ import {
 } from './feed.repository'
 import type { FeedQuery } from './feed.schema'
 
-const CANDIDATE_MULTIPLIER = 3
-const CANDIDATE_CAP = 100
-
 export async function getFeed(userId: string, query: FeedQuery) {
   const now = new Date()
 
@@ -21,10 +18,19 @@ export async function getFeed(userId: string, query: FeedQuery) {
     findUserPreferredCategories(userId),
   ])
 
-  const take = Math.min(query.limit * CANDIDATE_MULTIPLIER, CANDIDATE_CAP)
-  const candidates = await findFeedCandidates(userId, followingIds, query, take)
+  const candidates = await findFeedCandidates(
+    userId,
+    followingIds,
+    query,
+    query.limit,
+    query.cursor,
+  )
 
-  const scored = candidates
+  if (candidates.length === 0) {
+    return { data: [], nextCursor: null }
+  }
+
+  const data = candidates
     .map((event) => ({
       event,
       score: rankEvent(
@@ -39,19 +45,10 @@ export async function getFeed(userId: string, query: FeedQuery) {
       ),
     }))
     .sort((a, b) => b.score - a.score)
+    .map((s) => s.event)
 
-  let startIndex = 0
-  if (query.cursor) {
-    const cursorIdx = scored.findIndex((s) => s.event.id === query.cursor)
-    if (cursorIdx === -1) {
-      return { data: [], nextCursor: null }
-    }
-    startIndex = cursorIdx + 1
-  }
-  const page = scored.slice(startIndex, startIndex + query.limit)
-  const data = page.map((s) => s.event)
-  const nextCursor =
-    page.length === query.limit ? data[data.length - 1].id : null
+  const hasMore = candidates.length === query.limit
+  const nextCursor = hasMore ? candidates[candidates.length - 1].id : null
 
   return { data, nextCursor }
 }

@@ -243,6 +243,38 @@ describe('GET /events', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('retorna 400 quando orderBy=distance combinado com cursor', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&cursor=00000000-0000-0000-0000-000000000000',
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('orderBy=distance respeita radiusKm quando combinados', async () => {
+    const user = await makeUser()
+    const inside = await makeEvent(user.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+      isPublic: true,
+    })
+    await makeEvent(user.id, {
+      latitude: -23.5,
+      longitude: -46.6,
+      isPublic: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&radiusKm=50&orderBy=distance',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toEqual([inside.id])
+  })
+
   it('retorna userReaction e userAttendance quando autenticado', async () => {
     const author = await makeUser()
     const viewer = await makeUser()
@@ -545,6 +577,44 @@ describe('POST /events', () => {
 
     expect(res.statusCode).toBe(201)
     expect(new Date(res.json().endDate).getTime()).toBe(end.getTime())
+  })
+
+  it('retorna 400 quando latitude fora de [-90, 90]', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Inválido',
+        description: 'Descrição completa',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: 200,
+        longitude: -49.3,
+        category: 'Festa',
+        isPublic: true,
+      },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 quando longitude fora de [-180, 180]', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Inválido',
+        description: 'Descrição completa',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: 200,
+        category: 'Festa',
+        isPublic: true,
+      },
+    })
+    expect(res.statusCode).toBe(400)
   })
 
   it('retorna 400 se endDate <= date', async () => {

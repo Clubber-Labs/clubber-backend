@@ -77,8 +77,8 @@ export function buildLifecycleWhere(opts: {
       base,
       {
         OR: [
-          { endDate: { gte: opts.now } },
-          { AND: [{ endDate: null }, { date: { gte: pastBoundary } }] },
+          { endDate: { gt: opts.now } },
+          { AND: [{ endDate: null }, { date: { gt: pastBoundary } }] },
         ],
       },
     ],

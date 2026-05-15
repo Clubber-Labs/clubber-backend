@@ -517,6 +517,24 @@ describe('GET /feed — ranking', () => {
     expect(ids).toEqual([festa.id, show.id])
   })
 
+  it('NOT_INTERESTED de amigo não traz evento pro feed', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const author = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+    const event = await makeEvent(author.id, { isPublic: true })
+    await makeAttendance(friend.id, event.id, 'NOT_INTERESTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeUndefined()
+  })
+
   it('cursor pagina sem repetir eventos', async () => {
     const viewer = await makeUser()
     for (let i = 0; i < 6; i++) {

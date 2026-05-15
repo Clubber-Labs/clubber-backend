@@ -1,10 +1,12 @@
-import { Prisma } from '@prisma/client'
+import { type AttendanceType, Prisma } from '@prisma/client'
 import { buildLifecycleWhere } from '../../lib/event-filters'
 import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import type { FeedQuery } from './feed.schema'
 
 const PREFERRED_CATEGORIES_LIMIT = 3
+
+const POSITIVE_ATTENDANCE: AttendanceType[] = ['CONFIRMED', 'INTERESTED']
 
 const authorSelect = {
   id: true,
@@ -86,6 +88,7 @@ export async function findFeedCandidates(
   followingIds: string[],
   query: FeedQuery,
   take: number,
+  cursor?: string,
 ) {
   const now = new Date()
 
@@ -119,7 +122,14 @@ export async function findFeedCandidates(
         {
           OR: [
             { authorId: { in: [...followingIds, viewerId] } },
-            { attendances: { some: { userId: { in: followingIds } } } },
+            {
+              attendances: {
+                some: {
+                  userId: { in: followingIds },
+                  type: { in: POSITIVE_ATTENDANCE },
+                },
+              },
+            },
             { reactions: { some: { userId: { in: followingIds } } } },
             { comments: { some: { authorId: { in: followingIds } } } },
           ],
@@ -134,11 +144,15 @@ export async function findFeedCandidates(
       ],
     },
     take,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: {
       author: { select: authorSelect },
       attendances: {
-        where: { userId: { in: followingIds } },
+        where: {
+          userId: { in: followingIds },
+          type: { in: POSITIVE_ATTENDANCE },
+        },
         include: { user: { select: authorSelect } },
         orderBy: { createdAt: 'desc' as const },
         take: 3,
@@ -164,7 +178,11 @@ export async function findFeedCandidates(
         },
       },
       _count: {
-        select: { attendances: true, comments: true, reactions: true },
+        select: {
+          attendances: { where: { type: { in: POSITIVE_ATTENDANCE } } },
+          comments: true,
+          reactions: true,
+        },
       },
     },
   })
@@ -298,10 +316,12 @@ export async function findUserPreferredCategories(
       SELECT e.category
       FROM events e
       LEFT JOIN event_attendances a
-        ON a."eventId" = e.id AND a."userId" = ${userId}
+        ON a."eventId" = e.id
+        AND a."userId" = ${userId}
+        AND a.type IN ('CONFIRMED', 'INTERESTED')
       WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
       GROUP BY e.category
-      ORDER BY COUNT(*) DESC
+      ORDER BY COUNT(*) DESC, e.category ASC
       LIMIT ${PREFERRED_CATEGORIES_LIMIT}
     `,
   )

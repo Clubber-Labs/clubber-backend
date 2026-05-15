@@ -39,8 +39,8 @@ export const createEventSchema = z
     description: z.string().min(10),
     date: z.coerce.date(),
     endDate: z.coerce.date().optional(),
-    latitude: z.number(),
-    longitude: z.number(),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
     address: z.string().optional(),
     category: z.string().min(2),
     isPublic: z.boolean().default(true),
@@ -58,8 +58,8 @@ export const updateEventSchema = z
     description: z.string().min(10).optional(),
     date: z.coerce.date().optional(),
     endDate: z.coerce.date().nullable().optional(),
-    latitude: z.number().optional(),
-    longitude: z.number().optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
     category: z.string().min(2).optional(),
     isPublic: z.boolean().optional(),
     canceledAt: z.coerce.date().nullable().optional(),
@@ -97,6 +97,10 @@ export const listEventsQuerySchema = z.object({
 .refine(
   (q) => q.orderBy !== 'distance' || (q.nearLat !== undefined && q.nearLng !== undefined),
   { message: 'orderBy=distance exige nearLat e nearLng', path: ['orderBy'] },
+)
+.refine(
+  (q) => q.orderBy !== 'distance' || q.cursor === undefined,
+  { message: 'orderBy=distance não suporta paginação via cursor', path: ['cursor'] },
 )
 
 export const mapEventsQuerySchema = z

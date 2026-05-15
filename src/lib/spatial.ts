@@ -10,11 +10,16 @@ export type Bbox = {
 
 export type LatLng = { latitude: number; longitude: number }
 
-export async function findEventIdsInBbox(bbox: Bbox): Promise<string[]> {
+export async function findEventIdsInBbox(
+  bbox: Bbox,
+  limit?: number,
+): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>(
     Prisma.sql`
       SELECT id FROM events
       WHERE location && ST_MakeEnvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326)::geography
+      ORDER BY "createdAt" DESC
+      ${limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty}
     `,
   )
   return rows.map((r) => r.id)
@@ -41,11 +46,18 @@ export async function findEventIdsWithinRadius(
 export async function findEventIdsByDistance(
   center: LatLng,
   limit: number,
+  radiusKm?: number,
 ): Promise<string[]> {
+  const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${center.longitude}, ${center.latitude}), 4326)::geography`
+  const whereRadius =
+    radiusKm !== undefined
+      ? Prisma.sql`WHERE ST_DWithin(location, ${point}, ${radiusKm * 1000})`
+      : Prisma.empty
   const rows = await prisma.$queryRaw<{ id: string }[]>(
     Prisma.sql`
       SELECT id FROM events
-      ORDER BY location <-> ST_SetSRID(ST_MakePoint(${center.longitude}, ${center.latitude}), 4326)::geography
+      ${whereRadius}
+      ORDER BY location <-> ${point}
       LIMIT ${limit}
     `,
   )

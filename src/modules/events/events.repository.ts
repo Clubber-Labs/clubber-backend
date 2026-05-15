@@ -134,8 +134,8 @@ export async function findPublicEvents(
   viewerId?: string,
   now: Date = new Date(),
 ) {
-  const KNN_OVERFETCH = 5
-  const KNN_OVERFETCH_CAP = 500
+  const KNN_OVERFETCH = 20
+  const KNN_OVERFETCH_CAP = 1000
 
   let spatialIdFilter: string[] | undefined
 
@@ -143,6 +143,7 @@ export async function findPublicEvents(
     spatialIdFilter = await findEventIdsByDistance(
       { latitude: filters.nearLat, longitude: filters.nearLng },
       Math.min(limit * KNN_OVERFETCH, KNN_OVERFETCH_CAP),
+      filters.radiusKm,
     )
     if (spatialIdFilter.length === 0) return []
   } else if (filters.radiusKm !== undefined && filters.nearLat !== undefined && filters.nearLng !== undefined) {
@@ -260,6 +261,9 @@ const STATUS_HEATMAP_BOOST: Record<EventStatus, number> = {
   CANCELED: 0,
 }
 
+const MAP_BBOX_FETCH_CAP = 2000
+const MAP_RESPONSE_CAP = 500
+
 /**
  * Eventos para o heatmap dentro do bbox.
  * Peso = 2 * CONFIRMED + 1 * INTERESTED + STATUS_HEATMAP_BOOST[status].
@@ -276,7 +280,7 @@ export async function findEventsForMap(
     west: query.bboxWest,
   }
 
-  const idsInBbox = await findEventIdsInBbox(bbox)
+  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return []
 
   const events = await prisma.event.findMany({
@@ -328,7 +332,7 @@ export async function findEventsForMap(
     )
   }
 
-  return events.map((e) => {
+  const points = events.map((e) => {
     const status = computeEventStatus(e, now)
     return {
       id: e.id,
@@ -337,6 +341,8 @@ export async function findEventsForMap(
       weight: (engagement.get(e.id) ?? 0) + STATUS_HEATMAP_BOOST[status],
     }
   })
+  points.sort((a, b) => b.weight - a.weight)
+  return points.slice(0, MAP_RESPONSE_CAP)
 }
 
 export async function createEvent(
