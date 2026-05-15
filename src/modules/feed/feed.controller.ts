@@ -6,7 +6,6 @@ export async function getMainFeed(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const { limit, cursor } = request.query as FeedQuery
-  const result = await getFeed(request.user.sub, limit, cursor)
+  const result = await getFeed(request.user.sub, request.query as FeedQuery)
   return reply.send(result)
 }

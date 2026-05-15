@@ -1,49 +1,127 @@
 import { z } from 'zod'
+import { EVENT_STATUSES } from '../../lib/event-lifecycle'
 
-export const createEventSchema = z.object({
-  title: z.string().min(3),
-  description: z.string().min(10),
-  date: z.coerce.date(),
-  latitude: z.number(),
-  longitude: z.number(),
-  address: z.string().optional(),
-  category: z.string().min(2),
-  isPublic: z.boolean().default(true),
-  maxCapacity: z.number().optional(),
-  canceledAt: z.coerce.date().optional(),
-})
+const eventStatusEnum = z.enum(EVENT_STATUSES)
 
-export const updateEventSchema = z.object({
-  title: z.string().min(3).optional(),
-  description: z.string().min(10).optional(),
-  date: z.coerce.date().optional(),
-  latitude: z.number().optional(),
-  longitude: z.number().optional(),
-  category: z.string().min(2).optional(),
-  isPublic: z.boolean().optional(),
-})
+/** Boolean a partir de querystring: aceita true/false como string ou boolean. */
+export const booleanQuery = z
+  .union([z.boolean(), z.literal('true'), z.literal('false')])
+  .transform((v) => v === true || v === 'true')
+
+export const statusFilter = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .transform((value) => {
+    if (value === undefined) return undefined
+    const list = (Array.isArray(value) ? value : [value])
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0)
+    const unique = Array.from(new Set(list))
+    return unique.length > 0 ? unique : undefined
+  })
+  .pipe(z.array(eventStatusEnum).optional())
+
+export const categoryFilter = z
+  .union([z.string(), z.array(z.string())])
+  .optional()
+  .transform((value) => {
+    if (value === undefined) return undefined
+    const list = (Array.isArray(value) ? value : [value])
+      .map((v) => v.trim())
+      .filter((v) => v.length > 0)
+    const unique = Array.from(new Set(list))
+    return unique.length > 0 ? unique : undefined
+  })
+
+export const createEventSchema = z
+  .object({
+    title: z.string().min(3),
+    description: z.string().min(10),
+    date: z.coerce.date(),
+    endDate: z.coerce.date().optional(),
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    address: z.string().optional(),
+    category: z.string().min(2),
+    isPublic: z.boolean().default(true),
+    maxCapacity: z.number().optional(),
+    canceledAt: z.coerce.date().optional(),
+  })
+  .refine((v) => !v.endDate || v.endDate > v.date, {
+    message: 'endDate deve ser depois de date',
+    path: ['endDate'],
+  })
+
+export const updateEventSchema = z
+  .object({
+    title: z.string().min(3).optional(),
+    description: z.string().min(10).optional(),
+    date: z.coerce.date().optional(),
+    endDate: z.coerce.date().nullable().optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    category: z.string().min(2).optional(),
+    isPublic: z.boolean().optional(),
+    canceledAt: z.coerce.date().nullable().optional(),
+  })
+  .refine((v) => !v.date || !v.endDate || v.endDate > v.date, {
+    message: 'endDate deve ser depois de date',
+    path: ['endDate'],
+  })
 
 export const eventParamSchema = z.object({
   id: z.string().uuid(),
 })
 
 export const listEventsQuerySchema = z.object({
-  category: z
-    .union([z.string(), z.array(z.string())])
-    .optional()
-    .transform((value) => {
-      if (value === undefined) return undefined
-      const list = (Array.isArray(value) ? value : [value])
-        .map((v) => v.trim())
-        .filter((v) => v.length > 0)
-      const unique = Array.from(new Set(list))
-      return unique.length > 0 ? unique : undefined
-    }),
+  category: categoryFilter,
+  status: statusFilter,
+  includePast: booleanQuery.default(false),
   dateFrom: z.coerce.date().optional(),
   dateTo: z.coerce.date().optional(),
+  nearLat: z.coerce.number().min(-90).max(90).optional(),
+  nearLng: z.coerce.number().min(-180).max(180).optional(),
+  radiusKm: z.coerce.number().positive().max(500).optional(),
+  orderBy: z.enum(['date', 'distance']).default('date'),
   cursor: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(50).default(20),
 })
+.refine(
+  (q) => (q.nearLat === undefined) === (q.nearLng === undefined),
+  { message: 'nearLat e nearLng devem ser fornecidos juntos', path: ['nearLat'] },
+)
+.refine(
+  (q) => q.radiusKm === undefined || (q.nearLat !== undefined && q.nearLng !== undefined),
+  { message: 'radiusKm exige nearLat e nearLng', path: ['radiusKm'] },
+)
+.refine(
+  (q) => q.orderBy !== 'distance' || (q.nearLat !== undefined && q.nearLng !== undefined),
+  { message: 'orderBy=distance exige nearLat e nearLng', path: ['orderBy'] },
+)
+.refine(
+  (q) => q.orderBy !== 'distance' || q.cursor === undefined,
+  { message: 'orderBy=distance não suporta paginação via cursor', path: ['cursor'] },
+)
+
+export const mapEventsQuerySchema = z
+  .object({
+    bboxNorth: z.coerce.number().min(-90).max(90),
+    bboxSouth: z.coerce.number().min(-90).max(90),
+    bboxEast: z.coerce.number().min(-180).max(180),
+    bboxWest: z.coerce.number().min(-180).max(180),
+    category: categoryFilter,
+    status: statusFilter,
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional(),
+  })
+  .refine((q) => q.bboxNorth > q.bboxSouth, {
+    message: 'bboxNorth deve ser maior que bboxSouth',
+    path: ['bboxNorth'],
+  })
+  .refine((q) => q.bboxEast > q.bboxWest, {
+    message: 'bboxEast deve ser maior que bboxWest',
+    path: ['bboxEast'],
+  })
 
 export const userEventsParamsSchema = z.object({
   userId: z.string().uuid(),
@@ -60,3 +138,4 @@ export type CreateEventBody = z.infer<typeof createEventSchema>
 export type UpdateEventBody = z.infer<typeof updateEventSchema>
 export type EventParams = z.infer<typeof eventParamSchema>
 export type ListEventsQuery = z.infer<typeof listEventsQuerySchema>
+export type MapEventsQuery = z.infer<typeof mapEventsQuerySchema>

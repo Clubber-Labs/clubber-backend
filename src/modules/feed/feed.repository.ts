@@ -1,5 +1,12 @@
-import type { Prisma } from '@prisma/client'
+import { type AttendanceType, Prisma } from '@prisma/client'
+import { buildLifecycleWhere } from '../../lib/event-filters'
+import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
+import type { FeedQuery } from './feed.schema'
+
+const PREFERRED_CATEGORIES_LIMIT = 3
+
+const POSITIVE_ATTENDANCE: AttendanceType[] = ['CONFIRMED', 'INTERESTED']
 
 const authorSelect = {
   id: true,
@@ -76,19 +83,53 @@ function resolveReason(
   return { kind: 'self_interaction' }
 }
 
-export async function findFeedEvents(
+export async function findFeedCandidates(
   viewerId: string,
   followingIds: string[],
-  limit: number,
+  query: FeedQuery,
+  take: number,
   cursor?: string,
 ) {
+  const now = new Date()
+
+  const lifecycleWhere = buildLifecycleWhere({
+    includePast: query.includePast,
+    status: query.status,
+    now,
+  })
+
+  const dateRange =
+    query.dateFrom || query.dateTo
+      ? {
+          date: {
+            ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+            ...(query.dateTo && { lte: new Date(query.dateTo) }),
+          },
+        }
+      : null
+
+  const categoryWhere =
+    query.category && query.category.length > 0
+      ? { category: { in: query.category } }
+      : null
+
   const events = await prisma.event.findMany({
     where: {
       AND: [
+        lifecycleWhere,
+        ...(categoryWhere ? [categoryWhere] : []),
+        ...(dateRange ? [dateRange] : []),
         {
           OR: [
             { authorId: { in: [...followingIds, viewerId] } },
-            { attendances: { some: { userId: { in: followingIds } } } },
+            {
+              attendances: {
+                some: {
+                  userId: { in: followingIds },
+                  type: { in: POSITIVE_ATTENDANCE },
+                },
+              },
+            },
             { reactions: { some: { userId: { in: followingIds } } } },
             { comments: { some: { authorId: { in: followingIds } } } },
           ],
@@ -102,13 +143,16 @@ export async function findFeedEvents(
         },
       ],
     },
-    take: limit,
+    take,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
     include: {
       author: { select: authorSelect },
       attendances: {
-        where: { userId: { in: followingIds } },
+        where: {
+          userId: { in: followingIds },
+          type: { in: POSITIVE_ATTENDANCE },
+        },
         include: { user: { select: authorSelect } },
         orderBy: { createdAt: 'desc' as const },
         take: 3,
@@ -134,7 +178,11 @@ export async function findFeedEvents(
         },
       },
       _count: {
-        select: { attendances: true, comments: true, reactions: true },
+        select: {
+          attendances: { where: { type: { in: POSITIVE_ATTENDANCE } } },
+          comments: true,
+          reactions: true,
+        },
       },
     },
   })
@@ -243,6 +291,7 @@ export async function findFeedEvents(
       userReaction,
       userAttendance,
       reason,
+      status: computeEventStatus(event, now),
     }
   })
 }
@@ -253,4 +302,28 @@ export async function findFollowingIds(userId: string) {
     select: { followingId: true },
   })
   return follows.map((f) => f.followingId)
+}
+
+/**
+ * Top categorias do histórico do usuário (eventos criados ou com presença).
+ * Retorna até PREFERRED_CATEGORIES_LIMIT, em ordem de frequência decrescente.
+ */
+export async function findUserPreferredCategories(
+  userId: string,
+): Promise<string[]> {
+  const rows = await prisma.$queryRaw<{ category: string }[]>(
+    Prisma.sql`
+      SELECT e.category
+      FROM events e
+      LEFT JOIN event_attendances a
+        ON a."eventId" = e.id
+        AND a."userId" = ${userId}
+        AND a.type IN ('CONFIRMED', 'INTERESTED')
+      WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
+      GROUP BY e.category
+      ORDER BY COUNT(*) DESC, e.category ASC
+      LIMIT ${PREFERRED_CATEGORIES_LIMIT}
+    `,
+  )
+  return rows.map((r) => r.category)
 }
