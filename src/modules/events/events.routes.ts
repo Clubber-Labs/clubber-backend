@@ -8,6 +8,7 @@ import {
   deleteEventHandler,
   getEvent,
   getEvents,
+  getEventsMap,
   postEvent,
   putEvent,
   uploadEventImageHandler,
@@ -16,6 +17,7 @@ import {
   createEventSchema,
   eventParamSchema,
   listEventsQuerySchema,
+  mapEventsQuerySchema,
   updateEventSchema,
 } from './events.schema'
 
@@ -32,6 +34,15 @@ export async function eventsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticateOptional],
     },
     getEvents,
+  )
+
+  api.get(
+    '/events/map',
+    {
+      schema: { querystring: mapEventsQuerySchema },
+      onRequest: [app.authenticateOptional],
+    },
+    getEventsMap,
   )
 
   api.get(

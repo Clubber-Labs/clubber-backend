@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeUser } from '../../test/factories'
+import { makeEvent, makeFollow, makeUser } from '../../test/factories'
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
@@ -20,6 +20,99 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close()
   await testPrisma.$disconnect()
+})
+
+describe('GET /users/me', () => {
+  it('retorna perfil do usuário autenticado com eventsCount', async () => {
+    const user = await makeUser()
+    await makeEvent(user.id)
+    await makeEvent(user.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      id: user.id,
+      email: user.email,
+      eventsCount: 2,
+    })
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({ method: 'GET', url: '/users/me' })
+    expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('GET /users/:id', () => {
+  it('retorna followStatus null quando não autenticado', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({ method: 'GET', url: `/users/${user.id}` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ id: user.id, followStatus: null, eventsCount: 0 })
+  })
+
+  it('retorna followStatus ACCEPTED quando viewer já segue', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser()
+    await makeFollow(viewer.id, target.id, 'ACCEPTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().followStatus).toBe('ACCEPTED')
+  })
+
+  it('retorna followStatus PENDING quando solicitação está pendente', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ isPrivate: true })
+    await makeFollow(viewer.id, target.id, 'PENDING')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().followStatus).toBe('PENDING')
+  })
+
+  it('retorna followStatus null quando viewer não segue', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().followStatus).toBeNull()
+  })
+
+  it('retorna eventsCount correto', async () => {
+    const user = await makeUser()
+    await makeEvent(user.id)
+    await makeEvent(user.id)
+    await makeEvent(user.id)
+
+    const res = await app.inject({ method: 'GET', url: `/users/${user.id}` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().eventsCount).toBe(3)
+  })
 })
 
 describe('PATCH /users/me/avatar', () => {

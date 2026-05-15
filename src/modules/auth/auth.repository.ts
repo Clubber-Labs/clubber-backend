@@ -5,10 +5,3 @@ export async function findUserByEmail(email: string) {
     where: { email },
   })
 }
-
-export async function findUserById(id: string) {
-  return prisma.user.findUnique({
-    where: { id },
-    select: { id: true, name: true, email: true, bio: true, createdAt: true },
-  })
-}

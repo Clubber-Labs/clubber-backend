@@ -5,6 +5,7 @@ const authorSelect = {
   name: true,
   lastname: true,
   username: true,
+  avatarUrl: true,
 } as const
 
 export async function createComment(

@@ -42,6 +42,7 @@ export async function findAttendancesByEvent(eventId: string) {
           name: true,
           lastname: true,
           username: true,
+          avatarUrl: true,
         },
       },
     },

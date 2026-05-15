@@ -6,6 +6,7 @@ const followerSelect = {
   name: true,
   lastname: true,
   username: true,
+  avatarUrl: true,
 } as const
 
 export async function createFollow(

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import type { FastifyInstance } from 'fastify'
 import {
   serializerCompiler,
   validatorCompiler,
@@ -8,6 +8,7 @@ import { getUserEvents } from '../events/events.controller'
 import { userEventsQuerySchema } from '../events/events.schema'
 import {
   deleteUserHandler,
+  getMe,
   getUser,
   getUsers,
   postUser,
@@ -21,14 +22,6 @@ import {
   userIdParamSchema,
 } from './users.schema'
 
-async function optionalAuthenticate(request: FastifyRequest) {
-  try {
-    await request.jwtVerify()
-  } catch {
-    // ignora — autenticação opcional
-  }
-}
-
 export async function usersRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
@@ -37,7 +30,13 @@ export async function usersRoutes(app: FastifyInstance) {
 
   api.get('/users', { schema: { querystring: listUsersQuerySchema } }, getUsers)
 
-  api.get('/users/:id', { schema: { params: userIdParamSchema } }, getUser)
+  api.get('/users/me', { onRequest: [app.authenticate] }, getMe)
+
+  api.get(
+    '/users/:id',
+    { schema: { params: userIdParamSchema }, onRequest: [app.authenticateOptional] },
+    getUser,
+  )
 
   api.get(
     '/users/:id/events',
@@ -46,7 +45,7 @@ export async function usersRoutes(app: FastifyInstance) {
         params: userIdParamSchema,
         querystring: userEventsQuerySchema,
       },
-      onRequest: [optionalAuthenticate],
+      onRequest: [app.authenticateOptional],
     },
     async (request, reply) => {
       const { id, ...params } = request.params as { id: string } & Record<

@@ -72,7 +72,9 @@ describe('GET /auth/me', () => {
   })
 
   it('retorna 401 sem token', async () => {
+describe('GET /auth/me (removido)', () => {
+  it('retorna 404 — rota substituída por GET /users/me', async () => {
     const res = await app.inject({ method: 'GET', url: '/auth/me' })
-    expect(res.statusCode).toBe(401)
+    expect(res.statusCode).toBe(404)
   })
 })

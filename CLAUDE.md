@@ -172,6 +172,19 @@ app.register(eventsRoutes)
 
 ---
 
+## Code review do Copilot
+
+Quando o Copilot (ou qualquer revisor automatizado) sugerir uma correção em um PR, **nunca copie e cole o snippet sugerido diretamente**. O fluxo correto é:
+
+1. **Ler a sugestão como um aviso, não como solução** — o Copilot identifica o sintoma, mas a causa raiz e a melhor correção podem ser diferentes do que ele propõe.
+2. **Investigar o código por conta própria** — abrir o arquivo apontado, entender o contexto real (tipos envolvidos, callers, side effects, convenções do módulo) e validar se o problema descrito existe mesmo.
+3. **Aplicar uma correção autoral** — escrever a solução no estilo do projeto, respeitando as convenções já existentes (nomes, padrões de tipo, organização). A correção pode coincidir com o que o Copilot sugeriu, mas deve ser fruto da investigação, não cópia.
+4. **Justificar no commit/PR** — descrever o que foi corrigido e *por que* (causa raiz), não apenas "aplicar sugestão do Copilot".
+
+A razão: sugestões automáticas frequentemente tratam sintomas em isolamento, ignoram convenções locais e podem introduzir inconsistências. Investigar antes de aplicar mantém o código coeso e evita "patches" que desviam do estilo do projeto.
+
+---
+
 ## Autenticação
 
 Rotas protegidas usam o hook `authenticate` registrado no `server.ts`:

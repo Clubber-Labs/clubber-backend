@@ -1,5 +1,6 @@
 import { hash } from 'bcryptjs'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
+import { findFollow } from '../follows/follows.repository'
 import {
   createUser,
   deleteUser,
@@ -28,7 +29,21 @@ export async function getUserById(id: string, requesterId?: string) {
   if(user.isBanned && requesterId !== id) {
     throw { statusCode: 403, message: 'Usuário banido' }
   }
-  return user
+
+  const { _count, ...rest } = user
+
+  const follow =
+    viewerId && viewerId !== id ? await findFollow(viewerId, id) : null
+  const followStatus = follow?.status ?? null
+
+  return { ...rest, eventsCount: _count.events, followStatus, user }
+}
+
+export async function getMe(userId: string) {
+  const user = await findUserById(userId)
+  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  const { _count, ...rest } = user
+  return { ...rest, eventsCount: _count.events }
 }
 
 export async function registerUser(data: CreateUserBody) {
