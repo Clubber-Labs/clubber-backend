@@ -37,6 +37,7 @@ afterEach(async () => {
     testPrisma.post.deleteMany(),
     testPrisma.eventInvite.deleteMany(),
     testPrisma.eventAttendance.deleteMany(),
+    testPrisma.featuredEvent.deleteMany(),
     testPrisma.event.deleteMany(),
     testPrisma.follow.deleteMany(),
     testPrisma.user.deleteMany(),

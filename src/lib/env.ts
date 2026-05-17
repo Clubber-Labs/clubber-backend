@@ -15,6 +15,17 @@ const baseSchema = z.object({
     .optional(),
   STORAGE_DRIVER: z.enum(['cloudinary', 'local']).optional(),
   UPLOADS_DIR: z.string().optional(),
+  FEATURED_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300000),
+  // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
+  // Aceita explicitamente as strings comuns e transforma manualmente.
+  FEATURED_RECONCILE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
 })
 
 const cloudinarySchema = z.object({
@@ -70,4 +81,6 @@ export const env = {
   UPLOADS_DIR: path.resolve(
     parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads'),
   ),
+  FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
+  FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
 } as const

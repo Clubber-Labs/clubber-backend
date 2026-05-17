@@ -261,6 +261,18 @@ export async function getUser(request, reply) {
 
 O projeto usa **Vitest** com testes de integração por módulo. Cada teste roda contra um banco PostgreSQL real dedicado (`conectai_test`), sem mocks — garantindo que queries, constraints e regras de negócio sejam testadas de ponta a ponta.
 
+### Critério de conclusão de task
+
+**Toda task só pode ser considerada concluída depois que `pnpm test` rodar com a suíte inteira verde.** Não basta "compilar" ou "testar manualmente o happy path" — os testes de integração precisam passar.
+
+Aplica-se a:
+- Implementação de features novas (a suíte do módulo deve cobrir os cenários relevantes e passar)
+- Fixes de bug (idealmente com um teste novo que falharia sem o fix)
+- Refatorações (todos os testes existentes continuam verdes)
+- Chores que mexam em código (não só configuração)
+
+Se algum teste estiver vermelho ou pulado, a task **não está pronta** — investigar o motivo antes de marcar como concluída ou abrir PR.
+
 ### Configuração inicial (uma vez por ambiente)
 
 **1. Criar o banco de teste:**

@@ -181,7 +181,7 @@ export async function findPublicEvents(
     take: filters.orderBy === 'distance' ? undefined : limit,
     ...(cursor &&
       filters.orderBy !== 'distance' && { skip: 1, cursor: { id: cursor } }),
-    orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
     include: buildSharedIncludes(),
   })) as unknown as PrismaSharedEvent[]
 
@@ -211,7 +211,7 @@ export async function findEventsByAuthor(
     where,
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
-    orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
     include: buildSharedIncludes(),
   })) as unknown as PrismaSharedEvent[]
 
