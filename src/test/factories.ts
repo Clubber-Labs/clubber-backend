@@ -7,7 +7,11 @@ function uid() {
 }
 
 export async function makeUser(
-  overrides: { isPrivate?: boolean; username?: string } = {},
+  overrides: {
+    isPrivate?: boolean
+    username?: string
+    isPremium?: boolean
+  } = {},
 ) {
   const id = uid()
   return testPrisma.user.create({
@@ -20,6 +24,7 @@ export async function makeUser(
       phone: `119${id.slice(-8).padStart(8, '0')}`,
       birthdate: new Date('2000-01-01'),
       isPrivate: overrides.isPrivate ?? false,
+      isPremium: overrides.isPremium ?? false,
     },
   })
 }
@@ -34,6 +39,7 @@ export async function makeEvent(
     canceledAt?: Date | null
     latitude?: number
     longitude?: number
+    isFeatured?: boolean
   } = {},
 ) {
   const id = uid()
@@ -47,6 +53,7 @@ export async function makeEvent(
       longitude: overrides.longitude ?? -49.3,
       category: overrides.category ?? 'Festa',
       isPublic: overrides.isPublic ?? true,
+      isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
       authorId,
     },
@@ -133,5 +140,26 @@ export async function makeComment(
 ) {
   return testPrisma.comment.create({
     data: { authorId, eventId, content },
+  })
+}
+
+export async function makeFeaturedEvent(
+  eventId: string,
+  createdBy: string,
+  overrides: {
+    startsAt?: Date
+    endsAt?: Date
+    canceledAt?: Date | null
+  } = {},
+) {
+  const now = new Date()
+  return testPrisma.featuredEvent.create({
+    data: {
+      eventId,
+      createdBy,
+      startsAt: overrides.startsAt ?? now,
+      endsAt: overrides.endsAt ?? new Date(now.getTime() + 3600_000),
+      canceledAt: overrides.canceledAt ?? null,
+    },
   })
 }

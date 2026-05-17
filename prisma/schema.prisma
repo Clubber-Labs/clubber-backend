@@ -24,6 +24,7 @@ model User {
   avatarUrl      String?
   avatarKey      String?
   isPrivate      Boolean  @default(false)
+  isPremium      Boolean  @default(false)
   followersCount Int      @default(0)
   followingCount Int      @default(0)
   createdAt      DateTime @default(now())
@@ -43,6 +44,8 @@ model User {
   followers Follow[] @relation("following")
 
   reports Report[] @relation("reporterReports")
+
+  featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
   @@map("users")
 }
 
@@ -77,6 +80,7 @@ model Event {
   address     String?
   category    String
   isPublic    Boolean  @default(true)
+  isFeatured  Boolean  @default(false)
   maxCapacity Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -92,9 +96,11 @@ model Event {
   invites     EventInvite[]
   reports     Report[]
   images      EventImage[]
+  features    FeaturedEvent[]
 
   @@index([date])
   @@index([isPublic, date])
+  @@index([isFeatured, date, id])
   @@map("events")
 }
 
@@ -255,4 +261,19 @@ model EventImage {
 
   @@index([eventId, order])
   @@map("event_images")
+}
+
+model FeaturedEvent {
+  id         String    @id @default(uuid())
+  eventId    String
+  event      Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  startsAt   DateTime
+  endsAt     DateTime
+  createdBy  String
+  creator    User      @relation("featuredEventCreator", fields: [createdBy], references: [id])
+  createdAt  DateTime  @default(now())
+  canceledAt DateTime?
+
+  @@index([eventId, canceledAt, startsAt, endsAt])
+  @@map("featured_events")
 }
