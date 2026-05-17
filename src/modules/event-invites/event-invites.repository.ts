@@ -30,7 +30,13 @@ export async function findEventInvites(eventId: string) {
     where: { eventId },
     include: {
       invited: {
-        select: { id: true, name: true, lastname: true, username: true, avatarUrl: true },
+        select: {
+          id: true,
+          name: true,
+          lastname: true,
+          username: true,
+          avatarUrl: true,
+        },
       },
     },
     orderBy: { createdAt: 'desc' },

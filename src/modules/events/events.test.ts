@@ -1,10 +1,19 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { redis as nullableRedis } from '../../lib/redis'
 import { buildApp } from '../../test/app'
 import { makeAttendance, makeEvent, makeInvite, makeUser } from '../../test/factories'
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
+
+if (!nullableRedis) {
+  throw new Error(
+    'REDIS_URL deve estar configurada em .env.test para esses testes',
+  )
+}
+
+const redis = nullableRedis
 
 let app: FastifyInstance
 
@@ -294,6 +303,112 @@ describe('GET /events', () => {
       userLiked: false,
       userAttendance: null,
     })
+  })
+})
+
+describe('cache de GET /events', () => {
+  it('reage não invalida o cache da listagem pública', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    await app.inject({ method: 'GET', url: '/events' })
+
+    const beforeKeys = await redis.keys('v1:events:public:*')
+    expect(beforeKeys.length).toBeGreaterThan(0)
+
+    const reactRes = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/reactions`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(reactRes.statusCode).toBe(201)
+
+    const afterKeys = await redis.keys('v1:events:public:*')
+    expect(afterKeys).toEqual(beforeKeys)
+  })
+
+  it('confirmar presença não invalida o cache da listagem pública', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    await app.inject({ method: 'GET', url: '/events' })
+
+    const beforeKeys = await redis.keys('v1:events:public:*')
+    expect(beforeKeys.length).toBeGreaterThan(0)
+
+    const attRes = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/attendances`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      body: { type: 'CONFIRMED' },
+    })
+    expect(attRes.statusCode).toBe(201)
+
+    const afterKeys = await redis.keys('v1:events:public:*')
+    expect(afterKeys).toEqual(beforeKeys)
+  })
+
+  it('viewer state vem de overlay (uma única chave compartilhada para múltiplos viewers)', async () => {
+    const author = await makeUser()
+    const viewerA = await makeUser()
+    const viewerB = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    await testPrisma.reaction.create({
+      data: { userId: viewerA.id, eventId: event.id },
+    })
+
+    const resA = await app.inject({
+      method: 'GET',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, viewerA.id)}` },
+    })
+    expect(resA.statusCode).toBe(200)
+    const eventA = resA
+      .json()
+      .data.find((e: { id: string }) => e.id === event.id)
+    expect(eventA.userLiked).toBe(true)
+
+    const resB = await app.inject({
+      method: 'GET',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, viewerB.id)}` },
+    })
+    expect(resB.statusCode).toBe(200)
+    const eventB = resB
+      .json()
+      .data.find((e: { id: string }) => e.id === event.id)
+    expect(eventB.userLiked).toBe(false)
+
+    const keys = await redis.keys('v1:events:public:*')
+    expect(keys).toHaveLength(1)
+  })
+
+  it('criar evento invalida o cache (lista muda)', async () => {
+    const author = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+
+    await app.inject({ method: 'GET', url: '/events' })
+    expect((await redis.keys('v1:events:public:*')).length).toBeGreaterThan(0)
+
+    await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: {
+        title: 'Novo evento',
+        description: 'Descrição do evento',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: -49.3,
+        category: 'Festa',
+        isPublic: true,
+      },
+    })
+
+    expect(await redis.keys('v1:events:public:*')).toHaveLength(0)
   })
 })
 
@@ -711,7 +826,12 @@ describe('POST /events/:id/images', () => {
     const author = await makeUser()
     const event = await makeEvent(author.id)
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'POST',
@@ -728,7 +848,10 @@ describe('POST /events/:id/images', () => {
     expect(fakeStorage.uploads).toHaveLength(1)
     expect(fakeStorage.uploads[0].key).toContain(`events/${event.id}/`)
 
-    const detail = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+    })
     expect(detail.statusCode).toBe(200)
     expect(detail.json().images).toHaveLength(1)
     expect(detail.json().images[0]).toMatchObject({ format: 'webp', order: 0 })
@@ -778,7 +901,12 @@ describe('POST /events/:id/images', () => {
     const author = await makeUser()
     const event = await makeEvent(author.id)
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'POST',
@@ -795,7 +923,12 @@ describe('POST /events/:id/images', () => {
     const other = await makeUser()
     const event = await makeEvent(author.id)
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'POST',

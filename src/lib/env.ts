@@ -9,6 +9,10 @@ const baseSchema = z.object({
     .enum(['development', 'test', 'production'])
     .default('development'),
   PUBLIC_URL: z.url().default('http://localhost:3333'),
+  REDIS_URL: z
+    .string()
+    .regex(/^rediss?:\/\//, 'REDIS_URL deve começar com redis:// ou rediss://')
+    .optional(),
   STORAGE_DRIVER: z.enum(['cloudinary', 'local']).optional(),
   UPLOADS_DIR: z.string().optional(),
 })
@@ -61,6 +65,9 @@ export const env = {
   PORT: parsed.PORT,
   NODE_ENV: parsed.NODE_ENV,
   PUBLIC_URL: parsed.PUBLIC_URL,
+  REDIS_URL: parsed.REDIS_URL,
   STORAGE_DRIVER,
-  UPLOADS_DIR: path.resolve(parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')),
+  UPLOADS_DIR: path.resolve(
+    parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads'),
+  ),
 } as const

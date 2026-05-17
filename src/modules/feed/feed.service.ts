@@ -1,3 +1,4 @@
+import { cache } from '../../lib/cache'
 import {
   DEFAULT_RANK_WEIGHTS,
   rankEvent,
@@ -10,7 +11,29 @@ import {
 } from './feed.repository'
 import type { FeedQuery } from './feed.schema'
 
+/**
+ * Feed personalizado. Cache por viewer (a personalização do feed
+ * depende de followingIds e preferredCategories — não há cache shared
+ * possível). TTL curto pra manter percepção de "novidade", mas suficiente
+ * pra absorver scroll-up/refresh do mesmo usuário.
+ */
 export async function getFeed(userId: string, query: FeedQuery) {
+  const cacheKey = cache.key(
+    'feed',
+    userId,
+    query.limit,
+    query.cursor ?? '',
+  )
+  const cached =
+    await cache.get<Awaited<ReturnType<typeof buildFeedResult>>>(cacheKey)
+  if (cached) return cached
+
+  const result = await buildFeedResult(userId, query)
+  await cache.set(cacheKey, result, 60)
+  return result
+}
+
+async function buildFeedResult(userId: string, query: FeedQuery) {
   const now = new Date()
 
   const [followingIds, preferredCategories] = await Promise.all([

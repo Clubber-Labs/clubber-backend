@@ -34,7 +34,10 @@ export async function usersRoutes(app: FastifyInstance) {
 
   api.get(
     '/users/:id',
-    { schema: { params: userIdParamSchema }, onRequest: [app.authenticateOptional] },
+    {
+      schema: { params: userIdParamSchema },
+      onRequest: [app.authenticateOptional],
+    },
     getUser,
   )
 
@@ -66,7 +69,19 @@ export async function usersRoutes(app: FastifyInstance) {
     },
   )
 
-  api.post('/users', { schema: { body: createUserSchema } }, postUser)
+  api.post(
+    '/users',
+    {
+      schema: { body: createUserSchema },
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: '1 minute',
+        },
+      },
+    },
+    postUser,
+  )
 
   api.put(
     '/users/:id',
