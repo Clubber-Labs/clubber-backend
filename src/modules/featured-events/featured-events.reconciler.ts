@@ -29,13 +29,22 @@ export async function reconcileFeaturedEvents() {
 }
 
 let timer: NodeJS.Timeout | null = null
+let isReconciling = false
 
 export function startFeaturedEventsReconciler(intervalMs: number) {
   if (timer) return
   timer = setInterval(() => {
-    reconcileFeaturedEvents().catch((err) => {
-      console.error('[featured-events] reconciliation failed:', err)
-    })
+    // Evita sobreposição de ticks na mesma instância: se um reconcile
+    // ainda está rodando (interval menor que tempo de execução), pula.
+    if (isReconciling) return
+    isReconciling = true
+    reconcileFeaturedEvents()
+      .catch((err) => {
+        console.error('[featured-events] reconciliation failed:', err)
+      })
+      .finally(() => {
+        isReconciling = false
+      })
   }, intervalMs)
   timer.unref?.()
 }

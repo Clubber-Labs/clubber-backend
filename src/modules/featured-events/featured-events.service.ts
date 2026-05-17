@@ -59,14 +59,34 @@ export async function addFeaturedEvent(
     }
   }
 
-  return prisma.$transaction((tx) =>
-    createFeaturedEventTx(tx, {
-      eventId,
-      startsAt: body.startsAt,
-      endsAt: body.endsAt,
-      createdBy: requesterId,
-    }),
-  )
+  try {
+    return await prisma.$transaction((tx) =>
+      createFeaturedEventTx(tx, {
+        eventId,
+        startsAt: body.startsAt,
+        endsAt: body.endsAt,
+        createdBy: requesterId,
+      }),
+    )
+  } catch (err) {
+    // Safety-net: dois POSTs concorrentes podem passar pelo check otimista
+    // acima e chegar aqui simultaneamente. A constraint de exclusão no DB
+    // (featured_events_no_overlap_active) garante a invariante temporal,
+    // e aqui convertemos o erro do Postgres no 409 esperado.
+    if (
+      err !== null &&
+      typeof err === 'object' &&
+      'message' in err &&
+      typeof err.message === 'string' &&
+      err.message.includes('featured_events_no_overlap_active')
+    ) {
+      throw {
+        statusCode: 409,
+        message: 'Já existe um destaque ativo neste período',
+      }
+    }
+    throw err
+  }
 }
 
 export async function cancelFeaturedEvent(

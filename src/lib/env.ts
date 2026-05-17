@@ -20,7 +20,12 @@ const baseSchema = z.object({
     .int()
     .positive()
     .default(300000),
-  FEATURED_RECONCILE_ENABLED: z.coerce.boolean().default(true),
+  // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
+  // Aceita explicitamente as strings comuns e transforma manualmente.
+  FEATURED_RECONCILE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
 })
 
 const cloudinarySchema = z.object({

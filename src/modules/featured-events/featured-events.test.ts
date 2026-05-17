@@ -209,33 +209,61 @@ describe('DELETE /events/:id/featured/:featureId', () => {
     expect(canceled?.canceledAt).toBeInstanceOf(Date)
   })
 
-  it('204 e isFeatured continua true quando há outra janela ativa', async () => {
+  it('204 mantém janelas futuras agendadas quando cancela a janela ativa', async () => {
     const author = await makeUser({ isPremium: true })
     const event = await makeEvent(author.id, {
       date: inFuture(86_400_000),
       isFeatured: true,
     })
-    const featureA = await makeFeaturedEvent(event.id, author.id, {
+    const active = await makeFeaturedEvent(event.id, author.id, {
       startsAt: new Date(Date.now() - 1_800_000),
       endsAt: inFuture(1_800_000),
     })
-    await makeFeaturedEvent(event.id, author.id, {
-      startsAt: new Date(Date.now() - 600_000),
-      endsAt: inFuture(2_400_000),
+    const future = await makeFeaturedEvent(event.id, author.id, {
+      startsAt: inFuture(7_200_000),
+      endsAt: inFuture(10_800_000),
     })
 
     const res = await app.inject({
       method: 'DELETE',
-      url: `/events/${event.id}/featured/${featureA.id}`,
+      url: `/events/${event.id}/featured/${active.id}`,
       headers: { authorization: `Bearer ${token(app, author.id)}` },
     })
 
     expect(res.statusCode).toBe(204)
+
     const updated = await testPrisma.event.findUnique({
       where: { id: event.id },
       select: { isFeatured: true },
     })
-    expect(updated?.isFeatured).toBe(true)
+    // Janela futura ainda não está ativa agora, então isFeatured cai pra false.
+    expect(updated?.isFeatured).toBe(false)
+
+    // A janela futura continua válida, pode entrar em vigor depois.
+    const futureStill = await testPrisma.featuredEvent.findUnique({
+      where: { id: future.id },
+    })
+    expect(futureStill?.canceledAt).toBeNull()
+  })
+
+  it('constraint do DB bloqueia overlap concorrente (safety-net da race)', async () => {
+    const author = await makeUser({ isPremium: true })
+    const event = await makeEvent(author.id, { date: inFuture(86_400_000) })
+    await makeFeaturedEvent(event.id, author.id, {
+      startsAt: new Date(),
+      endsAt: inFuture(3_600_000),
+    })
+
+    await expect(
+      testPrisma.featuredEvent.create({
+        data: {
+          eventId: event.id,
+          createdBy: author.id,
+          startsAt: inFuture(1_800_000),
+          endsAt: inFuture(5_400_000),
+        },
+      }),
+    ).rejects.toThrow(/featured_events_no_overlap_active/)
   })
 
   it('401 sem token', async () => {
