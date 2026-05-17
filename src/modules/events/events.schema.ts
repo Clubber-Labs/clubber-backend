@@ -73,35 +73,40 @@ export const eventParamSchema = z.object({
   id: z.string().uuid(),
 })
 
-export const listEventsQuerySchema = z.object({
-  category: categoryFilter,
-  status: statusFilter,
-  includePast: booleanQuery.default(false),
-  dateFrom: z.coerce.date().optional(),
-  dateTo: z.coerce.date().optional(),
-  nearLat: z.coerce.number().min(-90).max(90).optional(),
-  nearLng: z.coerce.number().min(-180).max(180).optional(),
-  radiusKm: z.coerce.number().positive().max(500).optional(),
-  orderBy: z.enum(['date', 'distance']).default('date'),
-  cursor: z.string().uuid().optional(),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
-})
-.refine(
-  (q) => (q.nearLat === undefined) === (q.nearLng === undefined),
-  { message: 'nearLat e nearLng devem ser fornecidos juntos', path: ['nearLat'] },
-)
-.refine(
-  (q) => q.radiusKm === undefined || (q.nearLat !== undefined && q.nearLng !== undefined),
-  { message: 'radiusKm exige nearLat e nearLng', path: ['radiusKm'] },
-)
-.refine(
-  (q) => q.orderBy !== 'distance' || (q.nearLat !== undefined && q.nearLng !== undefined),
-  { message: 'orderBy=distance exige nearLat e nearLng', path: ['orderBy'] },
-)
-.refine(
-  (q) => q.orderBy !== 'distance' || q.cursor === undefined,
-  { message: 'orderBy=distance não suporta paginação via cursor', path: ['cursor'] },
-)
+export const listEventsQuerySchema = z
+  .object({
+    category: categoryFilter,
+    status: statusFilter,
+    includePast: booleanQuery.default(false),
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional(),
+    nearLat: z.coerce.number().min(-90).max(90).optional(),
+    nearLng: z.coerce.number().min(-180).max(180).optional(),
+    radiusKm: z.coerce.number().positive().max(500).optional(),
+    orderBy: z.enum(['date', 'distance']).default('date'),
+    cursor: z.string().uuid().optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .refine((q) => (q.nearLat === undefined) === (q.nearLng === undefined), {
+    message: 'nearLat e nearLng devem ser fornecidos juntos',
+    path: ['nearLat'],
+  })
+  .refine(
+    (q) =>
+      q.radiusKm === undefined ||
+      (q.nearLat !== undefined && q.nearLng !== undefined),
+    { message: 'radiusKm exige nearLat e nearLng', path: ['radiusKm'] },
+  )
+  .refine(
+    (q) =>
+      q.orderBy !== 'distance' ||
+      (q.nearLat !== undefined && q.nearLng !== undefined),
+    { message: 'orderBy=distance exige nearLat e nearLng', path: ['orderBy'] },
+  )
+  .refine((q) => q.orderBy !== 'distance' || q.cursor === undefined, {
+    message: 'orderBy=distance não suporta paginação via cursor',
+    path: ['cursor'],
+  })
 
 export const mapEventsQuerySchema = z
   .object({

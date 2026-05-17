@@ -24,7 +24,7 @@ export function multipartFormData(
   filename: string,
   mimetype: string,
 ) {
-  const boundary = '----TestBoundary' + Math.random().toString(36).slice(2)
+  const boundary = `----TestBoundary${Math.random().toString(36).slice(2)}`
   const head = Buffer.from(
     `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${filename}"\r\nContent-Type: ${mimetype}\r\n\r\n`,
   )

@@ -55,7 +55,11 @@ describe('GET /users/:id', () => {
     const res = await app.inject({ method: 'GET', url: `/users/${user.id}` })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ id: user.id, followStatus: null, eventsCount: 0 })
+    expect(res.json()).toMatchObject({
+      id: user.id,
+      followStatus: null,
+      eventsCount: 0,
+    })
   })
 
   it('retorna followStatus ACCEPTED quando viewer já segue', async () => {
@@ -119,7 +123,12 @@ describe('PATCH /users/me/avatar', () => {
   it('atualiza avatar do usuário autenticado', async () => {
     const user = await makeUser()
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'avatar.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'avatar.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'PATCH',
@@ -192,7 +201,12 @@ describe('PATCH /users/me/avatar', () => {
 
   it('retorna 401 sem autenticação', async () => {
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'a.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'a.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'PATCH',

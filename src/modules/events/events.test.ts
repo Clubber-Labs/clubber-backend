@@ -639,11 +639,42 @@ describe('GET /users/:id/events — privacy gate', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('convite continua dando acesso em evento privado (autor pessoal/profissional)', async () => {
+  it('convite em evento privado de autor privado SEM follow ACCEPTED → 403', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const invitee = await makeUser()
     const event = await makeEvent(privateAuthor.id, { isPublic: false })
     await makeInvite(event.id, privateAuthor.id, invitee.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('convite em evento privado de autor privado COM follow ACCEPTED → 200', async () => {
+    const privateAuthor = await makeUser({ isPrivate: true })
+    const invitee = await makeUser()
+    await makeFollow(invitee.id, privateAuthor.id, 'ACCEPTED')
+    const event = await makeEvent(privateAuthor.id, { isPublic: false })
+    await makeInvite(event.id, privateAuthor.id, invitee.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('convite em evento privado de autor PÚBLICO → 200', async () => {
+    const publicAuthor = await makeUser({ isPrivate: false })
+    const invitee = await makeUser()
+    const event = await makeEvent(publicAuthor.id, { isPublic: false })
+    await makeInvite(event.id, publicAuthor.id, invitee.id)
 
     const res = await app.inject({
       method: 'GET',
@@ -912,7 +943,12 @@ describe('POST /events/:id/images', () => {
     const author = await makeUser()
     const event = await makeEvent(author.id)
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'POST',
@@ -929,7 +965,10 @@ describe('POST /events/:id/images', () => {
     expect(fakeStorage.uploads).toHaveLength(1)
     expect(fakeStorage.uploads[0].key).toContain(`events/${event.id}/`)
 
-    const detail = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+    })
     expect(detail.statusCode).toBe(200)
     expect(detail.json().images).toHaveLength(1)
     expect(detail.json().images[0]).toMatchObject({ format: 'webp', order: 0 })
@@ -979,7 +1018,12 @@ describe('POST /events/:id/images', () => {
     const author = await makeUser()
     const event = await makeEvent(author.id)
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'POST',
@@ -996,7 +1040,12 @@ describe('POST /events/:id/images', () => {
     const other = await makeUser()
     const event = await makeEvent(author.id)
     const png = await tinyPngBuffer()
-    const { body, contentType } = multipartFormData(png, 'file', 'capa.png', 'image/png')
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
 
     const res = await app.inject({
       method: 'POST',

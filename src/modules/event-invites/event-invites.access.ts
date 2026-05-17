@@ -32,6 +32,11 @@ export async function checkEventAccess(
     }
   }
 
+  const authorVisible = await canViewAuthorContent(event.authorId, requesterId)
+  if (!authorVisible) {
+    throw { statusCode: 403, message: 'Você não tem acesso a este evento' }
+  }
+
   const invite = await findInvite(event.id, requesterId)
   if (!invite) {
     throw { statusCode: 403, message: 'Você não tem acesso a este evento' }

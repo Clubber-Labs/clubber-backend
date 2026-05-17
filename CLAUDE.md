@@ -4,11 +4,12 @@
 
 - **Runtime:** Node.js
 - **Framework:** Fastify com Zod type provider
-- **Banco de dados:** PostgreSQL via Prisma ORM
+- **Banco de dados:** PostgreSQL/PostGis via Prisma ORM
 - **Autenticação:** JWT com `@fastify/jwt`
 - **Validação:** Zod
 - **Linter/Formatter:** Biome
 - **Package manager:** pnpm
+- **Testes:** Vitest
 
 ---
 
@@ -182,6 +183,21 @@ Quando o Copilot (ou qualquer revisor automatizado) sugerir uma correção em um
 4. **Justificar no commit/PR** — descrever o que foi corrigido e *por que* (causa raiz), não apenas "aplicar sugestão do Copilot".
 
 A razão: sugestões automáticas frequentemente tratam sintomas em isolamento, ignoram convenções locais e podem introduzir inconsistências. Investigar antes de aplicar mantém o código coeso e evita "patches" que desviam do estilo do projeto.
+
+### Atacar a raiz, nunca remendar
+
+Esta regra vale especialmente quando o Copilot aponta um problema:
+
+- **Identifique a causa raiz** antes de propor solução. Pergunte "por que esse bug existe?" até chegar numa decisão arquitetural ou contrato implícito que falhou.
+- **Recuse remendos** que só mascaram o sintoma. Exemplos comuns a evitar:
+  - Aumentar buffer/over-fetch pra "quase sempre" funcionar quando o filtro está na camada errada
+  - Adicionar `if (!result) retry()` quando o problema é a query não considerar um caso
+  - `try/catch` engolindo erro pra "passar nos testes" sem entender por que falhou
+  - Validação no client sem corrigir no backend (ou vice-versa)
+- **Quando o fix de raiz é caro**, documente o trade-off no PR e abra issue separada — não comite o remendo silenciosamente.
+- **Teste o cenário que motivou o review**, não só o caso feliz. Se o Copilot aponta "X pode acontecer", o teste tem que reproduzir X.
+
+Exemplo concreto: se um filtro em SQL retorna menos itens que `limit` porque um filtro adicional roda DEPOIS no app, a raiz é "filtro na camada errada" — não "over-fetch maior". Mover o filtro pra SQL é a raiz. Aumentar over-fetch é remendo.
 
 ---
 

@@ -8,9 +8,7 @@ import { prisma } from './prisma'
  *
  * Aplica como WHERE adicional em queries de listagem.
  */
-export function authorVisibleWhere(
-  viewerId?: string,
-): Prisma.EventWhereInput {
+export function authorVisibleWhere(viewerId?: string): Prisma.EventWhereInput {
   if (!viewerId) {
     return { author: { isPrivate: false } }
   }

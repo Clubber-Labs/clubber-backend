@@ -14,6 +14,4 @@ export async function authRoutes(app: FastifyInstance) {
   const api = app.withTypeProvider<ZodTypeProvider>()
 
   api.post('/auth/login', { schema: { body: loginBodySchema } }, login)
-
-
 }

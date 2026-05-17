@@ -1,7 +1,7 @@
 import {
   DEFAULT_RANK_WEIGHTS,
-  rankEvent,
   type RankReason,
+  rankEvent,
 } from '../../lib/event-ranker'
 import {
   findFeedCandidates,

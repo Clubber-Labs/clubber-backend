@@ -22,7 +22,12 @@ import type {
 type Logger = { error: (msg: string) => void }
 
 export async function listEvents(query: ListEventsQuery, viewerId?: string) {
-  const events = await findPublicEvents(query, query.limit, query.cursor, viewerId)
+  const events = await findPublicEvents(
+    query,
+    query.limit,
+    query.cursor,
+    viewerId,
+  )
   const nextCursor =
     query.orderBy !== 'distance' && events.length === query.limit
       ? (events[events.length - 1].id as string)

@@ -1,9 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { buildLifecycleWhere } from '../../lib/event-filters'
-import {
-  computeEventStatus,
-  type EventStatus,
-} from '../../lib/event-lifecycle'
+import { computeEventStatus, type EventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import { authorVisibleWhere } from '../../lib/profile-visibility'
 import {
@@ -148,17 +145,27 @@ export async function findPublicEvents(
 
   let spatialIdFilter: string[] | undefined
 
-  if (filters.orderBy === 'distance' && filters.nearLat !== undefined && filters.nearLng !== undefined) {
+  if (
+    filters.orderBy === 'distance' &&
+    filters.nearLat !== undefined &&
+    filters.nearLng !== undefined
+  ) {
     spatialIdFilter = await findEventIdsByDistance(
       { latitude: filters.nearLat, longitude: filters.nearLng },
       Math.min(limit * KNN_OVERFETCH, KNN_OVERFETCH_CAP),
       filters.radiusKm,
+      viewerId,
     )
     if (spatialIdFilter.length === 0) return []
-  } else if (filters.radiusKm !== undefined && filters.nearLat !== undefined && filters.nearLng !== undefined) {
+  } else if (
+    filters.radiusKm !== undefined &&
+    filters.nearLat !== undefined &&
+    filters.nearLng !== undefined
+  ) {
     spatialIdFilter = await findEventIdsWithinRadius(
       { latitude: filters.nearLat, longitude: filters.nearLng },
       filters.radiusKm,
+      viewerId,
     )
     if (spatialIdFilter.length === 0) return []
   }
@@ -190,7 +197,8 @@ export async function findPublicEvents(
       ],
     },
     take: filters.orderBy === 'distance' ? undefined : limit,
-    ...(cursor && filters.orderBy !== 'distance' && { skip: 1, cursor: { id: cursor } }),
+    ...(cursor &&
+      filters.orderBy !== 'distance' && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ date: 'asc' }, { id: 'asc' }],
     include: buildEventIncludes(viewerId),
   })) as unknown as PrismaEvent[]
@@ -298,7 +306,7 @@ export async function findEventsForMap(
     west: query.bboxWest,
   }
 
-  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
+  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP, viewerId)
   if (idsInBbox.length === 0) return []
 
   const events = await prisma.event.findMany({
@@ -347,8 +355,7 @@ export async function findEventsForMap(
 
   const engagement = new Map<string, number>()
   for (const row of grouped) {
-    const w =
-      row.type === 'CONFIRMED' ? 2 : row.type === 'INTERESTED' ? 1 : 0
+    const w = row.type === 'CONFIRMED' ? 2 : row.type === 'INTERESTED' ? 1 : 0
     engagement.set(
       row.eventId,
       (engagement.get(row.eventId) ?? 0) + row._count._all * w,
@@ -397,7 +404,9 @@ export async function createEventImage(
     _max: { order: true },
   })
   const nextOrder = (agg._max.order ?? -1) + 1
-  return prisma.eventImage.create({ data: { ...data, eventId, order: nextOrder } })
+  return prisma.eventImage.create({
+    data: { ...data, eventId, order: nextOrder },
+  })
 }
 
 export async function findEventImageKeys(eventId: string) {

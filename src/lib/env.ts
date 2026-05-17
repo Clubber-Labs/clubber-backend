@@ -62,5 +62,7 @@ export const env = {
   NODE_ENV: parsed.NODE_ENV,
   PUBLIC_URL: parsed.PUBLIC_URL,
   STORAGE_DRIVER,
-  UPLOADS_DIR: path.resolve(parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads')),
+  UPLOADS_DIR: path.resolve(
+    parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads'),
+  ),
 } as const

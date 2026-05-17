@@ -88,7 +88,12 @@ export async function makeReport(
   overrides: {
     eventId?: string
     commentId?: string
-    reason?: 'HATE_SPEECH' | 'SPAM_OR_FRAUD' | 'HARASSMENT' | 'INAPPROPRIATE_CONTENT' | 'OTHER'
+    reason?:
+      | 'HATE_SPEECH'
+      | 'SPAM_OR_FRAUD'
+      | 'HARASSMENT'
+      | 'INAPPROPRIATE_CONTENT'
+      | 'OTHER'
     status?: 'PENDING' | 'REVIEWED' | 'RESOLVED_INVALID' | 'RESOLVED_REMOVED'
   } = {},
 ) {

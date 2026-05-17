@@ -1,7 +1,4 @@
-import {
-  computeEventStatus,
-  resolveEndDate,
-} from './event-lifecycle'
+import { computeEventStatus, resolveEndDate } from './event-lifecycle'
 
 export type RankWeights = {
   /** Pico do sinal temporal quando ONGOING. */

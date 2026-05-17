@@ -34,7 +34,10 @@ export async function usersRoutes(app: FastifyInstance) {
 
   api.get(
     '/users/:id',
-    { schema: { params: userIdParamSchema }, onRequest: [app.authenticateOptional] },
+    {
+      schema: { params: userIdParamSchema },
+      onRequest: [app.authenticateOptional],
+    },
     getUser,
   )
 
