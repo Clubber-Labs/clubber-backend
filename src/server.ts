@@ -17,6 +17,10 @@ import { handlePrismaUniqueError } from './lib/errors'
 import { redis } from './lib/redis'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
+import {
+  billingRoutes,
+  billingWebhookRoutes,
+} from './modules/billing/billing.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
 import { eventInvitesRoutes } from './modules/event-invites/event-invites.routes'
 import { eventsRoutes } from './modules/events/events.routes'
@@ -140,6 +144,9 @@ app.register(reactionsRoutes)
 app.register(feedRoutes)
 app.register(eventInvitesRoutes)
 app.register(reportsRoutes)
+app.register(billingRoutes)
+// Webhook em plugin separado pra raw body ser ativado apenas nele.
+app.register(billingWebhookRoutes)
 
 app.addHook('onClose', async () => {
   if (redis) await redis.quit()

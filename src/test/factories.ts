@@ -193,3 +193,47 @@ export async function makeFeaturedEvent(
     },
   })
 }
+
+type SubscriptionStatusLiteral =
+  | 'TRIALING'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELED'
+  | 'INCOMPLETE'
+  | 'INCOMPLETE_EXPIRED'
+  | 'UNPAID'
+
+export async function makeSubscription(
+  userId: string,
+  overrides: {
+    stripeSubscriptionId?: string
+    stripePriceId?: string
+    status?: SubscriptionStatusLiteral
+    trialEndsAt?: Date | null
+    currentPeriodStart?: Date
+    currentPeriodEnd?: Date
+    cancelAtPeriodEnd?: boolean
+    canceledAt?: Date | null
+    lastSyncedAt?: Date
+  } = {},
+) {
+  const id = uid()
+  const now = new Date()
+  const periodEnd =
+    overrides.currentPeriodEnd ?? new Date(now.getTime() + 30 * 86_400_000)
+  return testPrisma.subscription.create({
+    data: {
+      userId,
+      stripeSubscriptionId: overrides.stripeSubscriptionId ?? `sub_test_${id}`,
+      stripePriceId: overrides.stripePriceId ?? `price_test_${id}`,
+      status: overrides.status ?? 'TRIALING',
+      trialEndsAt:
+        overrides.trialEndsAt ?? new Date(now.getTime() + 7 * 86_400_000),
+      currentPeriodStart: overrides.currentPeriodStart ?? now,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: overrides.cancelAtPeriodEnd ?? false,
+      canceledAt: overrides.canceledAt ?? null,
+      lastSyncedAt: overrides.lastSyncedAt ?? now,
+    },
+  })
+}
