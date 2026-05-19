@@ -43,13 +43,27 @@ export async function billingRoutes(app: FastifyInstance) {
     getSubscriptionHandler,
   )
 
-  api.post('/billing/cancel', { onRequest: [app.authenticate] }, postCancel)
+  // Rotas que chamam a Stripe (consome cota da API + side effects):
+  // 20/min por chave (IP por default) cobre UX legítima (retry após erro de
+  // rede, troca de cartão depois de falha) e bloqueia spam autenticado —
+  // ex. user hostil gerando SetupIntents em loop pra consumir quota nossa.
+  const stripeWriteLimit = { max: 20, timeWindow: '1 minute' as const }
 
-  api.post('/billing/resume', { onRequest: [app.authenticate] }, postResume)
+  api.post(
+    '/billing/cancel',
+    { onRequest: [app.authenticate], config: { rateLimit: stripeWriteLimit } },
+    postCancel,
+  )
+
+  api.post(
+    '/billing/resume',
+    { onRequest: [app.authenticate], config: { rateLimit: stripeWriteLimit } },
+    postResume,
+  )
 
   api.post(
     '/billing/payment-method',
-    { onRequest: [app.authenticate] },
+    { onRequest: [app.authenticate], config: { rateLimit: stripeWriteLimit } },
     postPaymentMethod,
   )
 }

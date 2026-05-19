@@ -29,7 +29,7 @@ import { processStripeWebhook } from './billing.webhook'
 // mock global é inócuo pra ele.
 vi.mock('../../lib/stripe', () => ({
   stripe: {
-    customers: { create: vi.fn(), retrieve: vi.fn() },
+    customers: { create: vi.fn(), retrieve: vi.fn(), update: vi.fn() },
     checkout: { sessions: { create: vi.fn() } },
     subscriptions: { update: vi.fn(), retrieve: vi.fn() },
     setupIntents: { create: vi.fn() },
@@ -904,6 +904,49 @@ describe('processStripeWebhook', () => {
         where: { id: user.id },
       })
       expect(refreshed?.isPremium).toBe(true) // ainda premium até period_end
+    })
+  })
+
+  describe('setup_intent.succeeded', () => {
+    it('atualiza default payment method do Customer no Stripe', async () => {
+      // Fixture mínima: o handler só lê customer + payment_method do intent.
+      const event = {
+        id: `evt_setup_${Date.now()}`,
+        type: 'setup_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: 'seti_test_123',
+            customer: 'cus_setup',
+            payment_method: 'pm_card_visa',
+          },
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+      } as any
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      expect(stripe.customers.update).toHaveBeenCalledWith('cus_setup', {
+        invoice_settings: { default_payment_method: 'pm_card_visa' },
+      })
+    })
+
+    it('é no-op quando customer ou payment_method ausentes', async () => {
+      const event = {
+        id: `evt_setup_noop_${Date.now()}`,
+        type: 'setup_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: { id: 'seti_noop', customer: null, payment_method: null },
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+      } as any
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      expect(stripe.customers.update).not.toHaveBeenCalled()
     })
   })
 
