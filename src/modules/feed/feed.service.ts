@@ -1,8 +1,8 @@
 import { cache } from '../../lib/cache'
 import {
   DEFAULT_RANK_WEIGHTS,
-  rankEvent,
   type RankReason,
+  rankEvent,
 } from '../../lib/event-ranker'
 import {
   findFeedCandidates,
@@ -18,12 +18,7 @@ import type { FeedQuery } from './feed.schema'
  * pra absorver scroll-up/refresh do mesmo usuário.
  */
 export async function getFeed(userId: string, query: FeedQuery) {
-  const cacheKey = cache.key(
-    'feed',
-    userId,
-    query.limit,
-    query.cursor ?? '',
-  )
+  const cacheKey = cache.key('feed', userId, query.limit, query.cursor ?? '')
   const cached =
     await cache.get<Awaited<ReturnType<typeof buildFeedResult>>>(cacheKey)
   if (cached) return cached

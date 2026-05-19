@@ -37,6 +37,7 @@
     "cloudinary": "^2.10.0",
     "fastify": "^5.8.2",
     "fastify-type-provider-zod": "^6.1.0",
+    "google-auth-library": "^10.6.2",
     "ioredis": "^5.10.1",
     "pnpm": "^10.33.0",
     "prisma": "^6.19.2",

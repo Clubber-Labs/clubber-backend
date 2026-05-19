@@ -4,7 +4,7 @@ import type { LoginBody } from './auth.schema'
 
 export async function validateLogin(data: LoginBody) {
   const user = await findUserByEmail(data.email)
-  if (!user) {
+  if (!user || !user.password) {
     throw { statusCode: 401, message: 'Invalid credentials' }
   }
 

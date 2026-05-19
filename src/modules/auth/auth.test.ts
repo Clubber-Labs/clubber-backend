@@ -51,6 +51,18 @@ describe('POST /auth/login', () => {
 
     expect(res.statusCode).toBe(401)
   })
+
+  it('retorna 401 quando o usuário só tem conta social (password=null)', async () => {
+    const user = await makeUser({ password: null })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
 })
 
 describe('rate limit em POST /auth/login', () => {

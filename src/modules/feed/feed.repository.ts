@@ -53,8 +53,7 @@ function resolveReason(
 ): FeedReason {
   if (authorId === viewerId) return { kind: 'self_created' }
 
-  if (userAttendance !== null || userLiked)
-    return { kind: 'self_interaction' }
+  if (userAttendance !== null || userLiked) return { kind: 'self_interaction' }
 
   if (followingIds.includes(authorId)) {
     return { kind: 'friend_created', user: author }

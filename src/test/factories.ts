@@ -10,6 +10,10 @@ export async function makeUser(
   overrides: {
     isPrivate?: boolean
     username?: string
+    email?: string
+    password?: string | null
+    phone?: string | null
+    birthdate?: Date | null
     isPremium?: boolean
   } = {},
 ) {
@@ -19,12 +23,38 @@ export async function makeUser(
       name: `User${id}`,
       lastname: `Last${id}`,
       username: overrides.username ?? `user_${id}`,
-      email: `user_${id}@test.com`,
-      password: bcrypt.hashSync('senha123', 1),
-      phone: `119${id.slice(-8).padStart(8, '0')}`,
-      birthdate: new Date('2000-01-01'),
+      email: overrides.email ?? `user_${id}@test.com`,
+      password:
+        overrides.password === null
+          ? null
+          : (overrides.password ?? bcrypt.hashSync('senha123', 1)),
+      phone:
+        overrides.phone === null
+          ? null
+          : (overrides.phone ?? `119${id.slice(-8).padStart(8, '0')}`),
+      birthdate:
+        overrides.birthdate === null
+          ? null
+          : (overrides.birthdate ?? new Date('2000-01-01')),
       isPrivate: overrides.isPrivate ?? false,
       isPremium: overrides.isPremium ?? false,
+    },
+  })
+}
+
+export async function makeSocialAccount(
+  userId: string,
+  provider: 'GOOGLE' | 'FACEBOOK' = 'GOOGLE',
+  overrides: { providerUserId?: string; email?: string | null } = {},
+) {
+  const id = uid()
+  return testPrisma.socialAccount.create({
+    data: {
+      userId,
+      provider,
+      providerUserId:
+        overrides.providerUserId ?? `${provider.toLowerCase()}_${id}`,
+      email: overrides.email === undefined ? null : overrides.email,
     },
   })
 }

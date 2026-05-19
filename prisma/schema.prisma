@@ -18,8 +18,8 @@ model User {
   lastname       String
   username       String   @unique
   email          String   @unique
-  password       String
-  phone          String   @unique
+  password       String?
+  phone          String?  @unique
   bio            String?
   avatarUrl      String?
   avatarKey      String?
@@ -29,7 +29,7 @@ model User {
   followingCount Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  birthdate      DateTime
+  birthdate      DateTime?
   events           Event[]
   attendances      EventAttendance[]
   posts            Post[]
@@ -38,6 +38,7 @@ model User {
   commentReactions CommentReaction[]
   eventInvitesSent EventInvite[]     @relation("inviter")
   eventInvitesReceived EventInvite[] @relation("invited")
+  socialAccounts   SocialAccount[]
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
@@ -47,6 +48,26 @@ model User {
 
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
   @@map("users")
+}
+
+enum SocialProvider {
+  GOOGLE
+  FACEBOOK
+}
+
+model SocialAccount {
+  id             String         @id @default(uuid())
+  userId         String
+  provider       SocialProvider
+  providerUserId String
+  email          String?
+  createdAt      DateTime       @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+  @@map("social_accounts")
 }
 
 enum FollowStatus {

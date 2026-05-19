@@ -219,6 +219,68 @@ describe('PATCH /users/me/avatar', () => {
   })
 })
 
+describe('PUT /users/:id — conflitos de unique constraint', () => {
+  it('retorna 409 com mensagem amigável quando phone já está em uso', async () => {
+    const owner = await makeUser({ phone: '11999999999' })
+    const other = await makeUser({ phone: '22888888888' })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${other.id}`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      payload: { phone: '11999999999' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json().message).toBe(
+      'Este telefone já está cadastrado em outra conta.',
+    )
+    // Garante que NÃO vaza path/SQL/stack
+    expect(res.json().message).not.toMatch(/\/Users\/|prisma\.|invocation/i)
+    expect(owner.id).toBeDefined()
+  })
+
+  it('retorna 409 com mensagem amigável quando username já está em uso', async () => {
+    await makeUser({ username: 'ocupado' })
+    const editor = await makeUser({ username: 'livre' })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${editor.id}`,
+      headers: { authorization: `Bearer ${token(app, editor.id)}` },
+      payload: { username: 'ocupado' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json().message).toBe('Este nome de usuário já está em uso.')
+  })
+})
+
+describe('POST /users — conflitos de unique constraint', () => {
+  it('retorna 409 com mensagem nova quando email já está em uso', async () => {
+    await makeUser({ email: 'duplicado@exemplo.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'novousuario',
+        phone: '99999999999',
+        email: 'duplicado@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json().message).toBe(
+      'Este e-mail já está cadastrado em outra conta.',
+    )
+  })
+})
+
 describe('rate limit em POST /users', () => {
   it('retorna 429 após 10 tentativas no mesmo minuto', async () => {
     for (let i = 0; i < 10; i++) {

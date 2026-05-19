@@ -57,7 +57,7 @@ export async function findUserByUsername(username: string) {
 }
 
 export async function createUser(
-  data: Omit<CreateUserBody, 'password'> & { password: string },
+  data: Omit<CreateUserBody, 'password'> & { password: string | null },
 ) {
   return prisma.user.create({ data, select: userProfileSelect })
 }

@@ -284,7 +284,9 @@ describe('GET /feed — filtros', () => {
       headers: { authorization: `Bearer ${token(app, viewer.id)}` },
     })
 
-    const found = res.json().data.find((e: { id: string }) => e.id === pastEvent.id)
+    const found = res
+      .json()
+      .data.find((e: { id: string }) => e.id === pastEvent.id)
     expect(found).toBeUndefined()
   })
 
@@ -304,15 +306,23 @@ describe('GET /feed — filtros', () => {
       headers: { authorization: `Bearer ${token(app, viewer.id)}` },
     })
 
-    const found = res.json().data.find((e: { id: string }) => e.id === pastEvent.id)
+    const found = res
+      .json()
+      .data.find((e: { id: string }) => e.id === pastEvent.id)
     expect(found).toBeDefined()
     expect(found.status).toBe('PAST')
   })
 
   it('?category=Festa filtra por categoria', async () => {
     const viewer = await makeUser()
-    const festa = await makeEvent(viewer.id, { isPublic: true, category: 'Festa' })
-    const show = await makeEvent(viewer.id, { isPublic: true, category: 'Show' })
+    const festa = await makeEvent(viewer.id, {
+      isPublic: true,
+      category: 'Festa',
+    })
+    const show = await makeEvent(viewer.id, {
+      isPublic: true,
+      category: 'Show',
+    })
 
     const res = await app.inject({
       method: 'GET',
@@ -336,7 +346,9 @@ describe('GET /feed — filtros', () => {
       date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
     })
 
-    const dateFrom = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString()
+    const dateFrom = new Date(
+      Date.now() + 1 * 24 * 60 * 60 * 1000,
+    ).toISOString()
     const dateTo = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
     const res = await app.inject({
       method: 'GET',
@@ -422,7 +434,9 @@ describe('GET /feed — ranking', () => {
     const pastEvent = await makeEvent(viewer.id, {
       isPublic: true,
       date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-      endDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000),
+      endDate: new Date(
+        Date.now() - 7 * 24 * 60 * 60 * 1000 + 4 * 60 * 60 * 1000,
+      ),
     })
 
     const res = await app.inject({

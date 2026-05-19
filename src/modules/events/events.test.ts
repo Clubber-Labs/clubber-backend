@@ -2,7 +2,12 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { redis as nullableRedis } from '../../lib/redis'
 import { buildApp } from '../../test/app'
-import { makeAttendance, makeEvent, makeInvite, makeUser } from '../../test/factories'
+import {
+  makeAttendance,
+  makeEvent,
+  makeInvite,
+  makeUser,
+} from '../../test/factories'
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'

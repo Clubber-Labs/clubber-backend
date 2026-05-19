@@ -1,9 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { buildLifecycleWhere } from '../../lib/event-filters'
-import {
-  computeEventStatus,
-  type EventStatus,
-} from '../../lib/event-lifecycle'
+import { computeEventStatus, type EventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import {
   type Bbox,
@@ -405,8 +402,7 @@ export async function findEventsForMap(
 
   const engagement = new Map<string, number>()
   for (const row of grouped) {
-    const w =
-      row.type === 'CONFIRMED' ? 2 : row.type === 'INTERESTED' ? 1 : 0
+    const w = row.type === 'CONFIRMED' ? 2 : row.type === 'INTERESTED' ? 1 : 0
     engagement.set(
       row.eventId,
       (engagement.get(row.eventId) ?? 0) + row._count._all * w,

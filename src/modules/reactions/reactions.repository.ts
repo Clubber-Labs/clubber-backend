@@ -33,10 +33,7 @@ export async function createPostReaction(userId: string, postId: string) {
   }
 }
 
-export async function createCommentReaction(
-  userId: string,
-  commentId: string,
-) {
+export async function createCommentReaction(userId: string, commentId: string) {
   try {
     return await prisma.commentReaction.create({
       data: { userId, commentId },
@@ -66,10 +63,7 @@ export async function deletePostReaction(userId: string, postId: string) {
   })
 }
 
-export async function deleteCommentReaction(
-  userId: string,
-  commentId: string,
-) {
+export async function deleteCommentReaction(userId: string, commentId: string) {
   return prisma.commentReaction.delete({
     where: { userId_commentId: { userId, commentId } },
   })

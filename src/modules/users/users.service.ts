@@ -46,10 +46,16 @@ export async function registerUser(data: CreateUserBody) {
   const usernameExists = await findUserByUsername(data.username)
 
   if (emailExists) {
-    throw { statusCode: 409, message: 'Email já cadastrado' }
+    throw {
+      statusCode: 409,
+      message: 'Este e-mail já está cadastrado em outra conta.',
+    }
   }
   if (usernameExists) {
-    throw { statusCode: 409, message: 'Nome de usuário já cadastrado' }
+    throw {
+      statusCode: 409,
+      message: 'Este nome de usuário já está em uso.',
+    }
   }
 
   const passwordHash = await hash(data.password, 10)
@@ -63,7 +69,10 @@ export async function editUser(id: string, data: UpdateUserBody) {
   if (data.username) {
     const existing = await findUserByUsername(data.username)
     if (existing && existing.id !== id) {
-      throw { statusCode: 409, message: 'Nome de usuário já cadastrado' }
+      throw {
+        statusCode: 409,
+        message: 'Este nome de usuário já está em uso.',
+      }
     }
   }
 
