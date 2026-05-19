@@ -10,6 +10,29 @@ import {
 } from './comments.repository'
 import type { CreateCommentBody } from './comments.schema'
 
+/**
+ * Resolve o eventId associado a um comentário, seja diretamente (comentário
+ * de evento) ou via post (comentário de post → eventId do post).
+ *
+ * Compartilhado entre comments, reactions e reports pra manter o tratamento
+ * de borda (faltando eventId/postId, post inexistente) consistente em todo
+ * fluxo que depende de "qual evento esse comentário pertence?".
+ */
+export async function resolveCommentEventId(comment: {
+  eventId: string | null
+  postId: string | null
+}): Promise<string> {
+  if (comment.eventId) return comment.eventId
+  if (!comment.postId) {
+    throw { statusCode: 500, message: 'Comentário sem evento ou post' }
+  }
+  const post = await findPostById(comment.postId)
+  if (!post) {
+    throw { statusCode: 404, message: 'Post do comentário não encontrado' }
+  }
+  return post.eventId
+}
+
 export async function addCommentToEvent(
   authorId: string,
   eventId: string,
@@ -80,14 +103,7 @@ export async function removeComment(
     throw { statusCode: 404, message: 'Comentário não encontrado neste escopo' }
   }
 
-  let eventId = comment.eventId
-  if (!eventId && comment.postId) {
-    const post = await findPostById(comment.postId)
-    eventId = post?.eventId ?? null
-  }
-  if (!eventId) {
-    throw { statusCode: 404, message: 'Comentário sem evento associado' }
-  }
+  const eventId = await resolveCommentEventId(comment)
   const event = await ensureEventAccess(eventId, requesterId)
 
   if (comment.authorId !== requesterId) {
