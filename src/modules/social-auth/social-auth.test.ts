@@ -70,7 +70,7 @@ const facebookProfile = (
   provider: 'FACEBOOK' as const,
   providerUserId: overrides.providerUserId ?? 'fb_user_456',
   email: overrides.email === undefined ? 'fb@exemplo.com' : overrides.email,
-  emailVerified: overrides.email === null ? false : true,
+  emailVerified: overrides.email !== null,
   firstName: 'Maria',
   lastName: 'Souza',
   pictureUrl: null,
@@ -258,6 +258,48 @@ describe('POST /auth/social — erros', () => {
     })
 
     expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('POST /auth/social — segurança auto-link', () => {
+  it('bloqueia auto-link via Facebook quando email já existe localmente', async () => {
+    await makeUser({ email: 'existente@exemplo.com' })
+
+    mockedFacebook.mockResolvedValueOnce(
+      facebookProfile({
+        email: 'existente@exemplo.com',
+        providerUserId: 'fb_no_link',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'facebook', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json().message).toMatch(/já tem uma conta/i)
+  })
+
+  it('normaliza email do provider para lowercase no auto-link via Google', async () => {
+    const existing = await makeUser({ email: 'mixedcase@exemplo.com' })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        email: 'MixedCase@Exemplo.COM',
+        providerUserId: 'google_normalize',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().user.id).toBe(existing.id)
   })
 })
 

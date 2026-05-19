@@ -76,6 +76,10 @@ export async function socialLogin(body: SocialLoginBody) {
     throw { statusCode: 400, message: 'Email não verificado pelo provider' }
   }
 
+  // Normaliza pra case-insensitive: Postgres unique é binário, mas provedores
+  // (Google em particular) podem retornar o email com case variado.
+  profile.email = profile.email.toLowerCase()
+
   const existing = await findSocialAccount(
     profile.provider,
     profile.providerUserId,
@@ -86,9 +90,22 @@ export async function socialLogin(body: SocialLoginBody) {
 
   const linkable = await findUserByEmail(profile.email)
   if (linkable) {
+    // Auto-link só pra Google: o ID token assina explicitamente email_verified,
+    // dando garantia criptográfica de propriedade do email. O Facebook só
+    // sinaliza isso indiretamente (Graph API omite email não-confirmado),
+    // o que é heurística, não asserção auditada — fraco demais pra ganchar
+    // numa conta tradicional existente. Pra Facebook + email já cadastrado,
+    // exigimos login tradicional primeiro (linkagem manual via perfil — TODO).
+    if (profile.provider !== 'GOOGLE') {
+      throw {
+        statusCode: 409,
+        message:
+          'Esse email já tem uma conta. Faça login com sua senha primeiro.',
+      }
+    }
     await createSocialAccount({
       userId: linkable.id,
-      provider: profile.provider as SocialProvider,
+      provider: profile.provider,
       providerUserId: profile.providerUserId,
       email: profile.email,
     })

@@ -53,10 +53,14 @@ type FacebookMeResponse = {
   picture?: { data?: { url?: string } }
 }
 
-async function fetchJson<T>(url: string, providerLabel: string): Promise<T> {
+async function fetchJson<T>(
+  url: string,
+  init: RequestInit,
+  providerLabel: string,
+): Promise<T> {
   let response: Response
   try {
-    response = await fetch(url)
+    response = await fetch(url, init)
   } catch {
     throw {
       statusCode: 502,
@@ -80,10 +84,19 @@ export async function verifyFacebookToken(
   }
 
   const appToken = `${env.FACEBOOK_APP_ID}|${env.FACEBOOK_APP_SECRET}`
-  const debugUrl = `https://graph.facebook.com/debug_token?input_token=${encodeURIComponent(accessToken)}&access_token=${encodeURIComponent(appToken)}`
 
+  // Tokens são enviados via body (POST) e header (Bearer) ao invés de query string
+  // pra evitar vazamento em logs de proxy, access logs e error reporters.
   const debug = await fetchJson<FacebookDebugTokenResponse>(
-    debugUrl,
+    'https://graph.facebook.com/debug_token',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        input_token: accessToken,
+        access_token: appToken,
+      }).toString(),
+    },
     'Facebook',
   )
   if (
@@ -94,8 +107,11 @@ export async function verifyFacebookToken(
     throw { statusCode: 401, message: 'Token Facebook inválido' }
   }
 
-  const meUrl = `https://graph.facebook.com/me?fields=id,email,first_name,last_name,picture&access_token=${encodeURIComponent(accessToken)}`
-  const me = await fetchJson<FacebookMeResponse>(meUrl, 'Facebook')
+  const me = await fetchJson<FacebookMeResponse>(
+    'https://graph.facebook.com/me?fields=id,email,first_name,last_name,picture',
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+    'Facebook',
+  )
 
   // O Facebook não expõe email_verified separadamente — o email retornado
   // já é o confirmado na conta. Tratamos a presença do email como verificação.
