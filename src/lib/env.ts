@@ -18,6 +18,17 @@ const baseSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   FACEBOOK_APP_ID: z.string().optional(),
   FACEBOOK_APP_SECRET: z.string().optional(),
+  FEATURED_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(300000),
+  // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
+  // Aceita explicitamente as strings comuns e transforma manualmente.
+  FEATURED_RECONCILE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
 })
 
 const cloudinarySchema = z.object({
@@ -76,4 +87,6 @@ export const env = {
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
   FACEBOOK_APP_ID: parsed.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
+  FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
+  FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
 } as const

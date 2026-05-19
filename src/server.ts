@@ -19,6 +19,8 @@ import { authRoutes } from './modules/auth/auth.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
 import { eventInvitesRoutes } from './modules/event-invites/event-invites.routes'
 import { eventsRoutes } from './modules/events/events.routes'
+import { startFeaturedEventsReconciler } from './modules/featured-events/featured-events.reconciler'
+import { featuredEventsRoutes } from './modules/featured-events/featured-events.routes'
 import { feedRoutes } from './modules/feed/feed.routes'
 import { followsRoutes } from './modules/follows/follows.routes'
 import { healthRoutes } from './modules/health/health.routes'
@@ -104,6 +106,7 @@ app.register(healthRoutes)
 app.register(authRoutes)
 app.register(socialAuthRoutes)
 app.register(eventsRoutes)
+app.register(featuredEventsRoutes)
 app.register(usersRoutes)
 app.register(followsRoutes)
 app.register(attendanceRoutes)
@@ -136,4 +139,7 @@ process.once('SIGTERM', shutdown)
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   console.log(`🔥 Server is running on http://localhost:${env.PORT}`)
+  if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
+    startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
+  }
 })

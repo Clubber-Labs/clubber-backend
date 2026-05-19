@@ -39,6 +39,7 @@ const ATTENDANCE_TYPES = [AttendanceType.CONFIRMED, AttendanceType.INTERESTED]
 
 async function main() {
   console.log('🌱 Limpando banco...')
+  await prisma.featuredEvent.deleteMany()
   await prisma.reaction.deleteMany()
   await prisma.comment.deleteMany()
   await prisma.post.deleteMany()
@@ -50,6 +51,19 @@ async function main() {
 
   // ── 1. Usuários ─────────────────────────────────────────────────────────────
   console.log('👤 Criando usuários...')
+
+  const premiumDemo = await prisma.user.create({
+    data: {
+      name: 'Premium',
+      lastname: 'Demo',
+      username: 'premium_demo',
+      email: 'premium@conectai.dev',
+      password: PASSWORD_HASH,
+      phone: '11900000001',
+      birthdate: new Date('1995-01-01'),
+      isPremium: true,
+    },
+  })
 
   const usersData = Array.from({ length: 12 }).map((_, i) => {
     const firstName = faker.person.firstName()
@@ -85,11 +99,13 @@ async function main() {
     return true
   })
 
-  const users = await Promise.all(
+  const randomUsers = await Promise.all(
     deduped.map((data) => prisma.user.create({ data })),
   )
+  const users = [premiumDemo, ...randomUsers]
 
-  console.log(`   ✓ ${users.length} usuários criados`)
+  console.log(`   ✓ ${users.length} usuários criados (1 premium fixo)`)
+  console.log('   ⭐ Premium fixo: premium@conectai.dev (premium_demo)')
   console.log('   📧 Login: qualquer email acima | Senha: senha123')
 
   // ── 2. Follows ───────────────────────────────────────────────────────────────
