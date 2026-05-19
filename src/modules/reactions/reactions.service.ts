@@ -1,4 +1,5 @@
 import { findCommentById } from '../comments/comments.repository'
+import { resolveCommentEventId } from '../comments/comments.service'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { findPostById } from '../posts/posts.repository'
 import {
@@ -57,19 +58,4 @@ export async function unlikeComment(userId: string, commentId: string) {
   const reaction = await findCommentReaction(userId, commentId)
   if (!reaction) throw { statusCode: 404, message: 'Reação não encontrada' }
   return deleteCommentReaction(userId, commentId)
-}
-
-async function resolveCommentEventId(comment: {
-  eventId: string | null
-  postId: string | null
-}): Promise<string> {
-  if (comment.eventId) return comment.eventId
-  if (!comment.postId) {
-    throw { statusCode: 500, message: 'Comentário sem evento ou post' }
-  }
-  const post = await findPostById(comment.postId)
-  if (!post) {
-    throw { statusCode: 404, message: 'Post do comentário não encontrado' }
-  }
-  return post.eventId
 }
