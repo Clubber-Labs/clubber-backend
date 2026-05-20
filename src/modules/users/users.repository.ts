@@ -20,6 +20,7 @@ const userProfileSelect = {
   email: true,
   phone: true,
   birthdate: true,
+  role: true,
 } as const
 
 export async function findAllUsers(limit: number, cursor?: string) {

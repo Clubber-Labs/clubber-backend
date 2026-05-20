@@ -101,6 +101,21 @@ describe('POST /events/:eventId/report', () => {
 
     expect(res.statusCode).toBe(409)
   })
+
+  it('retorna 403 para evento privado sem acesso', async () => {
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
 })
 
 describe('POST /comments/:commentId/report', () => {
@@ -182,5 +197,185 @@ describe('POST /comments/:commentId/report', () => {
     })
 
     expect(res.statusCode).toBe(409)
+  })
+})
+
+describe('POST /users/:userId/report', () => {
+  it('cria denúncia de usuário com sucesso', async () => {
+    const target = await makeUser()
+    const reporter = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/users/${target.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'HARASSMENT', details: 'Perfil abusivo' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      reporterId: reporter.id,
+      targetUserId: target.id,
+      reason: 'HARASSMENT',
+    })
+  })
+
+  it('retorna 400 quando usuário denuncia a si mesmo', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/users/${user.id}/report`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 409 quando já existe denúncia ativa para o mesmo usuário', async () => {
+    const target = await makeUser()
+    const reporter = await makeUser()
+    await makeReport(reporter.id, { targetUserId: target.id })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/users/${target.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'INAPPROPRIATE_CONTENT' },
+    })
+
+    expect(res.statusCode).toBe(409)
+  })
+})
+
+describe('GET /reports', () => {
+  it('lista denúncias para administrador com filtros', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const target = await makeUser()
+    const event = await makeEvent(author.id)
+    const eventReport = await makeReport(reporter.id, { eventId: event.id })
+    await makeReport(reporter.id, {
+      targetUserId: target.id,
+      status: 'RESOLVED_INVALID',
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reports?status=PENDING&targetType=EVENT',
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      data: [
+        {
+          id: eventReport.id,
+          reporterId: reporter.id,
+          eventId: event.id,
+          status: 'PENDING',
+          reporter: { id: reporter.id },
+          event: { id: event.id },
+        },
+      ],
+      nextCursor: null,
+    })
+  })
+
+  it('retorna 403 para usuário comum', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reports',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+})
+
+describe('GET /reports/:id', () => {
+  it('detalha uma denúncia para administrador', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const event = await makeEvent(author.id)
+    const report = await makeReport(reporter.id, { eventId: event.id })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/reports/${report.id}`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      id: report.id,
+      reporterId: reporter.id,
+      eventId: event.id,
+      reporter: { id: reporter.id },
+      event: { id: event.id },
+    })
+  })
+})
+
+describe('PATCH /reports/:id', () => {
+  it('resolve uma denúncia como administrador', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const event = await makeEvent(author.id)
+    const report = await makeReport(reporter.id, { eventId: event.id })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/reports/${report.id}`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+      body: {
+        status: 'RESOLVED_REMOVED',
+        resolutionNote: 'Conteúdo removido pela moderação',
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      id: report.id,
+      status: 'RESOLVED_REMOVED',
+      reviewerId: admin.id,
+      resolutionNote: 'Conteúdo removido pela moderação',
+    })
+    expect(res.json().resolvedAt).toBeTruthy()
+
+    const stored = await testPrisma.report.findUnique({
+      where: { id: report.id },
+    })
+    expect(stored?.status).toBe('RESOLVED_REMOVED')
+    expect(stored?.reviewerId).toBe(admin.id)
+    expect(stored?.resolvedAt).toBeTruthy()
+  })
+})
+
+describe('DELETE /reports/:id', () => {
+  it('remove uma denúncia como administrador', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const reporter = await makeUser()
+    const target = await makeUser()
+    const report = await makeReport(reporter.id, { targetUserId: target.id })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/reports/${report.id}`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(204)
+
+    const stored = await testPrisma.report.findUnique({
+      where: { id: report.id },
+    })
+    expect(stored).toBeNull()
   })
 })

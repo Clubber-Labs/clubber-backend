@@ -1,39 +1,33 @@
+import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createCommentReport,
   createEventReport,
+  createUserReport,
+  deleteReportById,
   findCommentById,
   findEventById,
   findExistingCommentReport,
   findExistingEventReport,
+  findExistingUserReport,
+  findReportById,
+  findReports,
+  findReportTargetUserById,
+  findUserRoleById,
+  updateReportResolution,
 } from './reports.repository'
-import type { CreateReportBody } from './reports.schema'
+import type {
+  CreateReportBody,
+  ListReportsQuery,
+  ResolveReportBody,
+} from './reports.schema'
 
-async function ensureEventAccessForReport(event: any, reporterId: string) {
-  const visibility = event?.visibility ?? event?.privacy ?? event?.access
-  const isPrivate = event?.isPrivate === true || visibility === 'private'
-  if (!isPrivate) {
-    return
-  }
-  const participantIds = Array.isArray(event?.participantIds)
-    ? event.participantIds
-    : Array.isArray(event?.participants)
-      ? event.participants
-          .map((participant: any) =>
-            typeof participant === 'string'
-              ? participant
-              : (participant?.userId ?? participant?.id),
-          )
-          .filter(Boolean)
-      : []
-  const allowedUserIds = Array.isArray(event?.allowedUserIds)
-    ? event.allowedUserIds
-    : []
-  const hasAccess =
-    event?.authorId === reporterId ||
-    participantIds.includes(reporterId) ||
-    allowedUserIds.includes(reporterId)
-  if (!hasAccess) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
+async function assertAdmin(userId: string) {
+  const user = await findUserRoleById(userId)
+  if (user?.role !== 'ADMIN') {
+    throw {
+      statusCode: 403,
+      message: 'Apenas administradores podem gerenciar denúncias',
+    }
   }
 }
 
@@ -47,7 +41,7 @@ export async function reportEvent(
     throw { statusCode: 404, message: 'Evento não encontrado' }
   }
 
-  await ensureEventAccessForReport(event, reporterId)
+  await ensureEventAccess(eventId, reporterId)
 
   if (event.authorId === reporterId) {
     throw {
@@ -77,11 +71,11 @@ export async function reportComment(
     throw { statusCode: 404, message: 'Comentário não encontrado' }
   }
 
-  const eventId = comment.eventId ?? comment.postId
+  const eventId = comment.eventId ?? comment.post?.eventId
   if (!eventId) {
     throw { statusCode: 404, message: 'Evento não encontrado' }
   }
-  await ensureEventAccessForReport(eventId, reporterId)
+  await ensureEventAccess(eventId, reporterId)
 
   if (comment.authorId === reporterId) {
     throw {
@@ -99,4 +93,79 @@ export async function reportComment(
   }
 
   return createCommentReport(data, reporterId, commentId)
+}
+
+export async function reportUser(
+  data: CreateReportBody,
+  reporterId: string,
+  targetUserId: string,
+) {
+  const targetUser = await findReportTargetUserById(targetUserId)
+  if (!targetUser) {
+    throw { statusCode: 404, message: 'Usuário não encontrado' }
+  }
+
+  if (targetUserId === reporterId) {
+    throw {
+      statusCode: 400,
+      message: 'Não é possível denunciar o próprio usuário',
+    }
+  }
+
+  const existing = await findExistingUserReport(reporterId, targetUserId)
+  if (existing) {
+    throw {
+      statusCode: 409,
+      message: 'Você já possui uma denúncia ativa para este usuário',
+    }
+  }
+
+  return createUserReport(data, reporterId, targetUserId)
+}
+
+export async function listReports(
+  query: ListReportsQuery,
+  requesterId: string,
+) {
+  await assertAdmin(requesterId)
+  const reports = await findReports(query)
+  const hasNextPage = reports.length > query.limit
+  const data = hasNextPage ? reports.slice(0, query.limit) : reports
+  const nextCursor = hasNextPage ? data[data.length - 1]?.id : null
+
+  return { data, nextCursor }
+}
+
+export async function getReport(reportId: string, requesterId: string) {
+  await assertAdmin(requesterId)
+  const report = await findReportById(reportId)
+  if (!report) {
+    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+  }
+
+  return report
+}
+
+export async function resolveReport(
+  reportId: string,
+  requesterId: string,
+  data: ResolveReportBody,
+) {
+  await assertAdmin(requesterId)
+  const report = await findReportById(reportId)
+  if (!report) {
+    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+  }
+
+  return updateReportResolution(reportId, requesterId, data)
+}
+
+export async function removeReport(reportId: string, requesterId: string) {
+  await assertAdmin(requesterId)
+  const report = await findReportById(reportId)
+  if (!report) {
+    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+  }
+
+  await deleteReportById(reportId)
 }

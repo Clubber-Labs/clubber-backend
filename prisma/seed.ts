@@ -4,6 +4,7 @@ import {
   FollowStatus,
   PrismaClient,
   ReactionType,
+  UserRole,
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
@@ -39,6 +40,7 @@ const ATTENDANCE_TYPES = [AttendanceType.CONFIRMED, AttendanceType.INTERESTED]
 
 async function main() {
   console.log('🌱 Limpando banco...')
+  await prisma.report.deleteMany()
   await prisma.featuredEvent.deleteMany()
   await prisma.reaction.deleteMany()
   await prisma.comment.deleteMany()
@@ -51,6 +53,20 @@ async function main() {
 
   // ── 1. Usuários ─────────────────────────────────────────────────────────────
   console.log('👤 Criando usuários...')
+
+  const adminDemo = await prisma.user.create({
+    data: {
+      name: 'Admin',
+      lastname: 'Demo',
+      username: 'admin_demo',
+      email: 'admin@conectai.dev',
+      password: PASSWORD_HASH,
+      phone: '11900000000',
+      birthdate: new Date('1990-01-01'),
+      role: UserRole.ADMIN,
+      isPremium: true,
+    },
+  })
 
   const premiumDemo = await prisma.user.create({
     data: {
@@ -102,9 +118,12 @@ async function main() {
   const randomUsers = await Promise.all(
     deduped.map((data) => prisma.user.create({ data })),
   )
-  const users = [premiumDemo, ...randomUsers]
+  const users = [adminDemo, premiumDemo, ...randomUsers]
 
-  console.log(`   ✓ ${users.length} usuários criados (1 premium fixo)`)
+  console.log(
+    `   ✓ ${users.length} usuários criados (1 admin + 1 premium fixos)`,
+  )
+  console.log('   🛡️  Admin fixo: admin@conectai.dev (admin_demo)')
   console.log('   ⭐ Premium fixo: premium@conectai.dev (premium_demo)')
   console.log('   📧 Login: qualquer email acima | Senha: senha123')
 

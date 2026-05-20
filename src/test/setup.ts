@@ -32,6 +32,7 @@ if (!redisUrl.endsWith('/15')) {
 
 afterEach(async () => {
   await testPrisma.$transaction([
+    testPrisma.report.deleteMany(),
     testPrisma.reaction.deleteMany(),
     testPrisma.comment.deleteMany(),
     testPrisma.post.deleteMany(),

@@ -15,6 +15,7 @@ export async function makeUser(
     phone?: string | null
     birthdate?: Date | null
     isPremium?: boolean
+    role?: 'USER' | 'ADMIN'
   } = {},
 ) {
   const id = uid()
@@ -38,6 +39,7 @@ export async function makeUser(
           : (overrides.birthdate ?? new Date('2000-01-01')),
       isPrivate: overrides.isPrivate ?? false,
       isPremium: overrides.isPremium ?? false,
+      role: overrides.role ?? 'USER',
     },
   })
 }
@@ -125,6 +127,7 @@ export async function makeReport(
   overrides: {
     eventId?: string
     commentId?: string
+    targetUserId?: string
     reason?:
       | 'HATE_SPEECH'
       | 'SPAM_OR_FRAUD'
@@ -132,6 +135,9 @@ export async function makeReport(
       | 'INAPPROPRIATE_CONTENT'
       | 'OTHER'
     status?: 'PENDING' | 'REVIEWED' | 'RESOLVED_INVALID' | 'RESOLVED_REMOVED'
+    reviewerId?: string
+    resolutionNote?: string | null
+    resolvedAt?: Date | null
   } = {},
 ) {
   return testPrisma.report.create({
@@ -141,6 +147,10 @@ export async function makeReport(
       status: overrides.status ?? 'PENDING',
       eventId: overrides.eventId,
       commentId: overrides.commentId,
+      targetUserId: overrides.targetUserId,
+      reviewerId: overrides.reviewerId,
+      resolutionNote: overrides.resolutionNote,
+      resolvedAt: overrides.resolvedAt,
     },
   })
 }
