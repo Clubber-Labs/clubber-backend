@@ -162,6 +162,7 @@ export async function findPublicEvents(
     where: {
       AND: [
         { isPublic: true },
+        { author: { isBanned: false } },
         authorVisibleWhere(viewerId),
         buildLifecycleWhere({
           includePast: filters.includePast ?? false,
@@ -213,7 +214,7 @@ export async function findEventsByAuthor(
     AND: [
       { authorId },
       authorVisibleWhere(viewerId),
-      ...(viewerId !== authorId ? [{ isPublic: true }] : []),
+      ...(viewerId !== authorId ? [{ isPublic: true }, { author: { isBanned: false } }] : []),
     ],
   }
   const events = (await prisma.event.findMany({

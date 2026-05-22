@@ -14,8 +14,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -38,7 +38,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -56,7 +56,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -74,7 +74,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -95,7 +95,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -111,7 +111,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -131,7 +131,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -151,7 +151,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -176,7 +176,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -192,7 +192,7 @@ describe('GET /feed', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -211,7 +211,7 @@ describe('GET /feed — status', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -232,7 +232,7 @@ describe('GET /feed — status', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -250,7 +250,7 @@ describe('GET /feed — status', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -267,7 +267,7 @@ describe('GET /feed — status', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed?status=CANCELED',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -294,7 +294,7 @@ describe('GET /feed — filtros', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed?status=ONGOING',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res.json().data.map((e: { id: string }) => e.id)
@@ -315,7 +315,7 @@ describe('GET /feed — filtros', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed?includePast=false',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res
@@ -337,7 +337,7 @@ describe('GET /feed — filtros', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res
@@ -361,7 +361,7 @@ describe('GET /feed — filtros', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed?category=Festa',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res.json().data.map((e: { id: string }) => e.id)
@@ -387,7 +387,7 @@ describe('GET /feed — filtros', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/feed?dateFrom=${dateFrom}&dateTo=${dateTo}`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res.json().data.map((e: { id: string }) => e.id)
@@ -412,7 +412,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res
@@ -449,7 +449,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res
@@ -476,7 +476,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res
@@ -512,7 +512,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res
@@ -555,7 +555,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const ids = res
@@ -576,7 +576,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -595,7 +595,7 @@ describe('GET /feed — ranking', () => {
     const page1 = await app.inject({
       method: 'GET',
       url: '/feed?limit=3',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
     const body1 = page1.json()
     expect(body1.data.length).toBe(3)
@@ -604,7 +604,7 @@ describe('GET /feed — ranking', () => {
     const page2 = await app.inject({
       method: 'GET',
       url: `/feed?limit=3&cursor=${body1.nextCursor}`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
     const body2 = page2.json()
     const ids1 = body1.data.map((e: { id: string }) => e.id)
@@ -619,7 +619,7 @@ describe('GET /feed — ranking', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed?limit=3&cursor=00000000-0000-0000-0000-000000000000',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -635,7 +635,7 @@ describe('GET /feed — reason', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -651,7 +651,7 @@ describe('GET /feed — reason', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -672,7 +672,7 @@ describe('GET /feed — reason', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -694,7 +694,7 @@ describe('GET /feed — reason', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -715,7 +715,7 @@ describe('GET /feed — reason', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -738,7 +738,7 @@ describe('GET /feed — reason', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)

@@ -4,6 +4,6 @@ import { validateLogin } from './auth.service'
 
 export async function login(request: FastifyRequest, reply: FastifyReply) {
   const user = await validateLogin(request.body as LoginBody)
-  const token = await reply.jwtSign({ sub: user.id })
+  const token = await reply.jwtSign({ sub: user.id, role: user.role })
   return reply.send({ token })
 }

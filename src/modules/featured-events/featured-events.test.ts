@@ -7,8 +7,8 @@ import { reconcileFeaturedEvents } from './featured-events.reconciler'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 function inFuture(ms: number) {
@@ -33,7 +33,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         startsAt: new Date().toISOString(),
         endsAt: inFuture(3_600_000).toISOString(),
@@ -69,7 +69,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events/00000000-0000-0000-0000-000000000000/featured',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         startsAt: new Date().toISOString(),
         endsAt: inFuture(3_600_000).toISOString(),
@@ -86,7 +86,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
       body: {
         startsAt: new Date().toISOString(),
         endsAt: inFuture(3_600_000).toISOString(),
@@ -102,7 +102,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         startsAt: new Date().toISOString(),
         endsAt: inFuture(3_600_000).toISOString(),
@@ -119,7 +119,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         startsAt: sameMoment.toISOString(),
         endsAt: sameMoment.toISOString(),
@@ -135,7 +135,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         startsAt: new Date(Date.now() - 60_000).toISOString(),
         endsAt: inFuture(3_600_000).toISOString(),
@@ -151,7 +151,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         startsAt: new Date().toISOString(),
         endsAt: inFuture(7_200_000).toISOString(),
@@ -171,7 +171,7 @@ describe('POST /events/:id/featured', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/featured`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         startsAt: inFuture(1_800_000).toISOString(),
         endsAt: inFuture(5_400_000).toISOString(),
@@ -193,7 +193,7 @@ describe('DELETE /events/:id/featured/:featureId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/featured/${feature.id}`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -227,7 +227,7 @@ describe('DELETE /events/:id/featured/:featureId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/featured/${active.id}`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -283,7 +283,7 @@ describe('DELETE /events/:id/featured/:featureId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/featured/${feature.id}`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
     expect(res.statusCode).toBe(403)
   })
@@ -299,7 +299,7 @@ describe('DELETE /events/:id/featured/:featureId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/featured/${feature.id}`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
     })
     expect(res.statusCode).toBe(404)
   })
@@ -314,7 +314,7 @@ describe('DELETE /events/:id/featured/:featureId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/featured/${feature.id}`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
     })
     expect(res.statusCode).toBe(409)
   })
@@ -390,7 +390,7 @@ describe('GET /feed — propaga isFeatured no payload', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/feed',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)

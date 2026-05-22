@@ -28,6 +28,7 @@ export const createUserSchema = z.object({
     .optional(),
   isPrivate: z.boolean().default(false),
   birthdate: z.coerce.date(),
+  isBanned: z.boolean().default(false),
 })
 
 export type CreateUserBody = z.infer<typeof createUserSchema>

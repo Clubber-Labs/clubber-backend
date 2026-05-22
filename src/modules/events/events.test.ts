@@ -23,8 +23,8 @@ const redis = nullableRedis
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -298,7 +298,7 @@ describe('GET /events', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -319,7 +319,7 @@ describe('GET /events', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      headers: { authorization: `Bearer ${token(app, stranger.id, stranger.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -336,7 +336,7 @@ describe('GET /events', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -352,7 +352,7 @@ describe('GET /events', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, requester.id)}` },
+      headers: { authorization: `Bearer ${token(app, requester.id, requester.role)}` },
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
@@ -374,7 +374,7 @@ describe('cache de GET /events', () => {
     const reactRes = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
     expect(reactRes.statusCode).toBe(201)
 
@@ -395,7 +395,7 @@ describe('cache de GET /events', () => {
     const attRes = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
       body: { type: 'CONFIRMED' },
     })
     expect(attRes.statusCode).toBe(201)
@@ -417,7 +417,7 @@ describe('cache de GET /events', () => {
     const resA = await app.inject({
       method: 'GET',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, viewerA.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewerA.id, viewerA.role)}` },
     })
     expect(resA.statusCode).toBe(200)
     const eventA = resA
@@ -428,7 +428,7 @@ describe('cache de GET /events', () => {
     const resB = await app.inject({
       method: 'GET',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, viewerB.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewerB.id, viewerB.role)}` },
     })
     expect(resB.statusCode).toBe(200)
     const eventB = resB
@@ -453,7 +453,7 @@ describe('cache de GET /events', () => {
     await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {
         title: 'Novo evento',
         description: 'Descrição do evento',
@@ -618,7 +618,7 @@ describe('GET /events/map', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events/map?bboxNorth=-25.3&bboxSouth=-25.5&bboxEast=-49.2&bboxWest=-49.4',
-      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      headers: { authorization: `Bearer ${token(app, stranger.id, stranger.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -638,7 +638,7 @@ describe('GET /events/map', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events/map?bboxNorth=-25.3&bboxSouth=-25.5&bboxEast=-49.2&bboxWest=-49.4',
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -675,7 +675,7 @@ describe('GET /events/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      headers: { authorization: `Bearer ${token(app, stranger.id, stranger.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -690,7 +690,7 @@ describe('GET /events/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -703,7 +703,7 @@ describe('GET /events/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, privateAuthor.id)}` },
+      headers: { authorization: `Bearer ${token(app, privateAuthor.id, privateAuthor.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -719,7 +719,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${privateAuthor.id}/events`,
-      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      headers: { authorization: `Bearer ${token(app, stranger.id, stranger.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -735,7 +735,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${privateAuthor.id}/events`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -751,7 +751,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+      headers: { authorization: `Bearer ${token(app, invitee.id, invitee.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -766,7 +766,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+      headers: { authorization: `Bearer ${token(app, invitee.id, invitee.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -782,7 +782,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+      headers: { authorization: `Bearer ${token(app, invitee.id, invitee.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -797,7 +797,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+      headers: { authorization: `Bearer ${token(app, invitee.id, invitee.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -812,7 +812,7 @@ describe('GET /events/:id — acesso por convite e visibilidade', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -827,7 +827,7 @@ describe('GET /events/:id — acesso por convite e visibilidade', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, guest.id)}` },
+      headers: { authorization: `Bearer ${token(app, guest.id, guest.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -841,7 +841,7 @@ describe('GET /events/:id — acesso por convite e visibilidade', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -853,7 +853,7 @@ describe('GET /events/:id — acesso por convite e visibilidade', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/events/00000000-0000-0000-0000-000000000000',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)
@@ -867,7 +867,7 @@ describe('POST /events', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         title: 'Festa de verão',
         description: 'Uma festa incrível',
@@ -912,7 +912,7 @@ describe('POST /events', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         title: 'Evento com fim',
         description: 'Tem hora pra acabar',
@@ -934,7 +934,7 @@ describe('POST /events', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         title: 'Inválido',
         description: 'Descrição completa',
@@ -953,7 +953,7 @@ describe('POST /events', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         title: 'Inválido',
         description: 'Descrição completa',
@@ -975,7 +975,7 @@ describe('POST /events', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         title: 'Inválido',
         description: 'Desc completa aqui',
@@ -1001,7 +1001,7 @@ describe('PUT /events/:id', () => {
     const created = await app.inject({
       method: 'POST',
       url: '/events',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: {
         title: 'Evento original',
         description: 'Descrição completa',
@@ -1019,7 +1019,7 @@ describe('PUT /events/:id', () => {
     const res = await app.inject({
       method: 'PUT',
       url: `/events/${eventId}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { endDate: badEnd.toISOString() },
     })
 
@@ -1035,7 +1035,7 @@ describe('DELETE /events/:id', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -1049,7 +1049,7 @@ describe('DELETE /events/:id', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -1072,7 +1072,7 @@ describe('POST /events/:id/images', () => {
       method: 'POST',
       url: `/events/${event.id}/images`,
       headers: {
-        authorization: `Bearer ${token(app, author.id)}`,
+        authorization: `Bearer ${token(app, author.id, author.role)}`,
         'content-type': contentType,
       },
       payload: body,
@@ -1100,7 +1100,7 @@ describe('POST /events/:id/images', () => {
       method: 'POST',
       url: `/events/${event.id}/images`,
       headers: {
-        authorization: `Bearer ${token(app, author.id)}`,
+        authorization: `Bearer ${token(app, author.id, author.role)}`,
         'content-type': 'multipart/form-data; boundary=----X',
       },
       payload: '------X--\r\n',
@@ -1123,7 +1123,7 @@ describe('POST /events/:id/images', () => {
       method: 'POST',
       url: `/events/${event.id}/images`,
       headers: {
-        authorization: `Bearer ${token(app, author.id)}`,
+        authorization: `Bearer ${token(app, author.id, author.role)}`,
         'content-type': contentType,
       },
       payload: body,
@@ -1169,7 +1169,7 @@ describe('POST /events/:id/images', () => {
       method: 'POST',
       url: `/events/${event.id}/images`,
       headers: {
-        authorization: `Bearer ${token(app, other.id)}`,
+        authorization: `Bearer ${token(app, other.id, other.role)}`,
         'content-type': contentType,
       },
       payload: body,

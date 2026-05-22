@@ -8,8 +8,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -31,7 +31,7 @@ describe('GET /users/me', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/users/me',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -70,7 +70,7 @@ describe('GET /users/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${target.id}`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -85,7 +85,7 @@ describe('GET /users/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${target.id}`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -99,7 +99,7 @@ describe('GET /users/:id', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${target.id}`,
-      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      headers: { authorization: `Bearer ${token(app, viewer.id, viewer.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -134,7 +134,7 @@ describe('PATCH /users/me/avatar', () => {
       method: 'PATCH',
       url: '/users/me/avatar',
       headers: {
-        authorization: `Bearer ${token(app, user.id)}`,
+        authorization: `Bearer ${token(app, user.id, user.role)}`,
         'content-type': contentType,
       },
       payload: body,
@@ -155,7 +155,7 @@ describe('PATCH /users/me/avatar', () => {
       method: 'PATCH',
       url: '/users/me/avatar',
       headers: {
-        authorization: `Bearer ${token(app, user.id)}`,
+        authorization: `Bearer ${token(app, user.id, user.role)}`,
         'content-type': first.contentType,
       },
       payload: first.body,
@@ -167,7 +167,7 @@ describe('PATCH /users/me/avatar', () => {
       method: 'PATCH',
       url: '/users/me/avatar',
       headers: {
-        authorization: `Bearer ${token(app, user.id)}`,
+        authorization: `Bearer ${token(app, user.id, user.role)}`,
         'content-type': second.contentType,
       },
       payload: second.body,
@@ -190,7 +190,7 @@ describe('PATCH /users/me/avatar', () => {
       method: 'PATCH',
       url: '/users/me/avatar',
       headers: {
-        authorization: `Bearer ${token(app, user.id)}`,
+        authorization: `Bearer ${token(app, user.id, user.role)}`,
         'content-type': contentType,
       },
       payload: body,
@@ -227,7 +227,7 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
     const res = await app.inject({
       method: 'PUT',
       url: `/users/${other.id}`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
       payload: { phone: '11999999999' },
     })
 
@@ -247,7 +247,7 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
     const res = await app.inject({
       method: 'PUT',
       url: `/users/${editor.id}`,
-      headers: { authorization: `Bearer ${token(app, editor.id)}` },
+      headers: { authorization: `Bearer ${token(app, editor.id, editor.role)}` },
       payload: { username: 'ocupado' },
     })
 

@@ -6,15 +6,15 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
-async function makePost(app: FastifyInstance, userId: string, eventId: string) {
+async function makePost(app: FastifyInstance, userId: string, eventId: string, userRole: 'USER' | 'ADMIN') {
   const res = await app.inject({
     method: 'POST',
     url: `/events/${eventId}/posts`,
-    headers: { authorization: `Bearer ${token(app, userId)}` },
+    headers: { authorization: `Bearer ${token(app, userId, userRole)}` },
     body: { content: 'Post base' },
   })
   return res.json()
@@ -38,7 +38,7 @@ describe('POST /events/:eventId/comments', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Que evento!' },
     })
 
@@ -57,7 +57,7 @@ describe('POST /events/:eventId/comments', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
       body: { content: 'Comentário proibido' },
     })
 
@@ -73,14 +73,14 @@ describe('GET /events/:eventId/comments', () => {
     await app.inject({
       method: 'POST',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Comentário 1' },
     })
 
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -99,7 +99,7 @@ describe('DELETE /events/:eventId/comments/:commentId', () => {
     const created = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Para deletar' },
     })
     const comment = created.json()
@@ -107,7 +107,7 @@ describe('DELETE /events/:eventId/comments/:commentId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/comments/${comment.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -121,7 +121,7 @@ describe('DELETE /events/:eventId/comments/:commentId', () => {
     const created = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { content: 'Comentário do autor' },
     })
     const comment = created.json()
@@ -129,7 +129,7 @@ describe('DELETE /events/:eventId/comments/:commentId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/comments/${comment.id}`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -143,7 +143,7 @@ describe('DELETE /events/:eventId/comments/:commentId', () => {
     const created = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Comentário' },
     })
     const comment = created.json()
@@ -151,7 +151,7 @@ describe('DELETE /events/:eventId/comments/:commentId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${otherEvent.id}/comments/${comment.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)
@@ -163,12 +163,12 @@ describe('POST /posts/:postId/comments', () => {
     const user = await makeUser()
     const event = await makeEvent(user.id)
     await makeAttendance(user.id, event.id, 'CONFIRMED')
-    const post = await makePost(app, user.id, event.id)
+    const post = await makePost(app, user.id, event.id, user.role)
 
     const res = await app.inject({
       method: 'POST',
       url: `/posts/${post.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Comentário no post' },
     })
 
@@ -185,12 +185,12 @@ describe('DELETE /posts/:postId/comments/:commentId', () => {
     const user = await makeUser()
     const event = await makeEvent(user.id)
     await makeAttendance(user.id, event.id, 'CONFIRMED')
-    const post = await makePost(app, user.id, event.id)
+    const post = await makePost(app, user.id, event.id, user.role)
 
     const created = await app.inject({
       method: 'POST',
       url: `/posts/${post.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Para deletar' },
     })
     const comment = created.json()
@@ -198,7 +198,7 @@ describe('DELETE /posts/:postId/comments/:commentId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/posts/${post.id}/comments/${comment.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)

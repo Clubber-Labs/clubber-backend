@@ -6,8 +6,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -28,7 +28,7 @@ describe('POST /events/:eventId/posts', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Que evento incrível!' },
     })
 
@@ -47,7 +47,7 @@ describe('POST /events/:eventId/posts', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
       body: { content: 'Tentando postar' },
     })
 
@@ -76,14 +76,14 @@ describe('GET /events/:eventId/posts', () => {
     await app.inject({
       method: 'POST',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Post 1' },
     })
 
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -103,7 +103,7 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     const created = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Para deletar' },
     })
     const post = created.json()
@@ -111,7 +111,7 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/posts/${post.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -125,7 +125,7 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     const created = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { content: 'Post do autor' },
     })
     const post = created.json()
@@ -133,7 +133,7 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/posts/${post.id}`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -147,7 +147,7 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     const created = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/posts`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { content: 'Post' },
     })
     const post = created.json()
@@ -155,7 +155,7 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${otherEvent.id}/posts/${post.id}`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)

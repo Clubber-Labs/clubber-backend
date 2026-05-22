@@ -23,6 +23,8 @@ import { reactionsRoutes } from '../modules/reactions/reactions.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { usersRoutes } from '../modules/users/users.routes'
+import { adminRoutes } from '../modules/admin/admin.routes'
+import { testPrisma } from './prisma'
 
 export function buildApp() {
   const app = fastify().withTypeProvider<ZodTypeProvider>()
@@ -65,9 +67,33 @@ export function buildApp() {
 
   app.decorate(
     'authenticate',
-    async (request: FastifyRequest, _reply: FastifyReply) => {
-      const payload = await request.jwtVerify<{ sub: string }>()
-      request.user = payload
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        await request.jwtVerify()
+        const user = await testPrisma.user.findUnique({
+          where: { id: request.user.sub },
+          select: { isBanned: true },
+        })
+        if (user?.isBanned) {
+          return reply.status(403).send({ message: 'Acesso negado: Usuário banido' })
+        }
+      } catch {
+        return reply.status(401).send({ message: 'Token inválido ou ausente' })
+      }
+    },
+  )
+
+  app.decorate(
+    'authenticateAdmin',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      try {
+        await request.jwtVerify()
+        if (request.user.role !== 'ADMIN') {
+          return reply.status(403).send({ message: 'Acesso negado: Administradores apenas' })
+        }
+      } catch {
+        return reply.status(401).send({ message: 'Token inválido ou ausente' })
+      }
     },
   )
 
@@ -75,8 +101,7 @@ export function buildApp() {
     'authenticateOptional',
     async (request: FastifyRequest, _reply: FastifyReply) => {
       if (request.headers.authorization) {
-        const payload = await request.jwtVerify<{ sub: string }>()
-        request.user = payload
+        await request.jwtVerify()
       }
     },
   )
@@ -95,6 +120,7 @@ export function buildApp() {
   app.register(feedRoutes)
   app.register(eventInvitesRoutes)
   app.register(reportsRoutes)
+  app.register(adminRoutes)
 
   return app
 }

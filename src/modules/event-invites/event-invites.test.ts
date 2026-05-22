@@ -6,8 +6,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -30,7 +30,7 @@ describe('POST /events/:eventId/invites', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { userIds: [guest1.id, guest2.id] },
     })
 
@@ -49,7 +49,7 @@ describe('POST /events/:eventId/invites', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: {},
     })
 
@@ -65,7 +65,7 @@ describe('POST /events/:eventId/invites', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
       body: { userIds: [other.id] },
     })
 
@@ -80,7 +80,7 @@ describe('POST /events/:eventId/invites', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { userIds: [guest.id] },
     })
 
@@ -95,14 +95,14 @@ describe('POST /events/:eventId/invites', () => {
     await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { userIds: [guest.id] },
     })
 
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { userIds: [guest.id] },
     })
 
@@ -120,14 +120,14 @@ describe('GET /events/:eventId/invites', () => {
     await app.inject({
       method: 'POST',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { userIds: [guest.id] },
     })
 
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -142,7 +142,7 @@ describe('GET /events/:eventId/invites', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/events/${event.id}/invites`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)

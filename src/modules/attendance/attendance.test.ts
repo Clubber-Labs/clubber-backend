@@ -11,8 +11,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -33,7 +33,7 @@ describe('POST /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { type: 'CONFIRMED' },
     })
 
@@ -49,7 +49,7 @@ describe('POST /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { type: 'CONFIRMED' },
     })
 
@@ -70,7 +70,7 @@ describe('POST /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
       body: { type: 'CONFIRMED' },
     })
 
@@ -85,7 +85,7 @@ describe('POST /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
       body: { type: 'CONFIRMED' },
     })
 
@@ -101,7 +101,7 @@ describe('POST /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, guest.id)}` },
+      headers: { authorization: `Bearer ${token(app, guest.id, guest.role)}` },
       body: { type: 'CONFIRMED' },
     })
 
@@ -131,7 +131,7 @@ describe('DELETE /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -144,7 +144,7 @@ describe('DELETE /events/:eventId/attendances', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/attendances`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)

@@ -12,6 +12,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 model User {
   id             String   @id @default(uuid())
   name           String
@@ -40,9 +45,16 @@ model User {
   eventInvitesReceived EventInvite[] @relation("invited")
   socialAccounts   SocialAccount[]
 
+  role UserRole @default(USER)
+  isBanned Boolean @default(false)
+  bannedAt DateTime?
+  banReason String?
+
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
   followers Follow[] @relation("following")
+
+  resolvedReports Report[] @relation("ResolvedReports")
 
   reports Report[] @relation("reporterReports")
 
@@ -260,6 +272,10 @@ model Report {
 
   commentId String?
   comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
+
+  resolvedByAdminId String?
+  resolvedReason String?
+  resolvedByAdmin User? @relation("ResolvedReports", fields: [resolvedByAdminId], references: [id])
 
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")

@@ -25,6 +25,10 @@ export async function getUserById(id: string, viewerId?: string) {
   const user = await findUserById(id)
   if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
 
+  if(user.isBanned && viewerId !== id) {
+    throw { statusCode: 403, message: 'Usuário banido' }
+  }
+
   const { _count, ...rest } = user
 
   const follow =

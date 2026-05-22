@@ -11,15 +11,15 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
-async function makePost(app: FastifyInstance, userId: string, eventId: string) {
+async function makePost(app: FastifyInstance, userId: string, eventId: string, userRole: 'USER' | 'ADMIN') {
   const res = await app.inject({
     method: 'POST',
     url: `/events/${eventId}/posts`,
-    headers: { authorization: `Bearer ${token(app, userId)}` },
+    headers: { authorization: `Bearer ${token(app, userId, userRole)}` },
     body: { content: 'Post base' },
   })
   return res.json()
@@ -43,7 +43,7 @@ describe('POST /events/:eventId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -57,12 +57,12 @@ describe('POST /events/:eventId/reactions', () => {
     await app.inject({
       method: 'POST',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -80,7 +80,7 @@ describe('POST /events/:eventId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -95,13 +95,13 @@ describe('DELETE /events/:eventId/reactions', () => {
     await app.inject({
       method: 'POST',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -114,7 +114,7 @@ describe('DELETE /events/:eventId/reactions', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/events/${event.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)
@@ -126,12 +126,12 @@ describe('POST /posts/:postId/reactions', () => {
     const user = await makeUser()
     const event = await makeEvent(user.id)
     await makeAttendance(user.id, event.id, 'CONFIRMED')
-    const post = await makePost(app, user.id, event.id)
+    const post = await makePost(app, user.id, event.id, user.role)
 
     const res = await app.inject({
       method: 'POST',
       url: `/posts/${post.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -144,18 +144,18 @@ describe('DELETE /posts/:postId/reactions', () => {
     const user = await makeUser()
     const event = await makeEvent(user.id)
     await makeAttendance(user.id, event.id, 'CONFIRMED')
-    const post = await makePost(app, user.id, event.id)
+    const post = await makePost(app, user.id, event.id, user.role)
 
     await app.inject({
       method: 'POST',
       url: `/posts/${post.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     const res = await app.inject({
       method: 'DELETE',
       url: `/posts/${post.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -171,7 +171,7 @@ describe('POST /comments/:commentId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -189,12 +189,12 @@ describe('POST /comments/:commentId/reactions', () => {
     await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -213,7 +213,7 @@ describe('POST /comments/:commentId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -225,7 +225,7 @@ describe('POST /comments/:commentId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/comments/00000000-0000-0000-0000-000000000000/reactions',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)
@@ -235,11 +235,11 @@ describe('POST /comments/:commentId/reactions', () => {
     const author = await makeUser()
     const event = await makeEvent(author.id)
     await makeAttendance(author.id, event.id, 'CONFIRMED')
-    const post = await makePost(app, author.id, event.id)
+    const post = await makePost(app, author.id, event.id, author.role)
     const commentRes = await app.inject({
       method: 'POST',
       url: `/posts/${post.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { content: 'Comentário no post' },
     })
     const comment = commentRes.json()
@@ -247,7 +247,7 @@ describe('POST /comments/:commentId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -262,11 +262,11 @@ describe('POST /comments/:commentId/reactions', () => {
     const stranger = await makeUser()
     const event = await makeEvent(author.id, { isPublic: false })
     await makeAttendance(author.id, event.id, 'CONFIRMED')
-    const post = await makePost(app, author.id, event.id)
+    const post = await makePost(app, author.id, event.id, author.role)
     const commentRes = await app.inject({
       method: 'POST',
       url: `/posts/${post.id}/comments`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { content: 'Comentário em evento privado' },
     })
     const comment = commentRes.json()
@@ -274,7 +274,7 @@ describe('POST /comments/:commentId/reactions', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      headers: { authorization: `Bearer ${token(app, stranger.id, stranger.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -290,13 +290,13 @@ describe('DELETE /comments/:commentId/reactions', () => {
     await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     const res = await app.inject({
       method: 'DELETE',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -310,7 +310,7 @@ describe('DELETE /comments/:commentId/reactions', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/comments/${comment.id}/reactions`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(404)

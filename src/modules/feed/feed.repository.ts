@@ -115,6 +115,7 @@ export async function findFeedCandidates(
   const events = await prisma.event.findMany({
     where: {
       AND: [
+        { author: { isBanned: false } },
         lifecycleWhere,
         authorVisibleWhere(viewerId),
         ...(categoryWhere ? [categoryWhere] : []),

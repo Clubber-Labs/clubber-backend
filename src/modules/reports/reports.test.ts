@@ -11,8 +11,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -34,7 +34,7 @@ describe('POST /events/:eventId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/report`,
-      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      headers: { authorization: `Bearer ${token(app, reporter.id, reporter.role)}` },
       body: { reason: 'SPAM_OR_FRAUD' },
     })
 
@@ -65,7 +65,7 @@ describe('POST /events/:eventId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/events/00000000-0000-0000-0000-000000000000/report',
-      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      headers: { authorization: `Bearer ${token(app, reporter.id, reporter.role)}` },
       body: { reason: 'SPAM_OR_FRAUD' },
     })
 
@@ -79,7 +79,7 @@ describe('POST /events/:eventId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/report`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { reason: 'SPAM_OR_FRAUD' },
     })
 
@@ -95,7 +95,7 @@ describe('POST /events/:eventId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/events/${event.id}/report`,
-      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      headers: { authorization: `Bearer ${token(app, reporter.id, reporter.role)}` },
       body: { reason: 'HARASSMENT' },
     })
 
@@ -113,7 +113,7 @@ describe('POST /comments/:commentId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/report`,
-      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      headers: { authorization: `Bearer ${token(app, reporter.id, reporter.role)}` },
       body: { reason: 'HATE_SPEECH', details: 'Conteúdo ofensivo' },
     })
 
@@ -145,7 +145,7 @@ describe('POST /comments/:commentId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/comments/00000000-0000-0000-0000-000000000000/report',
-      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      headers: { authorization: `Bearer ${token(app, reporter.id, reporter.role)}` },
       body: { reason: 'SPAM_OR_FRAUD' },
     })
 
@@ -160,7 +160,7 @@ describe('POST /comments/:commentId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/report`,
-      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      headers: { authorization: `Bearer ${token(app, author.id, author.role)}` },
       body: { reason: 'SPAM_OR_FRAUD' },
     })
 
@@ -177,7 +177,7 @@ describe('POST /comments/:commentId/report', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/comments/${comment.id}/report`,
-      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      headers: { authorization: `Bearer ${token(app, reporter.id, reporter.role)}` },
       body: { reason: 'INAPPROPRIATE_CONTENT' },
     })
 

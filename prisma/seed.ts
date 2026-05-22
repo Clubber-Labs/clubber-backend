@@ -1,5 +1,11 @@
 import { faker } from '@faker-js/faker/locale/pt_BR'
-import { AttendanceType, FollowStatus, PrismaClient } from '@prisma/client'
+import { 
+  AttendanceType, 
+  FollowStatus, 
+  PrismaClient, 
+  ReportReason,
+  ReportStatus 
+} from '@prisma/client'
 import bcrypt from 'bcryptjs'
 
 const prisma = new PrismaClient()
@@ -42,6 +48,7 @@ async function main() {
   await prisma.event.deleteMany()
   await prisma.follow.deleteMany()
   await prisma.user.deleteMany()
+  await prisma.report.deleteMany()
 
   // ── 1. Usuários ─────────────────────────────────────────────────────────────
   console.log('👤 Criando usuários...')
@@ -400,6 +407,95 @@ async function main() {
     )
   }
 
+  // ── 10. Denúncias ────────────────────────────────────────────────────────────
+  console.log('🚩 Criando denúncias...')
+  
+  const adminUser = users[0] // Primeiro usuário é admin
+  await prisma.user.update({
+    where: { id: adminUser.id },
+    data: { role: 'ADMIN' },
+  })
+
+  const REPORT_REASONS = Object.values(ReportReason)
+  const reportPairs = new Set<string>()
+  const reportsToCreate: Array<{
+    reporterId: string
+    reason: ReportReason
+    details: string | null
+    status: ReportStatus
+    eventId?: string
+    commentId?: string
+  }> = []
+
+  for(const event of sample(publicEvents, Math.min(10, publicEvents.length))) {
+    const reporters = sample(
+      users.filter((u) => u.id !== event.authorId),
+      faker.number.int({ min: 1, max: 3 }),
+    )
+    for(const reporter of reporters) {
+      const key = `reporter:${reporter.id}-event:${event.id}`
+      if(!reportPairs.has(key)) {
+        reportPairs.add(key)
+        reportsToCreate.push({
+          reporterId: reporter.id,
+          eventId: event.id,
+          reason: pick(REPORT_REASONS),
+          details: faker.datatype.boolean({ probability: 0.5 })
+            ? faker.lorem.sentence()
+            : null,
+          status: ReportStatus.PENDING, 
+        })
+      }
+    }
+  }
+
+  const allComents = await prisma.comment.findMany({ take: 30 })
+  for(const comment of sample(allComents, Math.min(10, allComents.length))) {
+    const reporters = sample(
+      users.filter((u) => u.id !== comment.authorId),
+      faker.number.int({ min: 1, max: 2 }),
+    )
+    for(const reporter of reporters) {
+      const key = `reporter:${reporter.id}-comment:${comment.id}`
+      if(!reportPairs.has(key)) {
+        reportPairs.add(key)
+        reportsToCreate.push({
+          reporterId: reporter.id,
+          commentId: comment.id,
+          reason: pick(REPORT_REASONS),
+          details: faker.datatype.boolean({ probability: 0.5 })
+            ? faker.lorem.sentence()
+            : null,
+          status: ReportStatus.PENDING, 
+        })
+      }
+    }
+  }
+
+  await prisma.report.createMany({
+    data: reportsToCreate,
+    skipDuplicates: true,
+  })
+  const pendingReports = await prisma.report.findMany({ where: { status: ReportStatus.PENDING }, take: 6 })
+  const resolvedStatuses = [ReportStatus.REVIEWED, ReportStatus.RESOLVED_INVALID, ReportStatus.RESOLVED_REMOVED]
+
+  for(const report of pendingReports) {
+    await prisma.report.update({
+      where: { id: report.id },
+      data: {
+        status: pick(resolvedStatuses),
+        resolvedAt: new Date(),
+        resolvedByAdminId: adminUser.id,
+        resolvedReason: faker.lorem.sentence()
+      }, 
+    })
+  }
+
+  const totalReports = await prisma.report.count()
+  const resolvedCount = await prisma.report.count({ where: { status: { not: ReportStatus.PENDING } } })
+  console.log(`   ✓ ${totalReports} reports (${resolvedCount} resolvidos, ${totalReports - resolvedCount} pendentes)`,)
+  console.log(`   👑 Admin: ${adminUser.email} (${adminUser.username})`)
+
   // ── Resumo ───────────────────────────────────────────────────────────────────
   console.log('\n✅ Seed concluído!')
   console.log(`   👤 Usuários:    ${users.length}`)
@@ -407,6 +503,7 @@ async function main() {
   console.log(`   📅 Eventos:     ${events.length}`)
   console.log(`   ✅ Presenças:   ${attendancesToCreate.length}`)
   console.log(`   📝 Posts:       ${posts.length}`)
+  console.log(`   🚩 Denúncias:   ${totalReports}`)
   console.log('\n   🔑 Senha de todos os usuários: senha123')
   console.log('   📋 Usuários criados:')
   for (const u of users.slice(0, 5))

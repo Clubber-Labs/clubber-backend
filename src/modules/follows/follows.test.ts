@@ -6,8 +6,8 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(app: FastifyInstance, userId: string) {
-  return app.jwt.sign({ sub: userId })
+function token(app: FastifyInstance, userId: string, role: 'USER' | 'ADMIN') {
+  return app.jwt.sign({ sub: userId, role})
 }
 
 beforeAll(async () => {
@@ -28,7 +28,7 @@ describe('POST /users/:userId/follow', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/users/${target.id}/follow`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -42,7 +42,7 @@ describe('POST /users/:userId/follow', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/users/${target.id}/follow`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(201)
@@ -57,7 +57,7 @@ describe('POST /users/:userId/follow', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/users/${target.id}/follow`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(409)
@@ -69,7 +69,7 @@ describe('POST /users/:userId/follow', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/users/${user.id}/follow`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(400)
@@ -85,7 +85,7 @@ describe('DELETE /users/:userId/follow', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/users/${target.id}/follow`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(204)
@@ -98,7 +98,7 @@ describe('DELETE /users/:userId/follow', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/users/${target.id}/follow`,
-      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      headers: { authorization: `Bearer ${token(app, follower.id, follower.role)}` },
     })
 
     expect(res.statusCode).toBe(404)
@@ -114,7 +114,7 @@ describe('GET /users/:userId/followers', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${user.id}/followers`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -128,7 +128,7 @@ describe('GET /users/:userId/followers', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/users/${privateUser.id}/followers`,
-      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      headers: { authorization: `Bearer ${token(app, other.id, other.role)}` },
     })
 
     expect(res.statusCode).toBe(403)
@@ -144,7 +144,7 @@ describe('GET /users/me/follow-requests', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/users/me/follow-requests',
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -162,7 +162,7 @@ describe('POST /users/me/follow-requests/:followerId/accept', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/users/me/follow-requests/${requester.id}/accept`,
-      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id, user.role)}` },
     })
 
     // controller retorna 204 sem body
