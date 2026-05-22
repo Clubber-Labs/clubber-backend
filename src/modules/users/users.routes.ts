@@ -13,11 +13,13 @@ import {
   getUsers,
   postUser,
   putUser,
+  searchUsersHandler,
   uploadUserAvatar,
 } from './users.controller'
 import {
   createUserSchema,
   listUsersQuerySchema,
+  searchUsersQuerySchema,
   updateUserSchema,
   userIdParamSchema,
 } from './users.schema'
@@ -31,6 +33,18 @@ export async function usersRoutes(app: FastifyInstance) {
   api.get('/users', { schema: { querystring: listUsersQuerySchema } }, getUsers)
 
   api.get('/users/me', { onRequest: [app.authenticate] }, getMe)
+
+  // Rota estática precisa ficar antes de /users/:id pra clareza de leitura.
+  // (Fastify resolve estática > paramétrica, mas a ordem documenta a intenção.)
+  api.get(
+    '/users/search',
+    {
+      schema: { querystring: searchUsersQuerySchema },
+      onRequest: [app.authenticate],
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    searchUsersHandler,
+  )
 
   api.get(
     '/users/:id',

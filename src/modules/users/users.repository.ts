@@ -31,6 +31,22 @@ export async function findAllUsers(limit: number, cursor?: string) {
   })
 }
 
+export async function searchUsers(q: string, limit: number, cursor?: string) {
+  return prisma.user.findMany({
+    where: {
+      OR: [
+        { username: { contains: q, mode: 'insensitive' } },
+        { name: { contains: q, mode: 'insensitive' } },
+        { lastname: { contains: q, mode: 'insensitive' } },
+      ],
+    },
+    select: userPublicListSelect,
+    take: limit,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    orderBy: [{ username: 'asc' }, { id: 'asc' }],
+  })
+}
+
 export async function findUserById(id: string) {
   return prisma.user.findUnique({
     where: { id },

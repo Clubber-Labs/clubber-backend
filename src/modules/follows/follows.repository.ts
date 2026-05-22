@@ -81,6 +81,20 @@ export async function findFollow(followerId: string, followingId: string) {
   })
 }
 
+export async function findFollowStatusesByFollower(
+  followerId: string,
+  followingIds: string[],
+): Promise<Map<string, FollowStatus>> {
+  if (followingIds.length === 0) return new Map()
+
+  const rows = await prisma.follow.findMany({
+    where: { followerId, followingId: { in: followingIds } },
+    select: { followingId: true, status: true },
+  })
+
+  return new Map(rows.map((r) => [r.followingId, r.status]))
+}
+
 export async function findFollowers(
   userId: string,
   limit: number,
