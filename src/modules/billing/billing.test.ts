@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify'
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
 import { stripe } from '../../lib/stripe'
 import { buildApp } from '../../test/app'
 import { makeSubscription, makeUser } from '../../test/factories'
@@ -500,7 +508,9 @@ describe('service', () => {
     it('aplica trial_period_days=7 quando user nunca teve subscription', async () => {
       const user = await makeUser()
       // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
-      vi.mocked(stripe.customers.create).mockResolvedValue({ id: 'cus_a' } as any)
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_a',
+      } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',
         // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
@@ -524,7 +534,9 @@ describe('service', () => {
       const user = await makeUser()
       await makeSubscription(user.id, { status: 'CANCELED' })
       // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
-      vi.mocked(stripe.customers.create).mockResolvedValue({ id: 'cus_a' } as any)
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_a',
+      } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',
         // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
@@ -532,7 +544,8 @@ describe('service', () => {
 
       await createCheckoutSession(user.id)
 
-      const callArgs = vi.mocked(stripe.checkout.sessions.create).mock.calls[0][0]
+      const callArgs = vi.mocked(stripe.checkout.sessions.create).mock
+        .calls[0][0]
       expect(callArgs?.subscription_data?.trial_period_days).toBeUndefined()
     })
 
@@ -1032,7 +1045,9 @@ describe('routes E2E', () => {
       })
 
       expect(res.statusCode).toBe(200)
-      expect(res.json()).toEqual({ url: 'https://checkout.stripe.com/test_e2e' })
+      expect(res.json()).toEqual({
+        url: 'https://checkout.stripe.com/test_e2e',
+      })
     })
   })
 

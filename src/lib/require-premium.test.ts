@@ -17,9 +17,9 @@ const fakeReply = {} as unknown as Parameters<typeof requirePremium>[1]
 
 describe('requirePremium', () => {
   it('lança 401 quando request.user.sub não existe (auth não rodou)', async () => {
-    await expect(requirePremium(makeRequest(), fakeReply)).rejects.toMatchObject(
-      { statusCode: 401 },
-    )
+    await expect(
+      requirePremium(makeRequest(), fakeReply),
+    ).rejects.toMatchObject({ statusCode: 401 })
   })
 
   it('lança 403 quando user existe mas isPremium=false', async () => {

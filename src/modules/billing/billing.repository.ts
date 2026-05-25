@@ -67,10 +67,7 @@ export async function updateUserPremiumTx(
  * isPremium = true se existe pelo menos uma subscription com status em
  * (TRIALING, ACTIVE, PAST_DUE).
  */
-export async function recalculateUserPremiumTx(
-  tx: TxClient,
-  userId: string,
-) {
+export async function recalculateUserPremiumTx(tx: TxClient, userId: string) {
   const activeCount = await tx.subscription.count({
     where: {
       userId,

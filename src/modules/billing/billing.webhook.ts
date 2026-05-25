@@ -178,10 +178,7 @@ async function preResolveSubscription(
           ? session.subscription
           : session.subscription?.id
       if (!subId) return null
-      if (
-        typeof session.subscription === 'object' &&
-        session.subscription
-      ) {
+      if (typeof session.subscription === 'object' && session.subscription) {
         return session.subscription as unknown as StripeSubscriptionLike
       }
       return (await stripe.subscriptions.retrieve(
@@ -228,9 +225,7 @@ type StripeSetupIntentLike = {
 async function applySetupIntentSucceeded(event: StripeEvent): Promise<void> {
   const intent = event.data.object as StripeSetupIntentLike
   const customerId =
-    typeof intent.customer === 'string'
-      ? intent.customer
-      : intent.customer?.id
+    typeof intent.customer === 'string' ? intent.customer : intent.customer?.id
   const paymentMethodId =
     typeof intent.payment_method === 'string'
       ? intent.payment_method

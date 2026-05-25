@@ -37,7 +37,10 @@ async function findUserOrThrow(userId: string) {
  * `successUrl: https://evil.com/?...` e a Stripe redirecionaria a vítima
  * com `session_id` na query string.
  */
-function assertAllowedRedirectUrl(url: string, kind: 'successUrl' | 'cancelUrl') {
+function assertAllowedRedirectUrl(
+  url: string,
+  kind: 'successUrl' | 'cancelUrl',
+) {
   try {
     const parsed = new URL(url)
     if (!env.STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS.includes(parsed.host)) {
