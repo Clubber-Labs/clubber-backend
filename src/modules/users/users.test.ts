@@ -281,6 +281,264 @@ describe('POST /users — conflitos de unique constraint', () => {
   })
 })
 
+describe('GET /users/search', () => {
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=jo',
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('retorna 400 quando q está ausente', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 quando q tem menos de 2 caracteres', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=a',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 quando q é só whitespace', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=%20%20',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 quando q tem mais de 100 caracteres', async () => {
+    const user = await makeUser()
+    const longQ = 'a'.repeat(101)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/search?q=${longQ}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('busca por username case-insensitive', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ username: 'alice_dev' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=ALICE',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.data.some((u: { id: string }) => u.id === target.id)).toBe(true)
+  })
+
+  it('busca por name case-insensitive', async () => {
+    const viewer = await makeUser()
+    const target = await testPrisma.user.create({
+      data: {
+        name: 'Bruno',
+        lastname: 'Costa',
+        username: `bruno_${Date.now()}`,
+        email: `bruno_${Date.now()}@test.com`,
+        password: 'x',
+        phone: `1199${Date.now().toString().slice(-7)}`,
+        birthdate: new Date('2000-01-01'),
+      },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=bruno',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(
+      res.json().data.some((u: { id: string }) => u.id === target.id),
+    ).toBe(true)
+  })
+
+  it('busca por lastname case-insensitive', async () => {
+    const viewer = await makeUser()
+    const target = await testPrisma.user.create({
+      data: {
+        name: 'Carla',
+        lastname: 'Silveira',
+        username: `carla_${Date.now()}`,
+        email: `carla_${Date.now()}@test.com`,
+        password: 'x',
+        phone: `1198${Date.now().toString().slice(-7)}`,
+        birthdate: new Date('2000-01-01'),
+      },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=silveira',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(
+      res.json().data.some((u: { id: string }) => u.id === target.id),
+    ).toBe(true)
+  })
+
+  it('retorna data vazio quando não há matches', async () => {
+    const viewer = await makeUser()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=zzzzzzzzz_nada',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ data: [], nextCursor: null })
+  })
+
+  it('pagina via cursor ordenando por username asc', async () => {
+    const viewer = await makeUser()
+    await makeUser({ username: 'zeta_01' })
+    await makeUser({ username: 'zeta_02' })
+    await makeUser({ username: 'zeta_03' })
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=zeta_&limit=2',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(page1.statusCode).toBe(200)
+    const body1 = page1.json()
+    expect(body1.data).toHaveLength(2)
+    expect(body1.data[0].username).toBe('zeta_01')
+    expect(body1.data[1].username).toBe('zeta_02')
+    expect(body1.nextCursor).toBe(body1.data[1].id)
+
+    const page2 = await app.inject({
+      method: 'GET',
+      url: `/users/search?q=zeta_&limit=2&cursor=${body1.nextCursor}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(page2.statusCode).toBe(200)
+    const body2 = page2.json()
+    expect(body2.data).toHaveLength(1)
+    expect(body2.data[0].username).toBe('zeta_03')
+    expect(body2.nextCursor).toBe(null)
+  })
+
+  it('retorna shape completo para usuário público', async () => {
+    const viewer = await makeUser()
+    await makeUser({ username: 'public_user', isPrivate: false })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=public_user',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { username: string }) => u.username === 'public_user')
+    expect(found).toBeDefined()
+    expect(found).toHaveProperty('bio')
+    expect(found).toHaveProperty('followersCount')
+    expect(found).toHaveProperty('followingCount')
+    expect(found.followStatus).toBe(null)
+    expect(found.isPrivate).toBe(false)
+  })
+
+  it('retorna shape reduzido para privado sem follow', async () => {
+    const viewer = await makeUser()
+    await makeUser({ username: 'private_user', isPrivate: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=private_user',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { username: string }) => u.username === 'private_user')
+    expect(found).toBeDefined()
+    expect(found.isPrivate).toBe(true)
+    expect(found.followStatus).toBe(null)
+    expect(found).not.toHaveProperty('bio')
+    expect(found).not.toHaveProperty('followersCount')
+    expect(found).not.toHaveProperty('followingCount')
+    expect(found).not.toHaveProperty('createdAt')
+  })
+
+  it('retorna shape reduzido para privado com follow PENDING', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({
+      username: 'pending_priv',
+      isPrivate: true,
+    })
+    await makeFollow(viewer.id, target.id, 'PENDING')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=pending_priv',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { username: string }) => u.username === 'pending_priv')
+    expect(found.followStatus).toBe('PENDING')
+    expect(found).not.toHaveProperty('bio')
+    expect(found).not.toHaveProperty('followersCount')
+  })
+
+  it('retorna shape completo para privado com follow ACCEPTED', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({
+      username: 'accepted_priv',
+      isPrivate: true,
+    })
+    await makeFollow(viewer.id, target.id, 'ACCEPTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=accepted_priv',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { username: string }) => u.username === 'accepted_priv')
+    expect(found.followStatus).toBe('ACCEPTED')
+    expect(found.isPrivate).toBe(true)
+    expect(found).toHaveProperty('bio')
+    expect(found).toHaveProperty('followersCount')
+  })
+
+  it('o próprio viewer aparece com followStatus null', async () => {
+    const viewer = await makeUser({ username: 'self_finder' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=self_finder',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { id: string }) => u.id === viewer.id)
+    expect(found).toBeDefined()
+    expect(found.followStatus).toBe(null)
+  })
+})
+
 describe('rate limit em POST /users', () => {
   it('retorna 429 após 10 tentativas no mesmo minuto', async () => {
     for (let i = 0; i < 10; i++) {

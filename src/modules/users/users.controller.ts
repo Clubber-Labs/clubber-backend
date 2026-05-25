@@ -3,6 +3,7 @@ import { assertImageMimetype } from '../../lib/uploads'
 import type {
   CreateUserBody,
   ListUsersQuery,
+  SearchUsersQuery,
   UpdateUserBody,
   UserIdParam,
 } from './users.schema'
@@ -14,11 +15,21 @@ import {
   listUsers,
   registerUser,
   removeUser,
+  searchUsers,
 } from './users.service'
 
 export async function getUsers(request: FastifyRequest, reply: FastifyReply) {
   const { limit, cursor } = request.query as ListUsersQuery
   const result = await listUsers(limit, cursor)
+  return reply.send(result)
+}
+
+export async function searchUsersHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const query = request.query as SearchUsersQuery
+  const result = await searchUsers(query, request.user.sub)
   return reply.send(result)
 }
 
