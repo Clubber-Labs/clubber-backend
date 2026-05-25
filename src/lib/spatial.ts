@@ -67,18 +67,21 @@ export type SpatialFilters = {
  * Filtra antes do LIMIT/ORDER para garantir que o cap espacial nunca
  * exclui eventos visíveis em favor de invisíveis.
  *
- * Cobre segurança/visibilidade do autor; lifecycle/categoria/data ficam em
- * `spatialFiltersPredicate`. Espera query com `events e` e `users a` via JOIN.
+ * Usa SÓ colunas do `events` (incl. `authorIsPrivate` denormalizado) — sem
+ * JOIN com `users`. Crucial: o JOIN derrubava o index-scan KNN do GiST
+ * (forçava seq-scan + sort de ~80k linhas → 138ms); sem ele o caminho anônimo
+ * volta ao índice (~1ms). O ramo autenticado ainda toca `follows` (cross-table,
+ * via EXISTS) — minoria e cacheado por viewer.
  */
 function visibilityPredicate(viewerId?: string) {
   const authorOk = viewerId
-    ? Prisma.sql`(a."isPrivate" = false OR a.id = ${viewerId} OR EXISTS (
+    ? Prisma.sql`(e."authorIsPrivate" = false OR e."authorId" = ${viewerId} OR EXISTS (
         SELECT 1 FROM follows f
         WHERE f."followerId" = ${viewerId}
-          AND f."followingId" = a.id
+          AND f."followingId" = e."authorId"
           AND f.status = 'ACCEPTED'
       ))`
-    : Prisma.sql`a."isPrivate" = false`
+    : Prisma.sql`e."authorIsPrivate" = false`
   return Prisma.sql`
     e."isPublic" = true
     AND ${authorOk}
@@ -163,9 +166,7 @@ export async function findEventIdsInBbox(
 ): Promise<string[]> {
   const rows = await prisma.$queryRaw<{ id: string }[]>(
     Prisma.sql`
-      SELECT e.id FROM events e
-      INNER JOIN users a ON a.id = e."authorId"
-      WHERE ${visibilityPredicate(viewerId)}
+      SELECT e.id FROM events e      WHERE ${visibilityPredicate(viewerId)}
         AND e.location && ST_MakeEnvelope(${bbox.west}, ${bbox.south}, ${bbox.east}, ${bbox.north}, 4326)::geography
       ORDER BY e."createdAt" DESC
       ${limit ? Prisma.sql`LIMIT ${limit}` : Prisma.empty}
@@ -191,9 +192,7 @@ export async function findEventIdsWithinRadius(
   // Fetch cap+1 pra detectar "estourou" sem COUNT separado.
   const rows = await prisma.$queryRaw<{ id: string }[]>(
     Prisma.sql`
-      SELECT e.id FROM events e
-      INNER JOIN users a ON a.id = e."authorId"
-      WHERE ${visibilityPredicate(viewerId)}
+      SELECT e.id FROM events e      WHERE ${visibilityPredicate(viewerId)}
         AND ${spatialFiltersPredicate(filters)}
         AND ST_DWithin(e.location, ${point}, ${radiusMeters})
       LIMIT ${RADIUS_MAX_RESULTS + 1}
@@ -290,13 +289,16 @@ export async function findEventIdsByDistanceKeyset(opts: {
     )
   }
 
+  // ORDER BY só por distância (sem `, id`): preserva o index-scan KNN do GiST
+  // (um 2º critério forçaria sort de ~80k linhas). O tiebreak por id fica no
+  // WHERE do cursor (de-dup ao paginar); em empate de coordenada EXATA a ordem
+  // entre eles é não-determinística — aceitável num feed "perto de mim".
   const rows = await prisma.$queryRaw<{ id: string; dist: number }[]>(
     Prisma.sql`
       SELECT e.id, (e.location <-> ${point}) AS dist
       FROM events e
-      INNER JOIN users a ON a.id = e."authorId"
       WHERE ${Prisma.join(conditions, ' AND ')}
-      ORDER BY e.location <-> ${point}, e.id ASC
+      ORDER BY e.location <-> ${point}
       LIMIT ${limit}
     `,
   )
@@ -374,9 +376,7 @@ export async function findEventIdsByPopularityKeyset(opts: {
   const rows = await prisma.$queryRaw<{ id: string; score: number | bigint }[]>(
     Prisma.sql`
       SELECT e.id, ${score} AS score
-      FROM events e
-      INNER JOIN users a ON a.id = e."authorId"
-      LEFT JOIN event_attendances att ON att."eventId" = e.id
+      FROM events e      LEFT JOIN event_attendances att ON att."eventId" = e.id
       WHERE ${Prisma.join(where, ' AND ')}
       GROUP BY e.id
       ${having}

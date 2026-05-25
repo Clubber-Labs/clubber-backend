@@ -271,6 +271,12 @@ model Event {
   category    EventCategory
   isPublic    Boolean  @default(true)
   isFeatured  Boolean  @default(false)
+  // Denormalização de users.isPrivate do autor, mantida em sync por trigger
+  // (ver migration). Existe pra a visibilidade na busca espacial ser um filtro
+  // de coluna do próprio events — sem JOIN com users, que derrubava o índice
+  // GiST KNN (forçava seq-scan + sort de ~80k linhas). Com a coluna, o KNN
+  // anônimo volta a usar o índice (~138ms → ~1ms).
+  authorIsPrivate Boolean @default(false)
   maxCapacity Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
