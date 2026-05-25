@@ -473,7 +473,7 @@ describe('GET /events', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('orderBy=distance: empate de distância ordena por id ascendente', async () => {
+  it('orderBy=distance: empate de distância — todos os eventos aparecem', async () => {
     const author = await makeUser()
     const a = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
     const b = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
@@ -486,7 +486,9 @@ describe('GET /events', () => {
 
     expect(res.statusCode).toBe(200)
     const ids = res.json().data.map((e: { id: string }) => e.id)
-    expect(ids).toEqual([a.id, b.id, c.id].sort())
+    // ORDER BY só por distância (preserva o índice KNN): em coords idênticas a
+    // ordem entre eles é não-determinística, mas todos vêm na mesma página.
+    expect(ids.sort()).toEqual([a.id, b.id, c.id].sort())
   })
 
   it('orderBy=distance: lifecycle no SQL — cada status retorna o conjunto certo', async () => {
