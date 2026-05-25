@@ -1,6 +1,9 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { buildLifecycleWhere } from '../../lib/event-filters'
+import type { EventStatus } from '../../lib/event-lifecycle'
 import { redis as nullableRedis } from '../../lib/redis'
+import { findEventIdsWithinRadius } from '../../lib/spatial'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
@@ -35,6 +38,64 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close()
   await testPrisma.$disconnect()
+})
+
+describe('paridade lifecycle: SQL (spatial) × Prisma (buildLifecycleWhere)', () => {
+  it('mesmos ids para cada status (+ includePast) no mesmo dataset', async () => {
+    const author = await makeUser()
+    const now = new Date()
+    const center = { latitude: -25.4, longitude: -49.3 }
+    const at = (overrides: { date: Date; endDate?: Date; canceledAt?: Date }) =>
+      makeEvent(author.id, { latitude: -25.4, longitude: -49.3, ...overrides })
+
+    await at({ date: new Date(now.getTime() + 7 * 86_400_000) }) // UPCOMING
+    await at({ date: new Date(now.getTime() + 3_600_000) }) // SOON
+    await at({
+      date: new Date(now.getTime() - 3_600_000),
+      endDate: new Date(now.getTime() + 3_600_000),
+    }) // ONGOING
+    await at({ date: new Date(now.getTime() - 10 * 86_400_000) }) // PAST
+    await at({ date: new Date(now.getTime() + 86_400_000), canceledAt: now }) // CANCELED
+
+    const statusVariants: (EventStatus[] | undefined)[] = [
+      undefined,
+      ['UPCOMING'],
+      ['SOON'],
+      ['ONGOING'],
+      ['PAST'],
+      ['CANCELED'],
+      ['ONGOING', 'SOON'],
+    ]
+
+    for (const status of statusVariants) {
+      for (const includePast of [false, true]) {
+        // lado SQL (lifecycleSqlPredicate, via findEventIdsWithinRadius)
+        const sqlIds = (
+          await findEventIdsWithinRadius(center, 100, {
+            status,
+            includePast,
+            now,
+          })
+        ).sort()
+        // lado Prisma (buildLifecycleWhere)
+        const prismaIds = (
+          await testPrisma.event.findMany({
+            where: {
+              AND: [
+                { isPublic: true },
+                buildLifecycleWhere({ status, includePast, now }),
+              ],
+            },
+            select: { id: true },
+          })
+        )
+          .map((r) => r.id)
+          .sort()
+
+        expect(sqlIds).toEqual(prismaIds)
+      }
+    }
+  })
 })
 
 describe('GET /events', () => {
@@ -329,6 +390,41 @@ describe('GET /events', () => {
     })
 
     expect(res.statusCode).toBe(400)
+  })
+
+  it('radiusKm: 1001 brutos mas filtro reduz para <1000 → 200 (cap conta o filtrado)', async () => {
+    const author = await makeUser()
+    const rows = Array.from({ length: 1001 }, (_, i) => ({
+      title: `Festa ${i}`,
+      description: `Festa descrição ${i}`,
+      date: new Date(Date.now() + 86_400_000),
+      latitude: -25.4,
+      longitude: -49.3,
+      category: 'Festa',
+      isPublic: true,
+      authorId: author.id,
+    }))
+    await testPrisma.event.createMany({ data: rows })
+    await makeEvent(author.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+      category: 'Show',
+    })
+    await makeEvent(author.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+      category: 'Show',
+    })
+
+    // 1003 eventos no raio, mas só 2 são 'Show' → cap (1000) aplica sobre o
+    // conjunto filtrado, então NÃO estoura: 200 com 2 resultados.
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&radiusKm=50&category=Show',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.length).toBe(2)
   })
 
   it('orderBy=distance: cursor inválido retorna 400', async () => {

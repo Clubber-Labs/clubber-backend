@@ -239,9 +239,12 @@ export async function findPublicEventsByDistance(
     after = parsed
   }
 
+  // Busca limit+1 pra saber se há próxima página: gerar nextCursor só
+  // porque vieram `limit` resultados produz cursor falso (próxima página
+  // vazia) quando o total é exatamente `limit`.
   const knnRows = await findEventIdsByDistanceKeyset({
     center: { latitude: filters.nearLat, longitude: filters.nearLng },
-    limit,
+    limit: limit + 1,
     radiusKm: filters.radiusKm,
     after,
     filters: {
@@ -256,21 +259,23 @@ export async function findPublicEventsByDistance(
   })
   if (knnRows.length === 0) return { events: [], nextCursor: null }
 
+  const hasMore = knnRows.length > limit
+  const pageRows = hasMore ? knnRows.slice(0, limit) : knnRows
+
   const events = (await prisma.event.findMany({
-    where: { id: { in: knnRows.map((r) => r.id) } },
+    where: { id: { in: pageRows.map((r) => r.id) } },
     include: buildSharedIncludes(),
   })) as unknown as PrismaSharedEvent[]
 
   const byId = new Map(events.map((e) => [e.id, e]))
-  const ordered = knnRows
+  const ordered = pageRows
     .map((r) => byId.get(r.id))
     .filter((e): e is PrismaSharedEvent => e !== undefined)
 
-  const last = knnRows[knnRows.length - 1]
-  const nextCursor =
-    knnRows.length === limit
-      ? encodeDistanceCursor({ dist: last.dist, id: last.id })
-      : null
+  const last = pageRows[pageRows.length - 1]
+  const nextCursor = hasMore
+    ? encodeDistanceCursor({ dist: last.dist, id: last.id })
+    : null
 
   return {
     events: ordered.map((e) => normalizeShared(e, now)),

@@ -108,6 +108,16 @@ export const listEventsQuerySchema = z
       (q.nearLat !== undefined && q.nearLng !== undefined),
     { message: 'orderBy=distance exige nearLat e nearLng', path: ['orderBy'] },
   )
+  // Em orderBy=date o cursor é o uuid do último item e vai direto pro
+  // Prisma (cursor: { id }); um valor não-uuid (ex. cursor base64 de
+  // distance) viraria erro Prisma/500. Validamos o formato aqui → 400.
+  .refine(
+    (q) =>
+      q.orderBy === 'distance' ||
+      q.cursor === undefined ||
+      z.string().uuid().safeParse(q.cursor).success,
+    { message: 'cursor inválido para ordenação por data', path: ['cursor'] },
+  )
 
 export const mapEventsQuerySchema = z
   .object({
