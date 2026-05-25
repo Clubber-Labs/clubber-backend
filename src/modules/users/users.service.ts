@@ -1,6 +1,9 @@
 import { hash } from 'bcryptjs'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
-import { findFollow } from '../follows/follows.repository'
+import {
+  findFollow,
+  findFollowStatusesByFollower,
+} from '../follows/follows.repository'
 import {
   createUser,
   deleteUser,
@@ -9,9 +12,14 @@ import {
   findUserByEmail,
   findUserById,
   findUserByUsername,
+  searchUsers as searchUsersRepo,
   updateUser,
 } from './users.repository'
-import type { CreateUserBody, UpdateUserBody } from './users.schema'
+import type {
+  CreateUserBody,
+  SearchUsersQuery,
+  UpdateUserBody,
+} from './users.schema'
 
 type Logger = { error: (msg: string) => void }
 
@@ -19,6 +27,41 @@ export async function listUsers(limit: number, cursor?: string) {
   const users = await findAllUsers(limit, cursor)
   const nextCursor = users.length === limit ? users[users.length - 1].id : null
   return { data: users, nextCursor }
+}
+
+export async function searchUsers(
+  { q, limit, cursor }: SearchUsersQuery,
+  viewerId: string,
+) {
+  const users = await searchUsersRepo(q, limit, cursor)
+  const nextCursor = users.length === limit ? users[users.length - 1].id : null
+
+  const otherIds = users.filter((u) => u.id !== viewerId).map((u) => u.id)
+  const statuses = await findFollowStatusesByFollower(viewerId, otherIds)
+
+  const data = users.map((u) => {
+    const isSelf = u.id === viewerId
+    const followStatus = isSelf ? null : (statuses.get(u.id) ?? null)
+
+    // Privacy gate: privado sem follow ACCEPTED só expõe card mínimo,
+    // sem bio/counts/createdAt. O próprio viewer sempre vê seu shape completo.
+    const hidePrivate = u.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
+    if (hidePrivate) {
+      return {
+        id: u.id,
+        username: u.username,
+        name: u.name,
+        lastname: u.lastname,
+        avatarUrl: u.avatarUrl,
+        isPrivate: true as const,
+        followStatus,
+      }
+    }
+
+    return { ...u, followStatus }
+  })
+
+  return { data, nextCursor }
 }
 
 export async function getUserById(id: string, viewerId?: string) {

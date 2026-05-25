@@ -50,3 +50,15 @@ export const listUsersQuerySchema = z.object({
 })
 
 export type ListUsersQuery = z.infer<typeof listUsersQuerySchema>
+
+export const searchUsersQuerySchema = z.object({
+  q: z
+    .string()
+    .trim()
+    .min(2, 'Busca deve ter ao menos 2 caracteres')
+    .max(100, 'Busca deve ter no máximo 100 caracteres'),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  cursor: z.string().uuid().optional(),
+})
+
+export type SearchUsersQuery = z.infer<typeof searchUsersQuerySchema>
