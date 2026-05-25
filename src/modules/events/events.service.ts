@@ -1,5 +1,5 @@
 import { cache } from '../../lib/cache'
-import { snapRadiusKm, snapToGrid } from '../../lib/spatial'
+import { snapToGrid } from '../../lib/spatial'
 import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
@@ -64,23 +64,16 @@ export async function listEvents(query: ListEventsQuery, viewerId?: string) {
     query.nearLat !== undefined && query.nearLng !== undefined
       ? snapToGrid(query.nearLat, query.nearLng)
       : undefined
-  const snappedRadius =
-    query.radiusKm !== undefined ? snapRadiusKm(query.radiusKm) : undefined
-
-  // Query efetiva usa as coords snapadas: a busca (KNN/raio) e a chave de
-  // cache batem, então o resultado cacheado corresponde à chave.
+  // Só o CENTRO é snapado (tolerância de borda ~156m, ver snapToGrid). O
+  // radiusKm fica EXATO no filtro e na chave: bucketizar o raio expandiria a
+  // busca em km (não ~156m) e colidiria raios distintos na mesma entrada.
   const effectiveQuery: ListEventsQuery = snapped
-    ? {
-        ...query,
-        nearLat: snapped.lat,
-        nearLng: snapped.lng,
-        ...(snappedRadius !== undefined && { radiusKm: snappedRadius }),
-      }
+    ? { ...query, nearLat: snapped.lat, nearLng: snapped.lng }
     : query
 
   // viewerId entra na chave porque a visibilidade de autor é filtrada no SQL
-  // (perfis privados só aparecem pra followers). orderBy + params espaciais
-  // SNAPADOS também entram — sem eles, células/raios distintos colidiriam.
+  // (perfis privados só aparecem pra followers). orderBy + centro snapado +
+  // radiusKm EXATO também entram — sem eles, células/raios distintos colidiriam.
   const cacheKey = cache.key(
     'events:public',
     viewerId ?? 'anon',
@@ -91,7 +84,7 @@ export async function listEvents(query: ListEventsQuery, viewerId?: string) {
     query.dateTo?.toISOString() ?? '',
     query.orderBy,
     snapped ? `${snapped.lat},${snapped.lng}` : '',
-    snappedRadius ?? '',
+    query.radiusKm ?? '',
     query.limit,
     query.cursor ?? '',
   )

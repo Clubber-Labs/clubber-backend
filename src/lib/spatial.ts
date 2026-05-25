@@ -44,20 +44,6 @@ export function snapToGrid(
   return { lat: Math.round(lat * f) / f, lng: Math.round(lng * f) / f }
 }
 
-const RADIUS_LADDER = [1, 2, 5, 10, 25, 50, 100, 500]
-
-/**
- * Sobe o raio ao degrau mais próximo de uma escada fixa, pra agrupar chaves
- * de cache (sem isso cada raio arbitrário viraria uma entrada distinta).
- * `radiusKm` é capado em 500 no schema, então sempre há um degrau ≥ km.
- */
-export function snapRadiusKm(km: number): number {
-  return (
-    RADIUS_LADDER.find((r) => r >= km) ??
-    RADIUS_LADDER[RADIUS_LADDER.length - 1]
-  )
-}
-
 export type DistanceCursor = { dist: number; id: string }
 
 export type EventDistanceRow = { id: string; dist: number }
@@ -351,12 +337,14 @@ export type EventPopularityRow = { id: string; score: number }
 /**
  * Ranking por popularidade com paginação keyset (RF07.6).
  *
- * score = Σ(CONFIRMED·2 + INTERESTED·1) — mesma fórmula do heatmap
- * (`findEventsForMap`). Agregado em SQL (LEFT JOIN + GROUP BY); o keyset
- * `(score DESC, id ASC)` vai no HAVING porque score é agregado (não pode ir
- * no WHERE). Visibilidade/lifecycle/categoria/data e o raio opcional reusam
- * os predicados espaciais. `limit` exato (o caller pede limit+1 pra detectar
- * próxima página sem cursor falso).
+ * score = Σ(CONFIRMED·2 + INTERESTED·1) — só a parte de ENGAJAMENTO da
+ * fórmula do heatmap (`findEventsForMap`), deliberadamente SEM o
+ * STATUS_HEATMAP_BOOST (esse boost é concern de renderização do mapa: dá calor
+ * a ONGOING/SOON; aqui distorceria o ranking de popularidade). Agregado em SQL
+ * (LEFT JOIN + GROUP BY); o keyset `(score DESC, id ASC)` vai no HAVING porque
+ * score é agregado (não pode ir no WHERE). Visibilidade/lifecycle/categoria/
+ * data e o raio opcional reusam os predicados espaciais. `limit` exato (o
+ * caller pede limit+1 pra detectar próxima página sem cursor falso).
  */
 export async function findEventIdsByPopularityKeyset(opts: {
   limit: number

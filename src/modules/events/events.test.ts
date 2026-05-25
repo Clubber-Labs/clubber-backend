@@ -264,6 +264,26 @@ describe('GET /events', () => {
     expect(res.json().data.length).toBe(1)
   })
 
+  it('radiusKm é exato (não bucketizado): evento a ~4km não aparece em radiusKm=3', async () => {
+    const user = await makeUser()
+    const inside = await makeEvent(user.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+    })
+    // ~4,4 km ao norte do centro (0.04° lat) — fora de 3 km, dentro de 5 km
+    await makeEvent(user.id, { latitude: -25.36, longitude: -49.3 })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&radiusKm=3',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    // se o raio fosse arredondado pra 5km (bug), o evento a ~4,4km apareceria
+    expect(ids).toEqual([inside.id])
+  })
+
   it('?status=CANCELED combinado com radiusKm retorna cancelados próximos', async () => {
     const user = await makeUser()
     await makeEvent(user.id, {
