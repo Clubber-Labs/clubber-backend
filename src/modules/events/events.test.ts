@@ -627,6 +627,120 @@ describe('GET /events', () => {
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
     expect(found).toBeUndefined()
   })
+
+  it('orderBy=distance: evento de autor privado não aparece pra anon (trigger)', async () => {
+    const privateAuthor = await makeUser({ isPrivate: true })
+    const event = await makeEvent(privateAuthor.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(
+      res.json().data.find((e: { id: string }) => e.id === event.id),
+    ).toBeUndefined()
+  })
+
+  it('orderBy=distance: follower aceito vê evento de autor privado', async () => {
+    const privateAuthor = await makeUser({ isPrivate: true })
+    const follower = await makeUser()
+    await makeFollow(follower.id, privateAuthor.id, 'ACCEPTED')
+    const event = await makeEvent(privateAuthor.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance',
+      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+    })
+
+    expect(
+      res.json().data.find((e: { id: string }) => e.id === event.id),
+    ).toBeDefined()
+  })
+
+  it('autor virar privado (PUT) invalida o cache e oculta eventos (data + distância)', async () => {
+    const author = await makeUser({ isPrivate: false })
+    const event = await makeEvent(author.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+      isPublic: true,
+    })
+    const has = (body: { data: { id: string }[] }) =>
+      body.data.some((e) => e.id === event.id)
+
+    // anon vê e cacheia (feed por data + por distância)
+    expect(
+      has((await app.inject({ method: 'GET', url: '/events' })).json()),
+    ).toBe(true)
+    expect(
+      has(
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance',
+          })
+        ).json(),
+      ),
+    ).toBe(true)
+
+    // autor vira privado via API → editUser invalida events:public:* + trigger
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/users/${author.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { isPrivate: true },
+    })
+    expect(put.statusCode).toBe(200)
+
+    // anon não vê mais (cache invalidado + visibilidade reflete a mudança)
+    expect(
+      has((await app.inject({ method: 'GET', url: '/events' })).json()),
+    ).toBe(false)
+    expect(
+      has(
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance',
+          })
+        ).json(),
+      ),
+    ).toBe(false)
+  })
+
+  it('orderBy=distance: empate paginado não duplica eventos entre páginas', async () => {
+    const author = await makeUser()
+    // 3 eventos na MESMA coordenada (empate de distância exato)
+    await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&limit=2',
+    })
+    const ids1 = page1.json().data.map((e: { id: string }) => e.id)
+    const cursor = page1.json().nextCursor as string
+
+    const page2 = await app.inject({
+      method: 'GET',
+      url: `/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&limit=2&cursor=${encodeURIComponent(cursor)}`,
+    })
+    const ids2 = page2.json().data.map((e: { id: string }) => e.id)
+
+    // Garantia do keyset com ORDER BY só por distância: o WHERE do cursor
+    // (dist,id) de-dup → SEM duplicata entre páginas. (Em empate de coordenada
+    // EXATA, a página pode não trazer todos — trade-off documentado do índice.)
+    expect(ids2.filter((id: string) => ids1.includes(id))).toEqual([])
+  })
 })
 
 describe('GET /events?orderBy=popularity (RF07.6)', () => {

@@ -1,4 +1,5 @@
 import { hash } from 'bcryptjs'
+import { cache } from '../../lib/cache'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import {
   findFollow,
@@ -150,6 +151,15 @@ export async function editUser(id: string, data: UpdateUserBody) {
     preferredCategories !== undefined
       ? await updateUserWithPreferences(id, rest, preferredCategories)
       : await updateUser(id, rest)
+
+  // A visibilidade na busca depende de authorIsPrivate (denormalizado do autor,
+  // sincronizado por trigger). Trocar a privacidade muda quem vê os eventos do
+  // autor — invalida o cache público pra não vazar (autor virou privado) nem
+  // ocultar (virou público) eventos por até o TTL.
+  if (data.isPrivate !== undefined) {
+    await cache.invalidate('events:public:*')
+  }
+
   return withPreferredCategories(updated)
 }
 
