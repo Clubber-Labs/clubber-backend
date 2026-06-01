@@ -842,6 +842,38 @@ describe('GET /feed — descoberta', () => {
     )
   })
 
+  it('cache isola por filtro (category não vaza pra query sem filtro)', async () => {
+    const viewer = await makeUser()
+    const music = await makeEvent(viewer.id, {
+      isPublic: true,
+      category: 'MUSIC',
+    })
+    const sports = await makeEvent(viewer.id, {
+      isPublic: true,
+      category: 'SPORTS',
+    })
+
+    // 1ª request com ?category=MUSIC popula o cache dessa combinação
+    const filtered = await app.inject({
+      method: 'GET',
+      url: '/feed?category=MUSIC',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const filteredIds = filtered.json().data.map((e: { id: string }) => e.id)
+    expect(filteredIds).toContain(music.id)
+    expect(filteredIds).not.toContain(sports.id)
+
+    // 2ª request SEM filtro não pode receber o cache da 1ª (key diferente)
+    const all = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const allIds = all.json().data.map((e: { id: string }) => e.id)
+    expect(allIds).toContain(sports.id)
+    expect(allIds).toContain(music.id)
+  })
+
   it('sem localização: feed funciona e não quebra (proximidade neutra)', async () => {
     const viewer = await makeUser()
     await makeEvent(viewer.id, { isPublic: true, latitude: NEAR.lat })

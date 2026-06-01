@@ -53,6 +53,11 @@ export async function getFeed(userId: string, query: FeedQuery) {
     query.nearLat ?? '',
     query.nearLng ?? '',
     query.radiusKm ?? '',
+    query.category?.join(',') ?? '',
+    query.status?.join(',') ?? '',
+    String(query.includePast),
+    query.dateFrom?.toISOString() ?? '',
+    query.dateTo?.toISOString() ?? '',
   )
   const cached =
     await cache.get<Awaited<ReturnType<typeof buildFeedResult>>>(cacheKey)
@@ -91,7 +96,12 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
     ),
   ])
 
-  const allIds = Array.from(new Set([...socialIds, ...discoveryIds]))
+  // Social primeiro (prioriza a rede do viewer), depois descoberta; capado em
+  // POOL_CAP pra hidratação nunca passar do teto mesmo com as duas pools cheias.
+  const allIds = Array.from(new Set([...socialIds, ...discoveryIds])).slice(
+    0,
+    POOL_CAP,
+  )
   if (allIds.length === 0) return { data: [], nextCursor: null }
 
   const [events, distances, friendCounts] = await Promise.all([
@@ -120,17 +130,22 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
     }))
     .sort((a, b) => b.score - a.score || b.event.id.localeCompare(a.event.id))
 
-  let startIdx = 0
+  // Paginação por valor (score, id), não por posição: o corte é feito pelos
+  // critérios do cursor, então mudanças no pool entre páginas (TTL expirado,
+  // evento removido) não quebram o scroll nem duplicam itens.
+  let candidates = ranked
   if (query.cursor) {
     const decoded = decodeCursor(query.cursor)
     if (!decoded) return { data: [], nextCursor: null }
-    const idx = ranked.findIndex((r) => r.event.id === decoded.id)
-    if (idx === -1) return { data: [], nextCursor: null }
-    startIdx = idx + 1
+    candidates = ranked.filter(
+      (r) =>
+        r.score < decoded.score ||
+        (r.score === decoded.score && r.event.id.localeCompare(decoded.id) < 0),
+    )
   }
 
-  const page = ranked.slice(startIdx, startIdx + query.limit)
-  const hasMore = startIdx + query.limit < ranked.length
+  const page = candidates.slice(0, query.limit)
+  const hasMore = candidates.length > query.limit
   const last = page[page.length - 1]
   const nextCursor =
     hasMore && last
