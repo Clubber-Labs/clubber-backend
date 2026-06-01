@@ -134,7 +134,13 @@ export async function listInboxConversations(
   cursor?: string,
 ) {
   return prisma.conversation.findMany({
-    where: { participants: { some: { userId, leftAt: null } } },
+    where: {
+      // Participante ativo e que não ocultou a conversa (clearedAt null).
+      participants: { some: { userId, leftAt: null, clearedAt: null } },
+      // Esconde DM que nunca teve mensagem; grupos aparecem mesmo vazios.
+      // (tombstone conta como mensagem — a DM com msg apagada continua visível.)
+      OR: [{ type: 'GROUP' }, { messages: { some: {} } }],
+    },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
@@ -166,6 +172,11 @@ export async function createTextMessage(
       where: { id: conversationId },
       data: { lastMessageAt: new Date() },
     }),
+    // Mensagem nova "reabre" a conversa pra quem a tinha ocultado (clearedAt).
+    prisma.conversationParticipant.updateMany({
+      where: { conversationId, clearedAt: { not: null } },
+      data: { clearedAt: null },
+    }),
   ])
   return message
 }
@@ -190,6 +201,11 @@ export async function createImageMessage(
       where: { id: conversationId },
       data: { lastMessageAt: new Date() },
     }),
+    // Mensagem nova "reabre" a conversa pra quem a tinha ocultado (clearedAt).
+    prisma.conversationParticipant.updateMany({
+      where: { conversationId, clearedAt: { not: null } },
+      data: { clearedAt: null },
+    }),
   ])
   return message
 }
@@ -211,7 +227,32 @@ export async function findConversationMessages(
 export async function findMessageById(id: string) {
   return prisma.message.findUnique({
     where: { id },
-    select: { id: true, conversationId: true, senderId: true, deletedAt: true },
+    select: {
+      id: true,
+      conversationId: true,
+      senderId: true,
+      content: true,
+      deletedAt: true,
+    },
+  })
+}
+
+export async function editMessageContent(id: string, content: string) {
+  return prisma.message.update({
+    where: { id },
+    data: { content, editedAt: new Date() },
+    include: messageInclude,
+  })
+}
+
+/** Oculta a conversa para um participante (DELETE /conversations/:id). */
+export async function clearConversationForParticipant(
+  conversationId: string,
+  userId: string,
+) {
+  return prisma.conversationParticipant.updateMany({
+    where: { conversationId, userId },
+    data: { clearedAt: new Date() },
   })
 }
 

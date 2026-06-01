@@ -7,12 +7,14 @@ import {
   assertReachable,
 } from './chat.access'
 import {
+  clearConversationForParticipant,
   createDirectConversation,
   createGroupConversation,
   createImageMessage,
   createTextMessage,
   deactivateParticipant,
   directKeyFor,
+  editMessageContent,
   findConversationById,
   findConversationMessages,
   findConversationWithParticipants,
@@ -69,9 +71,12 @@ function shapeMessage(message: MessageRow) {
     conversationId: message.conversationId,
     senderId: message.senderId,
     sender: message.sender,
+    type: message.type,
     content: deleted ? null : message.content,
     attachments: deleted ? [] : message.attachments,
+    replyToId: message.replyToId,
     createdAt: message.createdAt,
+    editedAt: message.editedAt,
     deletedAt: message.deletedAt,
   }
 }
@@ -257,6 +262,46 @@ export async function sendImageMessage(
 export async function markAsRead(userId: string, conversationId: string) {
   await assertActiveParticipant(conversationId, userId)
   await markConversationRead(conversationId, userId)
+}
+
+/** Oculta a conversa só para o viewer (DM ou grupo); não sai do grupo. */
+export async function clearConversation(
+  userId: string,
+  conversationId: string,
+) {
+  await assertActiveParticipant(conversationId, userId)
+  await clearConversationForParticipant(conversationId, userId)
+}
+
+export async function editMessage(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  content: string,
+) {
+  await assertActiveParticipant(conversationId, userId)
+  const message = await findMessageById(messageId)
+  if (!message || message.conversationId !== conversationId) {
+    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+  }
+  // Só o autor edita (admin de grupo NÃO edita msg alheia — diferente do delete).
+  if (message.senderId !== userId) {
+    throw {
+      statusCode: 403,
+      message: 'Sem permissão para editar esta mensagem',
+    }
+  }
+  if (message.deletedAt !== null) {
+    throw { statusCode: 403, message: 'Mensagem apagada não pode ser editada' }
+  }
+  if (message.content === null) {
+    throw {
+      statusCode: 403,
+      message: 'Apenas mensagens de texto podem ser editadas',
+    }
+  }
+  const updated = await editMessageContent(messageId, content)
+  return shapeMessage(updated)
 }
 
 export async function deleteMessage(

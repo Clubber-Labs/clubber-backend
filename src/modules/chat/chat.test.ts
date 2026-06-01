@@ -502,3 +502,261 @@ describe('anexo de imagem', () => {
     expect(res.statusCode).toBe(400)
   })
 })
+
+describe('inbox — DM vazia e ocultar (mudanças 1 e 2)', () => {
+  it('esconde DM sem nenhuma mensagem', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(a.id),
+    })
+    expect(
+      inbox.json().data.some((c: { id: string }) => c.id === convo.id),
+    ).toBe(false)
+  })
+
+  it('DM aparece após a primeira mensagem (com lastMessage)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: auth(a.id),
+      body: { content: 'oi' },
+    })
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(b.id),
+    })
+    const item = inbox
+      .json()
+      .data.find((c: { id: string }) => c.id === convo.id)
+    expect(item).toBeDefined()
+    expect(item.lastMessage).not.toBeNull()
+  })
+
+  it('grupo aparece no inbox mesmo sem mensagens', async () => {
+    const owner = await makeUser()
+    const group = await makeGroupConversation(owner.id, [])
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(owner.id),
+    })
+    expect(
+      inbox.json().data.some((c: { id: string }) => c.id === group.id),
+    ).toBe(true)
+  })
+
+  it('DELETE oculta pra mim (204) mas mantém pro outro', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    await makeMessage(convo.id, a.id, { content: 'oi' })
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/conversations/${convo.id}`,
+      headers: auth(a.id),
+    })
+    expect(del.statusCode).toBe(204)
+
+    const inboxA = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(a.id),
+    })
+    expect(
+      inboxA.json().data.some((c: { id: string }) => c.id === convo.id),
+    ).toBe(false)
+
+    const inboxB = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(b.id),
+    })
+    expect(
+      inboxB.json().data.some((c: { id: string }) => c.id === convo.id),
+    ).toBe(true)
+  })
+
+  it('conversa ocultada reaparece quando chega mensagem nova', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    await makeMessage(convo.id, a.id, { content: 'oi' })
+    await app.inject({
+      method: 'DELETE',
+      url: `/conversations/${convo.id}`,
+      headers: auth(a.id),
+    })
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: auth(b.id),
+      body: { content: 'voltei' },
+    })
+
+    const inboxA = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(a.id),
+    })
+    expect(
+      inboxA.json().data.some((c: { id: string }) => c.id === convo.id),
+    ).toBe(true)
+  })
+
+  it('DELETE em grupo não remove o membro (continua participante)', async () => {
+    const owner = await makeUser()
+    const member = await makeUser()
+    const group = await makeGroupConversation(owner.id, [member.id])
+
+    await app.inject({
+      method: 'DELETE',
+      url: `/conversations/${group.id}`,
+      headers: auth(member.id),
+    })
+
+    // segue membro: consegue ver o detalhe
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/conversations/${group.id}`,
+      headers: auth(member.id),
+    })
+    expect(detail.statusCode).toBe(200)
+  })
+
+  it('POST /leave em DM retorna 400', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/leave`,
+      headers: auth(a.id),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('PATCH editar mensagem (mudança 3)', () => {
+  it('autor edita a própria mensagem (200, editedAt, novo conteúdo)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const msg = await makeMessage(convo.id, a.id, { content: 'original' })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${msg.id}`,
+      headers: auth(a.id),
+      body: { content: 'editado' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().content).toBe('editado')
+    expect(res.json().editedAt).not.toBeNull()
+  })
+
+  it('403 ao editar mensagem de outro', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const msg = await makeMessage(convo.id, a.id, { content: 'x' })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${msg.id}`,
+      headers: auth(b.id),
+      body: { content: 'invadido' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('403 ao editar mensagem apagada', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const msg = await makeMessage(convo.id, a.id, { content: 'x' })
+    await app.inject({
+      method: 'DELETE',
+      url: `/conversations/${convo.id}/messages/${msg.id}`,
+      headers: auth(a.id),
+    })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${msg.id}`,
+      headers: auth(a.id),
+      body: { content: 'tentando editar' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('403 ao editar mensagem só de imagem', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(
+      png,
+      'image',
+      'foto.png',
+      'image/png',
+    )
+    const sent = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/images`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    const messageId = sent.json().id
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${messageId}`,
+      headers: auth(a.id),
+      body: { content: 'legenda' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('400 conteúdo vazio', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const msg = await makeMessage(convo.id, a.id, { content: 'x' })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${msg.id}`,
+      headers: auth(a.id),
+      body: { content: '   ' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('404 mensagem inexistente', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${crypto.randomUUID()}`,
+      headers: auth(a.id),
+      body: { content: 'oi' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+})

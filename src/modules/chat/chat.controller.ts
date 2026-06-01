@@ -5,6 +5,7 @@ import type {
   ChatPaginationQuery,
   ConversationParam,
   CreateConversationBody,
+  EditMessageBody,
   MessageParam,
   ParticipantParam,
   RenameConversationBody,
@@ -13,7 +14,9 @@ import type {
 } from './chat.schema'
 import {
   addGroupParticipant,
+  clearConversation,
   deleteMessage,
+  editMessage,
   getConversation,
   leaveGroup,
   listInbox,
@@ -95,6 +98,25 @@ export async function postRead(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as ConversationParam
   await markAsRead(request.user.sub, id)
   return reply.status(204).send()
+}
+
+export async function deleteConversation(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ConversationParam
+  await clearConversation(request.user.sub, id)
+  return reply.status(204).send()
+}
+
+export async function patchMessage(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id, messageId } = request.params as MessageParam
+  const { content } = request.body as EditMessageBody
+  const message = await editMessage(request.user.sub, id, messageId, content)
+  return reply.send(message)
 }
 
 export async function deleteMessageHandler(

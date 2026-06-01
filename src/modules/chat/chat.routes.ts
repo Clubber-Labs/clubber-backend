@@ -5,12 +5,14 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import {
+  deleteConversation,
   deleteMessageHandler,
   deleteParticipant,
   getConversationDetail,
   getConversations,
   getMessages,
   patchConversation,
+  patchMessage,
   patchParticipantRole,
   postConversation,
   postLeave,
@@ -23,6 +25,7 @@ import {
   addParticipantSchema,
   conversationParamSchema,
   createConversationSchema,
+  editMessageSchema,
   messageParamSchema,
   paginationSchema,
   participantParamSchema,
@@ -77,6 +80,15 @@ export async function chatRoutes(app: FastifyInstance) {
     patchConversation,
   )
 
+  api.delete(
+    '/conversations/:id',
+    {
+      schema: { params: conversationParamSchema },
+      onRequest: [app.authenticate],
+    },
+    deleteConversation,
+  )
+
   api.get(
     '/conversations/:id/messages',
     {
@@ -116,6 +128,16 @@ export async function chatRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     postRead,
+  )
+
+  api.patch(
+    '/conversations/:id/messages/:messageId',
+    {
+      schema: { params: messageParamSchema, body: editMessageSchema },
+      onRequest: [app.authenticate],
+      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    },
+    patchMessage,
   )
 
   api.delete(

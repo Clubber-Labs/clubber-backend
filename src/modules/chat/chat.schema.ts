@@ -30,6 +30,10 @@ export const sendMessageSchema = z.object({
   content: z.string().min(1, 'Mensagem vazia').max(2000),
 })
 
+export const editMessageSchema = z.object({
+  content: z.string().trim().min(1, 'Mensagem vazia').max(2000),
+})
+
 export const renameConversationSchema = z.object({
   title: z.string().min(1, 'Título obrigatório').max(100),
 })
@@ -52,6 +56,7 @@ export type ConversationParam = z.infer<typeof conversationParamSchema>
 export type MessageParam = z.infer<typeof messageParamSchema>
 export type ParticipantParam = z.infer<typeof participantParamSchema>
 export type SendMessageBody = z.infer<typeof sendMessageSchema>
+export type EditMessageBody = z.infer<typeof editMessageSchema>
 export type RenameConversationBody = z.infer<typeof renameConversationSchema>
 export type AddParticipantBody = z.infer<typeof addParticipantSchema>
 export type SetRoleBody = z.infer<typeof setRoleSchema>
