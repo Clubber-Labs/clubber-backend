@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import type { EventCategory } from '../lib/event-categories'
 import { testPrisma } from './prisma'
 
 let counter = 0
@@ -63,7 +64,7 @@ export async function makeEvent(
   authorId: string,
   overrides: {
     isPublic?: boolean
-    category?: string
+    category?: EventCategory
     date?: Date
     endDate?: Date | null
     canceledAt?: Date | null
@@ -81,7 +82,7 @@ export async function makeEvent(
       endDate: overrides.endDate ?? null,
       latitude: overrides.latitude ?? -25.4,
       longitude: overrides.longitude ?? -49.3,
-      category: overrides.category ?? 'Festa',
+      category: overrides.category ?? 'PARTY',
       isPublic: overrides.isPublic ?? true,
       isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
@@ -170,6 +171,15 @@ export async function makeComment(
 ) {
   return testPrisma.comment.create({
     data: { authorId, eventId, content },
+  })
+}
+
+export async function makeUserCategoryPreference(
+  userId: string,
+  category: EventCategory,
+) {
+  return testPrisma.userCategoryPreference.create({
+    data: { userId, category },
   })
 }
 

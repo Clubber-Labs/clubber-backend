@@ -17,15 +17,15 @@ function sample<T>(arr: T[], n: number): T[] {
 const PASSWORD_HASH = bcrypt.hashSync('senha123', 10)
 
 const CATEGORIES = [
-  'Festa',
-  'Show',
-  'Esporte',
-  'Cultura',
-  'Gastronomia',
-  'Tecnologia',
-  'Arte',
-  'Balada',
-]
+  'PARTY',
+  'MUSIC',
+  'SPORTS',
+  'ART',
+  'GASTRONOMY',
+  'TECH',
+  'NIGHTLIFE',
+  'EDUCATION',
+] as const
 
 const ATTENDANCE_TYPES = [AttendanceType.CONFIRMED, AttendanceType.INTERESTED]
 

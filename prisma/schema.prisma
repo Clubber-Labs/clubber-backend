@@ -47,7 +47,44 @@ model User {
   reports Report[] @relation("reporterReports")
 
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
+
+  categoryPreferences UserCategoryPreference[]
   @@map("users")
+}
+
+enum EventCategory {
+  MUSIC
+  SPORTS
+  TECH
+  GASTRONOMY
+  ART
+  EDUCATION
+  NIGHTLIFE
+  BUSINESS
+  HEALTH_WELLNESS
+  OUTDOORS
+  GAMING
+  FILM_THEATER
+  FASHION
+  RELIGION
+  FAMILY
+  PETS
+  VOLUNTEERING
+  PARTY
+  OTHER
+}
+
+model UserCategoryPreference {
+  id        String        @id @default(uuid())
+  userId    String
+  category  EventCategory
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+  @@map("user_category_preferences")
 }
 
 enum SocialProvider {
@@ -99,7 +136,7 @@ model Event {
   latitude    Float
   longitude   Float
   address     String?
-  category    String
+  category    EventCategory
   isPublic    Boolean  @default(true)
   isFeatured  Boolean  @default(false)
   maxCapacity Int?

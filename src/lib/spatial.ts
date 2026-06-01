@@ -75,6 +75,26 @@ export async function findEventIdsWithinRadius(
   return rows.map((r) => r.id)
 }
 
+/**
+ * Distância em metros do `center` a cada evento da lista. Roda só sobre os ids
+ * já filtrados (não varre a tabela). Eventos sem linha ficam de fora do Map.
+ */
+export async function findDistancesForEvents(
+  center: LatLng,
+  eventIds: string[],
+): Promise<Map<string, number>> {
+  if (eventIds.length === 0) return new Map()
+  const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${center.longitude}, ${center.latitude}), 4326)::geography`
+  const rows = await prisma.$queryRaw<{ id: string; distance: number }[]>(
+    Prisma.sql`
+      SELECT e.id, ST_Distance(e.location, ${point}) AS distance
+      FROM events e
+      WHERE e.id IN (${Prisma.join(eventIds)})
+    `,
+  )
+  return new Map(rows.map((r) => [r.id, Number(r.distance)]))
+}
+
 export async function findEventIdsByDistance(
   center: LatLng,
   limit: number,

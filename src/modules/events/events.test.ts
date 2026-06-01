@@ -59,26 +59,26 @@ describe('GET /events', () => {
 
   it('filtra por múltiplas categorias (?category=A&category=B)', async () => {
     const user = await makeUser()
-    await makeEvent(user.id, { category: 'Festa', isPublic: true })
-    await makeEvent(user.id, { category: 'Show', isPublic: true })
-    await makeEvent(user.id, { category: 'Esporte', isPublic: true })
+    await makeEvent(user.id, { category: 'PARTY', isPublic: true })
+    await makeEvent(user.id, { category: 'MUSIC', isPublic: true })
+    await makeEvent(user.id, { category: 'SPORTS', isPublic: true })
 
     const res = await app.inject({
       method: 'GET',
-      url: '/events?category=Festa&category=Show',
+      url: '/events?category=PARTY&category=MUSIC',
     })
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
     const categorias = body.data.map((e: { category: string }) => e.category)
-    expect(categorias).toEqual(expect.arrayContaining(['Festa', 'Show']))
-    expect(categorias).not.toContain('Esporte')
+    expect(categorias).toEqual(expect.arrayContaining(['PARTY', 'MUSIC']))
+    expect(categorias).not.toContain('SPORTS')
   })
 
   it('ignora category vazia e não filtra', async () => {
     const user = await makeUser()
-    await makeEvent(user.id, { category: 'Festa', isPublic: true })
-    await makeEvent(user.id, { category: 'Show', isPublic: true })
+    await makeEvent(user.id, { category: 'PARTY', isPublic: true })
+    await makeEvent(user.id, { category: 'MUSIC', isPublic: true })
 
     const res = await app.inject({ method: 'GET', url: '/events?category=' })
 
@@ -460,7 +460,7 @@ describe('cache de GET /events', () => {
         date: new Date(Date.now() + 86400000).toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -874,7 +874,7 @@ describe('POST /events', () => {
         date: new Date(Date.now() + 86400000).toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -896,7 +896,7 @@ describe('POST /events', () => {
         date: new Date().toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -920,7 +920,7 @@ describe('POST /events', () => {
         endDate: end.toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -941,7 +941,7 @@ describe('POST /events', () => {
         date: new Date(Date.now() + 86400000).toISOString(),
         latitude: 200,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -960,7 +960,7 @@ describe('POST /events', () => {
         date: new Date(Date.now() + 86400000).toISOString(),
         latitude: -25.4,
         longitude: 200,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -983,7 +983,7 @@ describe('POST /events', () => {
         endDate: end.toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
@@ -1009,7 +1009,7 @@ describe('PUT /events/:id', () => {
         endDate: end.toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        category: 'Festa',
+        category: 'PARTY',
         isPublic: true,
       },
     })
