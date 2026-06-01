@@ -8,7 +8,8 @@ import {
 export const feedQuerySchema = z
   .object({
     limit: z.coerce.number().min(1).max(50).optional().default(20),
-    // Cursor opaco (base64url de { score, id }) — paginação por score.
+    // Cursor opaco (base64url de { score, id, t }) — keyset por (score, id);
+    // `t` congela o relógio de RANKING entre as páginas (não afeta filtros).
     cursor: z.string().optional(),
     category: categoryFilter,
     status: statusFilter,

@@ -669,6 +669,42 @@ describe('GET /feed — ranking', () => {
     }
   })
 
+  it('cursor com t forjado não burla o filtro de status (lifecycle usa o now real)', async () => {
+    const viewer = await makeUser()
+    // Evento PAST do viewer (não deveria aparecer sob status=UPCOMING).
+    const past = await makeEvent(viewer.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 6 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    })
+    const upcoming = await makeEvent(viewer.id, {
+      isPublic: true,
+      date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+    })
+
+    // Cursor forjado: t bem no passado faria o WHERE de lifecycle (se usasse o
+    // t do cursor) tratar o evento PAST como UPCOMING. score alto garante que o
+    // keyset não filtre ninguém.
+    const forged = Buffer.from(
+      JSON.stringify({
+        score: Number.MAX_SAFE_INTEGER,
+        id: '00000000-0000-0000-0000-000000000000',
+        t: new Date('2020-01-01T00:00:00.000Z').getTime(),
+      }),
+    ).toString('base64url')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?status=UPCOMING&cursor=${forged}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).not.toContain(past.id)
+    expect(ids).toContain(upcoming.id)
+  })
+
   it('cursor inválido retorna página vazia em vez de duplicar', async () => {
     const viewer = await makeUser()
     await makeEvent(viewer.id, { isPublic: true })

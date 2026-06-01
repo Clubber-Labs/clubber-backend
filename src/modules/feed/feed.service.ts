@@ -83,11 +83,17 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
   const decoded = query.cursor ? decodeCursor(query.cursor) : null
   if (query.cursor && !decoded) return { data: [], nextCursor: null }
 
-  // Congela o `now` da sessão de paginação: a 1ª página define o instante e as
-  // próximas reusam o mesmo (via cursor). Assim score, fronteira e filtros de
-  // lifecycle são computados contra o MESMO `now` em toda a sessão — keyset só é
-  // estável se a chave de ordenação não mudar entre as páginas.
-  const now = decoded?.t !== undefined ? new Date(decoded.t) : new Date()
+  // `now` real do servidor — usado em ELEGIBILIDADE (lifecycle/WHERE) e no
+  // status retornado. NUNCA vem do cursor: o `t` é cliente-controlável; se
+  // entrasse no WHERE de lifecycle, um cursor forjado burlaria o filtro `status`
+  // (ex.: `t` antigo + status=UPCOMING devolveria eventos hoje PAST).
+  const now = new Date()
+  // `scoringNow` — relógio de RANKING, congelado na 1ª página e propagado via
+  // cursor. O score depende do tempo (decay temporal, boost ONGOING/SOON);
+  // congelá-lo mantém a fronteira do keyset estável entre as páginas. Forjar `t`
+  // só reordena o feed do próprio requester — não muda quais linhas o banco
+  // retorna nem o status exibido.
+  const scoringNow = decoded?.t !== undefined ? new Date(decoded.t) : now
   const center: LatLng | null =
     query.nearLat !== undefined && query.nearLng !== undefined
       ? { latitude: query.nearLat, longitude: query.nearLng }
@@ -143,7 +149,7 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
           friendInteractionCount: friendCounts.get(event.id) ?? 0,
         },
         DEFAULT_RANK_WEIGHTS,
-        now,
+        scoringNow,
       ),
     }))
     .sort((a, b) => b.score - a.score || b.event.id.localeCompare(a.event.id))
@@ -165,7 +171,11 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
   const last = page[page.length - 1]
   const nextCursor =
     hasMore && last
-      ? encodeCursor({ score: last.score, id: last.event.id, t: now.getTime() })
+      ? encodeCursor({
+          score: last.score,
+          id: last.event.id,
+          t: scoringNow.getTime(),
+        })
       : null
 
   return { data: page.map((r) => r.event), nextCursor }
