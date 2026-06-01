@@ -28,24 +28,26 @@ const TOKEN_RECHECK_MS = 60_000
 export async function chatGateway(app: FastifyInstance) {
   await app.register(fastifyWebsocket)
 
+  const log = app.log.child({ module: 'chat-ws' })
   const registry = createSocketRegistry()
 
   if (redis) {
     const subscriber = redis.duplicate()
     subscriber.subscribe(CHAT_CHANNEL).catch((err) => {
-      app.log.error({ err }, 'falha ao assinar canal de chat')
+      log.error({ err }, 'falha ao assinar canal de chat')
     })
     subscriber.on('message', (_channel, raw) => {
       try {
         const event = JSON.parse(raw) as RealtimeEvent
         dispatchEvent(registry, event)
       } catch (err) {
-        app.log.error({ err }, 'falha ao entregar evento de chat')
+        log.error({ err }, 'falha ao entregar evento de chat')
       }
     })
     app.addHook('onClose', async () => {
       await subscriber.quit()
     })
+    log.info('subscriber de chat ativo')
   }
 
   /** Anuncia presença (online/offline) aos parceiros de conversa do usuário. */
@@ -66,7 +68,7 @@ export async function chatGateway(app: FastifyInstance) {
         lastSeenAt,
       })
     } catch (err) {
-      app.log.error({ err }, 'falha ao anunciar presença')
+      log.error({ err, userId, online }, 'falha ao anunciar presença')
     }
   }
 
@@ -109,6 +111,10 @@ export async function chatGateway(app: FastifyInstance) {
 
       const cameOnline = registry.add(userId, socket)
       if (cameOnline) void announcePresence(userId, true)
+      log.info(
+        { userId, online: cameOnline, sockets: registry.onlineCount() },
+        'socket conectado',
+      )
 
       // Heartbeat: ping periódico; encerra sockets que pararam de responder.
       let alive = true
@@ -117,6 +123,7 @@ export async function chatGateway(app: FastifyInstance) {
       })
       const heartbeat = setInterval(() => {
         if (!alive) {
+          log.warn({ userId }, 'socket sem pong; encerrando')
           socket.terminate()
           return
         }
@@ -131,6 +138,7 @@ export async function chatGateway(app: FastifyInstance) {
       // Revalida o JWT: fecha a sessão quando o token expira.
       const tokenCheck = setInterval(() => {
         if (isTokenExpired(claims, Math.floor(Date.now() / 1000))) {
+          log.info({ userId }, 'token expirado; fechando socket')
           socket.close(4401, 'token expired')
         }
       }, TOKEN_RECHECK_MS)
@@ -144,6 +152,7 @@ export async function chatGateway(app: FastifyInstance) {
         clearInterval(tokenCheck)
         const wentOffline = registry.remove(userId, socket)
         if (wentOffline) void announcePresence(userId, false)
+        log.info({ userId, offline: wentOffline }, 'socket desconectado')
       }
       socket.on('close', cleanup)
       socket.on('error', cleanup)

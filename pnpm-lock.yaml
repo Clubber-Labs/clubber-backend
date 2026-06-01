@@ -61,6 +61,9 @@ importers:
       ioredis:
         specifier: ^5.10.1
         version: 5.10.1
+      pino:
+        specifier: 10.3.1
+        version: 10.3.1
       sharp:
         specifier: ^0.34.5
         version: 0.34.5

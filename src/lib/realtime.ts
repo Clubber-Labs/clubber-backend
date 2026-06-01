@@ -1,3 +1,4 @@
+import { logger } from './logger'
 import { redis } from './redis'
 
 export const CHAT_CHANNEL = 'chat:events'
@@ -48,8 +49,8 @@ export const realtime = {
     try {
       await redis.publish(CHAT_CHANNEL, JSON.stringify(event))
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[realtime] publish falhou: ${message}`)
+      // Best-effort: entrega ao vivo falhou, mas a mensagem já foi persistida.
+      logger.warn({ err, type: event.type }, 'realtime publish falhou')
     }
   },
 }
