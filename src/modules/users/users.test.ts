@@ -46,6 +46,19 @@ describe('GET /users/me', () => {
     const res = await app.inject({ method: 'GET', url: '/users/me' })
     expect(res.statusCode).toBe(401)
   })
+
+  it('retorna 401 quando o token é válido mas o usuário não existe mais', async () => {
+    // Token assinado para um id inexistente (ex.: conta deletada após o login).
+    const ghostToken = app.jwt.sign({ sub: crypto.randomUUID() })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${ghostToken}` },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
 })
 
 describe('GET /users/:id', () => {
