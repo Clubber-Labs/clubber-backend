@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { eventCategorySchema } from '../../lib/event-categories'
 import { EVENT_STATUSES } from '../../lib/event-lifecycle'
 
 const eventStatusEnum = z.enum(EVENT_STATUSES)
@@ -32,6 +33,7 @@ export const categoryFilter = z
     const unique = Array.from(new Set(list))
     return unique.length > 0 ? unique : undefined
   })
+  .pipe(z.array(eventCategorySchema).optional())
 
 export const createEventSchema = z
   .object({
@@ -42,7 +44,7 @@ export const createEventSchema = z
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
     address: z.string().optional(),
-    category: z.string().min(2),
+    category: eventCategorySchema,
     isPublic: z.boolean().default(true),
     maxCapacity: z.number().optional(),
     canceledAt: z.coerce.date().optional(),
@@ -60,7 +62,7 @@ export const updateEventSchema = z
     endDate: z.coerce.date().nullable().optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
-    category: z.string().min(2).optional(),
+    category: eventCategorySchema.optional(),
     isPublic: z.boolean().optional(),
     canceledAt: z.coerce.date().nullable().optional(),
   })

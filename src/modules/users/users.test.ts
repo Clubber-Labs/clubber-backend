@@ -281,6 +281,129 @@ describe('POST /users — conflitos de unique constraint', () => {
   })
 })
 
+describe('preferredCategories no perfil', () => {
+  it('POST /users persiste preferredCategories e reflete em GET /users/me', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Maria',
+        lastname: 'Silva',
+        username: 'mariasilva',
+        phone: '11999998888',
+        email: 'maria@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'TECH'],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const { user, token: jwt } = res.json()
+    expect(user.preferredCategories).toEqual(
+      expect.arrayContaining(['MUSIC', 'TECH']),
+    )
+
+    const rows = await testPrisma.userCategoryPreference.findMany({
+      where: { userId: user.id },
+    })
+    expect(rows.map((r) => r.category).sort()).toEqual(['MUSIC', 'TECH'])
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${jwt}` },
+    })
+    expect(me.json().preferredCategories).toEqual(
+      expect.arrayContaining(['MUSIC', 'TECH']),
+    )
+  })
+
+  it('POST /users com categoria inválida retorna 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Joao',
+        lastname: 'Souza',
+        username: 'joaosouza',
+        phone: '11988887777',
+        email: 'joao@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['FOO'],
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('PUT /users/:id substitui as preferências (semântica PUT)', async () => {
+    const user = await makeUser()
+    await testPrisma.userCategoryPreference.createMany({
+      data: [
+        { userId: user.id, category: 'SPORTS' },
+        { userId: user.id, category: 'PARTY' },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { preferredCategories: ['ART', 'TECH'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredCategories).toEqual(
+      expect.arrayContaining(['ART', 'TECH']),
+    )
+
+    const rows = await testPrisma.userCategoryPreference.findMany({
+      where: { userId: user.id },
+    })
+    expect(rows.map((r) => r.category).sort()).toEqual(['ART', 'TECH'])
+  })
+
+  it('PUT /users/:id com array vazio limpa as preferências', async () => {
+    const user = await makeUser()
+    await testPrisma.userCategoryPreference.create({
+      data: { userId: user.id, category: 'MUSIC' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { preferredCategories: [] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredCategories).toEqual([])
+    const count = await testPrisma.userCategoryPreference.count({
+      where: { userId: user.id },
+    })
+    expect(count).toBe(0)
+  })
+
+  it('PUT /users/:id sem preferredCategories não altera as existentes', async () => {
+    const user = await makeUser()
+    await testPrisma.userCategoryPreference.create({
+      data: { userId: user.id, category: 'MUSIC' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { bio: 'nova bio' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredCategories).toEqual(['MUSIC'])
+  })
+})
+
 describe('GET /users/search', () => {
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({

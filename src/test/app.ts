@@ -11,6 +11,7 @@ import { handlePrismaUniqueError } from '../lib/errors'
 import { redis } from '../lib/redis'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
 import { authRoutes } from '../modules/auth/auth.routes'
+import { categoriesRoutes } from '../modules/categories/categories.routes'
 import { commentsRoutes } from '../modules/comments/comments.routes'
 import { eventInvitesRoutes } from '../modules/event-invites/event-invites.routes'
 import { eventsRoutes } from '../modules/events/events.routes'
@@ -84,6 +85,7 @@ export function buildApp() {
   app.register(healthRoutes)
   app.register(authRoutes)
   app.register(socialAuthRoutes)
+  app.register(categoriesRoutes)
   app.register(eventsRoutes)
   app.register(featuredEventsRoutes)
   app.register(usersRoutes)

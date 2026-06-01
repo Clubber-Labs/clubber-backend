@@ -9,6 +9,7 @@ import {
   makeInvite,
   makeReaction,
   makeUser,
+  makeUserCategoryPreference,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
@@ -347,20 +348,20 @@ describe('GET /feed — filtros', () => {
     expect(found.status).toBe('PAST')
   })
 
-  it('?category=Festa filtra por categoria', async () => {
+  it('?category=PARTY filtra por categoria', async () => {
     const viewer = await makeUser()
     const festa = await makeEvent(viewer.id, {
       isPublic: true,
-      category: 'Festa',
+      category: 'PARTY',
     })
     const show = await makeEvent(viewer.id, {
       isPublic: true,
-      category: 'Show',
+      category: 'MUSIC',
     })
 
     const res = await app.inject({
       method: 'GET',
-      url: '/feed?category=Festa',
+      url: '/feed?category=PARTY',
       headers: { authorization: `Bearer ${token(app, viewer.id)}` },
     })
 
@@ -524,12 +525,12 @@ describe('GET /feed — ranking', () => {
 
   it('categoria preferida eleva evento de mesma data', async () => {
     const viewer = await makeUser()
-    // Histórico: viewer já participou de eventos de "Festa"
+    // Histórico: viewer já participou de eventos de "PARTY"
     const histAuthor = await makeUser()
     for (let i = 0; i < 3; i++) {
       const histEvent = await makeEvent(histAuthor.id, {
         isPublic: true,
-        category: 'Festa',
+        category: 'PARTY',
       })
       await makeAttendance(viewer.id, histEvent.id, 'CONFIRMED')
     }
@@ -538,12 +539,12 @@ describe('GET /feed — ranking', () => {
     const author = await makeUser()
     const festa = await makeEvent(author.id, {
       isPublic: true,
-      category: 'Festa',
+      category: 'PARTY',
       date: sameDate,
     })
     const show = await makeEvent(author.id, {
       isPublic: true,
-      category: 'Show',
+      category: 'MUSIC',
       date: sameDate,
     })
     // Trazer ambos pro feed via interação de amigo
@@ -743,5 +744,324 @@ describe('GET /feed — reason', () => {
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
     expect(found?.reason).toMatchObject({ kind: 'self_interaction' })
+  })
+})
+
+const NEAR = { lat: -25.4, lng: -49.3 } // Curitiba (coords default do makeEvent)
+const FAR = { lat: -30, lng: -49.3 } // ~510km ao sul
+
+async function makeStrangerAttendees(eventId: string, count: number) {
+  for (let i = 0; i < count; i++) {
+    const u = await makeUser()
+    await makeAttendance(u.id, eventId, 'CONFIRMED')
+  }
+}
+
+describe('GET /feed — descoberta', () => {
+  it('sem follows, eventos da categoria preferida aparecem (req 1)', async () => {
+    const viewer = await makeUser()
+    await makeUserCategoryPreference(viewer.id, 'MUSIC')
+    const stranger = await makeUser()
+    const musicEvent = await makeEvent(stranger.id, {
+      isPublic: true,
+      category: 'MUSIC',
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toContain(musicEvent.id)
+  })
+
+  it('evento de descoberta vem com reason discovery', async () => {
+    const viewer = await makeUser()
+    await makeUserCategoryPreference(viewer.id, 'TECH')
+    const stranger = await makeUser()
+    const techEvent = await makeEvent(stranger.id, {
+      isPublic: true,
+      category: 'TECH',
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const found = res
+      .json()
+      .data.find((e: { id: string }) => e.id === techEvent.id)
+    expect(found?.reason).toMatchObject({ kind: 'discovery' })
+  })
+
+  it('sem follows, sem preferências e sem localização → não puxa estranhos', async () => {
+    const viewer = await makeUser()
+    const stranger = await makeUser()
+    const event = await makeEvent(stranger.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).not.toContain(event.id)
+  })
+
+  it('cache isola por localização (nearLat diferente muda resultado)', async () => {
+    const viewer = await makeUser()
+    const stranger = await makeUser()
+    const event = await makeEvent(stranger.id, {
+      isPublic: true,
+      latitude: NEAR.lat,
+      longitude: NEAR.lng,
+    })
+
+    const near = await app.inject({
+      method: 'GET',
+      url: `/feed?nearLat=${NEAR.lat}&nearLng=${NEAR.lng}&radiusKm=20`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const far = await app.inject({
+      method: 'GET',
+      url: '/feed?nearLat=-5&nearLng=-40&radiusKm=20',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(near.json().data.map((e: { id: string }) => e.id)).toContain(
+      event.id,
+    )
+    expect(far.json().data.map((e: { id: string }) => e.id)).not.toContain(
+      event.id,
+    )
+  })
+
+  it('sem localização: feed funciona e não quebra (proximidade neutra)', async () => {
+    const viewer = await makeUser()
+    await makeEvent(viewer.id, { isPublic: true, latitude: NEAR.lat })
+    await makeEvent(viewer.id, { isPublic: true, latitude: FAR.lat })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data.length).toBeGreaterThanOrEqual(2)
+  })
+})
+
+describe('GET /feed — proximidade e popularidade', () => {
+  it('pool social: amigo distante aparece mesmo com radiusKm (req 3)', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+
+    const author = await makeUser()
+    const farFriendEvent = await makeEvent(author.id, {
+      isPublic: true,
+      latitude: FAR.lat,
+      longitude: FAR.lng,
+    })
+    await makeAttendance(friend.id, farFriendEvent.id, 'CONFIRMED')
+
+    const stranger = await makeUser()
+    const farStrangerEvent = await makeEvent(stranger.id, {
+      isPublic: true,
+      latitude: FAR.lat,
+      longitude: FAR.lng,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?nearLat=${NEAR.lat}&nearLng=${NEAR.lng}&radiusKm=50`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toContain(farFriendEvent.id) // social ignora distância
+    expect(ids).not.toContain(farStrangerEvent.id) // descoberta limitada pelo raio
+  })
+
+  it('popularidade lidera: popular distante vence perto e vazio (req 2)', async () => {
+    const viewer = await makeUser()
+    const date = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+
+    const authorA = await makeUser()
+    const popularFar = await makeEvent(authorA.id, {
+      isPublic: true,
+      latitude: FAR.lat,
+      longitude: FAR.lng,
+      date,
+    })
+    await makeStrangerAttendees(popularFar.id, 12)
+
+    const authorB = await makeUser()
+    const emptyNear = await makeEvent(authorB.id, {
+      isPublic: true,
+      latitude: NEAR.lat,
+      longitude: NEAR.lng,
+      date,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?nearLat=${NEAR.lat}&nearLng=${NEAR.lng}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res
+      .json()
+      .data.map((e: { id: string }) => e.id)
+      .filter((id: string) => id === popularFar.id || id === emptyNear.id)
+    expect(ids).toEqual([popularFar.id, emptyNear.id])
+  })
+
+  it('popularidade lidera: popular futuro vence ONGOING vazio', async () => {
+    const viewer = await makeUser()
+    const ongoing = await makeEvent(viewer.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 30 * 60 * 1000),
+      endDate: new Date(Date.now() + 30 * 60 * 1000),
+    })
+    const authorP = await makeUser()
+    const popularFuture = await makeEvent(authorP.id, {
+      isPublic: true,
+      date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+    })
+    await makeStrangerAttendees(popularFuture.id, 15)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?nearLat=${NEAR.lat}&nearLng=${NEAR.lng}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res
+      .json()
+      .data.map((e: { id: string }) => e.id)
+      .filter((id: string) => id === popularFuture.id || id === ongoing.id)
+    expect(ids).toEqual([popularFuture.id, ongoing.id])
+  })
+
+  it('preferência explícita supera o histórico no ranking', async () => {
+    const viewer = await makeUser()
+    // Histórico em SPORTS
+    const histAuthor = await makeUser()
+    for (let i = 0; i < 3; i++) {
+      const e = await makeEvent(histAuthor.id, {
+        isPublic: true,
+        category: 'SPORTS',
+      })
+      await makeAttendance(viewer.id, e.id, 'CONFIRMED')
+    }
+    // Preferência explícita em TECH
+    await makeUserCategoryPreference(viewer.id, 'TECH')
+
+    const date = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    const author = await makeUser()
+    const techEvent = await makeEvent(author.id, {
+      isPublic: true,
+      category: 'TECH',
+      date,
+    })
+    const sportsEvent = await makeEvent(author.id, {
+      isPublic: true,
+      category: 'SPORTS',
+      date,
+    })
+    const friend = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+    await makeAttendance(friend.id, techEvent.id, 'INTERESTED')
+    await makeAttendance(friend.id, sportsEvent.id, 'INTERESTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res
+      .json()
+      .data.map((e: { id: string }) => e.id)
+      .filter((id: string) => id === techEvent.id || id === sportsEvent.id)
+    expect(ids).toEqual([techEvent.id, sportsEvent.id])
+  })
+})
+
+describe('GET /feed — engajamento de amigos', () => {
+  it('evento sobe a cada amigo distinto que interage', async () => {
+    const viewer = await makeUser()
+    const f1 = await makeUser()
+    const f2 = await makeUser()
+    await makeFollow(viewer.id, f1.id)
+    await makeFollow(viewer.id, f2.id)
+
+    const author = await makeUser()
+    const date = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    const eventTwoFriends = await makeEvent(author.id, { isPublic: true, date })
+    const eventOneFriend = await makeEvent(author.id, { isPublic: true, date })
+
+    await makeAttendance(f1.id, eventTwoFriends.id, 'CONFIRMED')
+    await makeAttendance(f2.id, eventTwoFriends.id, 'CONFIRMED')
+    await makeAttendance(f1.id, eventOneFriend.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res
+      .json()
+      .data.map((e: { id: string }) => e.id)
+      .filter(
+        (id: string) => id === eventTwoFriends.id || id === eventOneFriend.id,
+      )
+    expect(ids).toEqual([eventTwoFriends.id, eventOneFriend.id])
+  })
+
+  it('interação de amigo pesa mais que de estranho (mesmo nº)', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+    await makeUserCategoryPreference(viewer.id, 'MUSIC')
+
+    const date = new Date(Date.now() + 5 * 24 * 60 * 60 * 1000)
+    const author = await makeUser()
+    const friendEvent = await makeEvent(author.id, {
+      isPublic: true,
+      category: 'MUSIC',
+      date,
+    })
+    await makeAttendance(friend.id, friendEvent.id, 'CONFIRMED')
+
+    const author2 = await makeUser()
+    const strangerEvent = await makeEvent(author2.id, {
+      isPublic: true,
+      category: 'MUSIC',
+      date,
+    })
+    const stranger = await makeUser()
+    await makeAttendance(stranger.id, strangerEvent.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const ids = res
+      .json()
+      .data.map((e: { id: string }) => e.id)
+      .filter((id: string) => id === friendEvent.id || id === strangerEvent.id)
+    expect(ids).toEqual([friendEvent.id, strangerEvent.id])
   })
 })
