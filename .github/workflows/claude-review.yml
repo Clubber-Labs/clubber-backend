@@ -13,6 +13,7 @@ permissions:
   pull-requests: write
   issues: write
   id-token: write
+  actions: read
 
 jobs:
   review:
@@ -21,6 +22,9 @@ jobs:
       github.event.pull_request.draft == false &&
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
+    # O secret CLAUDE_CODE_OAUTH_TOKEN é um Environment secret do ambiente
+    # `claude`; sem declarar o environment, o GitHub não o injeta no job.
+    environment: claude
     timeout-minutes: 20
     steps:
       - name: Checkout do repositório
