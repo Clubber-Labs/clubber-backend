@@ -101,7 +101,10 @@ export async function getUserById(id: string, viewerId?: string) {
 
 export async function getMe(userId: string) {
   const user = await findUserById(userId)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  // Token válido cujo usuário não existe mais (ex.: conta deletada) = sessão
+  // inválida → 401, sinal inequívoco para o cliente deslogar (não 404, que
+  // confundiria com "recurso ausente").
+  if (!user) throw { statusCode: 401, message: 'Sessão inválida' }
   const { _count, ...rest } = user
   return { ...withPreferredCategories(rest), eventsCount: _count.events }
 }
