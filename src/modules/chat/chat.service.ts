@@ -13,7 +13,6 @@ import {
   createTextMessage,
   deactivateParticipant,
   directKeyFor,
-  findActiveParticipantUserIds,
   findConversationById,
   findConversationMessages,
   findConversationWithParticipants,
@@ -90,8 +89,38 @@ function shapeInboxItem(conversation: InboxRow, unreadCount: number) {
   }
 }
 
-async function publishMessage(conversationId: string, message: MessageRow) {
-  const participantIds = await findActiveParticipantUserIds(conversationId)
+/**
+ * Autoriza o envio numa ÚNICA leitura da conversa (tipo + participantes ativos):
+ * exige participante ativo e, em DM, ausência de bloqueio. Retorna os ids dos
+ * participantes pra reuso na entrega ao vivo (evita refetch no hot path).
+ */
+async function authorizeSend(conversationId: string, userId: string) {
+  const conversation = await findConversationWithParticipants(conversationId)
+  if (!conversation) {
+    throw { statusCode: 404, message: 'Conversa não encontrada' }
+  }
+  if (!conversation.participants.some((p) => p.userId === userId)) {
+    throw { statusCode: 403, message: 'Você não participa desta conversa' }
+  }
+  if (conversation.type === 'DIRECT') {
+    const others = conversation.participants.filter((p) => p.userId !== userId)
+    for (const other of others) {
+      if (await isBlockedEitherWay(userId, other.userId)) {
+        throw {
+          statusCode: 403,
+          message: 'Não é possível enviar mensagens nesta conversa',
+        }
+      }
+    }
+  }
+  return conversation.participants.map((p) => p.userId)
+}
+
+async function publishMessage(
+  conversationId: string,
+  participantIds: string[],
+  message: MessageRow,
+) {
   await realtime.publish({
     conversationId,
     participantIds,
@@ -108,26 +137,6 @@ async function requireGroup(conversationId: string) {
     throw { statusCode: 400, message: 'Operação válida apenas para grupos' }
   }
   return conversation
-}
-
-/** Em DM, reconfirma que não há bloqueio entre os participantes. */
-async function assertNotBlockedInDirect(
-  conversationId: string,
-  userId: string,
-) {
-  const conversation = await findConversationById(conversationId)
-  if (conversation?.type !== 'DIRECT') return
-  const others = (await findActiveParticipantUserIds(conversationId)).filter(
-    (id) => id !== userId,
-  )
-  for (const otherId of others) {
-    if (await isBlockedEitherWay(userId, otherId)) {
-      throw {
-        statusCode: 403,
-        message: 'Não é possível enviar mensagens nesta conversa',
-      }
-    }
-  }
 }
 
 export async function startConversation(
@@ -167,9 +176,10 @@ export async function startConversation(
       message: 'Grupo precisa de ao menos um participante',
     }
   }
-  for (const targetId of memberIds) {
-    await assertReachable(userId, targetId)
-  }
+  // Em paralelo (não sequencial) pra não bloquear o event loop em grupos grandes.
+  await Promise.all(
+    memberIds.map((targetId) => assertReachable(userId, targetId)),
+  )
   const created = await createGroupConversation(userId, body.title, memberIds)
   return { conversation: shapeConversation(created), created: true }
 }
@@ -221,10 +231,9 @@ export async function sendTextMessage(
   conversationId: string,
   content: string,
 ) {
-  await assertActiveParticipant(conversationId, userId)
-  await assertNotBlockedInDirect(conversationId, userId)
+  const participantIds = await authorizeSend(conversationId, userId)
   const message = await createTextMessage(conversationId, userId, content)
-  await publishMessage(conversationId, message)
+  await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
 
@@ -233,8 +242,7 @@ export async function sendImageMessage(
   conversationId: string,
   buffer: Buffer,
 ) {
-  await assertActiveParticipant(conversationId, userId)
-  await assertNotBlockedInDirect(conversationId, userId)
+  const participantIds = await authorizeSend(conversationId, userId)
   const uploaded = await uploadMessageImage(buffer, conversationId)
   const message = await createImageMessage(conversationId, userId, null, {
     url: uploaded.url,
@@ -242,7 +250,7 @@ export async function sendImageMessage(
     format: uploaded.format,
     size: uploaded.size,
   })
-  await publishMessage(conversationId, message)
+  await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
 
@@ -267,6 +275,7 @@ export async function deleteMessage(
       message: 'Sem permissão para apagar esta mensagem',
     }
   }
+  if (message.deletedAt !== null) return // já apagada — idempotente
   await softDeleteMessage(messageId)
 }
 

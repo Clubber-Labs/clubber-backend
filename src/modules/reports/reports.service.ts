@@ -1,10 +1,10 @@
-import { assertActiveParticipant } from '../chat/chat.access'
 import { resolveCommentEventId } from '../comments/comments.service'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   createCommentReport,
   createEventReport,
   createMessageReport,
+  findActiveConversationParticipant,
   findCommentById,
   findExistingCommentReport,
   findExistingEventReport,
@@ -82,8 +82,14 @@ export async function reportMessage(
     throw { statusCode: 404, message: 'Mensagem não encontrada' }
   }
 
-  // Só participa da conversa pode denunciar a mensagem.
-  await assertActiveParticipant(message.conversationId, reporterId)
+  // Só quem participa da conversa pode denunciar a mensagem.
+  const participant = await findActiveConversationParticipant(
+    message.conversationId,
+    reporterId,
+  )
+  if (!participant) {
+    throw { statusCode: 403, message: 'Você não participa desta conversa' }
+  }
 
   if (message.senderId === reporterId) {
     throw {
