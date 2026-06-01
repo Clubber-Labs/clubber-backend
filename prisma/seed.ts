@@ -658,9 +658,7 @@ async function main() {
     })
   }
 
-  console.log(
-    `   ✓ ${conversationCount} conversas e ${messageCount} mensagens`,
-  )
+  console.log(`   ✓ ${conversationCount} conversas e ${messageCount} mensagens`)
 
   // ── Resumo ───────────────────────────────────────────────────────────────────
   console.log('\n✅ Seed concluído!')
