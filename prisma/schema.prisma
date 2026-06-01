@@ -30,6 +30,7 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   birthdate      DateTime?
+  lastSeenAt     DateTime?
   events           Event[]
   attendances      EventAttendance[]
   posts            Post[]
@@ -56,6 +57,7 @@ model User {
   messagesSent               Message[]                 @relation("messagesSent")
   blocksMade                 Block[]                   @relation("blocksMade")
   blocksReceived             Block[]                   @relation("blocksReceived")
+  messageReactions           MessageReaction[]         @relation("messageReactions")
   @@map("users")
 }
 
@@ -129,16 +131,25 @@ model ConversationParticipant {
   conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   userId         String
   user           User            @relation("conversationParticipations", fields: [userId], references: [id], onDelete: Cascade)
-  role           ParticipantRole @default(MEMBER)
-  lastReadAt     DateTime?
-  joinedAt       DateTime        @default(now())
-  leftAt         DateTime?
-  createdAt      DateTime        @default(now())
+  role            ParticipantRole @default(MEMBER)
+  lastReadAt      DateTime?
+  lastDeliveredAt DateTime?
+  // Conversa ocultada por este participante (estilo "apagar conversa"): some da
+  // lista dele; reaparece quando chega mensagem após o clearedAt.
+  clearedAt       DateTime?
+  joinedAt        DateTime        @default(now())
+  leftAt          DateTime?
+  createdAt       DateTime        @default(now())
 
   @@unique([conversationId, userId])
   @@index([userId, leftAt])
   @@index([conversationId, leftAt])
   @@map("conversation_participants")
+}
+
+enum MessageType {
+  USER
+  SYSTEM
 }
 
 model Message {
@@ -147,15 +158,37 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderId       String
   sender         User         @relation("messagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  type           MessageType  @default(USER)
   content        String?
   createdAt      DateTime     @default(now())
+  editedAt       DateTime?
   deletedAt      DateTime?
 
+  // Resposta/citação a outra mensagem da mesma conversa.
+  replyToId String?
+  replyTo   Message?  @relation("messageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("messageReplies")
+
   attachments MessageAttachment[]
+  reactions   MessageReaction[]
   reports     Report[]
 
   @@index([conversationId, createdAt])
   @@map("messages")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("messageReactions", fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("message_reactions")
 }
 
 model MessageAttachment {
