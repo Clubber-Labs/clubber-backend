@@ -203,3 +203,62 @@ export async function makeFeaturedEvent(
     },
   })
 }
+
+/** Chave determinística do par DIRECT — deve casar com a do chat.repository. */
+export function directKeyFor(a: string, b: string) {
+  return [a, b].sort().join(':')
+}
+
+export async function makeDirectConversation(userAId: string, userBId: string) {
+  return testPrisma.conversation.create({
+    data: {
+      type: 'DIRECT',
+      createdById: userAId,
+      directKey: directKeyFor(userAId, userBId),
+      participants: {
+        create: [{ userId: userAId }, { userId: userBId }],
+      },
+    },
+  })
+}
+
+export async function makeGroupConversation(
+  createdById: string,
+  memberIds: string[] = [],
+  overrides: { title?: string } = {},
+) {
+  return testPrisma.conversation.create({
+    data: {
+      type: 'GROUP',
+      title: overrides.title ?? 'Grupo de teste',
+      createdById,
+      participants: {
+        create: [
+          { userId: createdById, role: 'ADMIN' },
+          ...memberIds.map((userId) => ({ userId })),
+        ],
+      },
+    },
+  })
+}
+
+export async function makeMessage(
+  conversationId: string,
+  senderId: string,
+  overrides: { content?: string | null; createdAt?: Date } = {},
+) {
+  return testPrisma.message.create({
+    data: {
+      conversationId,
+      senderId,
+      content: overrides.content === undefined ? 'Mensagem' : overrides.content,
+      ...(overrides.createdAt && { createdAt: overrides.createdAt }),
+    },
+  })
+}
+
+export async function makeBlock(blockerId: string, blockedId: string) {
+  return testPrisma.block.create({
+    data: { blockerId, blockedId },
+  })
+}

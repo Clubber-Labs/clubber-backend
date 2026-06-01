@@ -4,11 +4,16 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { postCommentReport, postEventReport } from './reports.controller'
+import {
+  postCommentReport,
+  postEventReport,
+  postMessageReport,
+} from './reports.controller'
 import {
   createReportSchema,
   reportCommentParamSchema,
   reportEventParamSchema,
+  reportMessageParamSchema,
 } from './reports.schema'
 
 export async function reportsRoutes(app: FastifyInstance) {
@@ -33,5 +38,14 @@ export async function reportsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     postCommentReport,
+  )
+
+  api.post(
+    '/messages/:messageId/report',
+    {
+      schema: { params: reportMessageParamSchema, body: createReportSchema },
+      onRequest: [app.authenticate],
+    },
+    postMessageReport,
   )
 }

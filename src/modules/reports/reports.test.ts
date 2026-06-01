@@ -3,7 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import {
   makeComment,
+  makeDirectConversation,
   makeEvent,
+  makeMessage,
   makeReport,
   makeUser,
 } from '../../test/factories'
@@ -100,6 +102,94 @@ describe('POST /events/:eventId/report', () => {
     })
 
     expect(res.statusCode).toBe(409)
+  })
+})
+
+describe('POST /messages/:messageId/report', () => {
+  it('participante denuncia mensagem de outro (201)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const message = await makeMessage(convo.id, a.id, { content: 'spam' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/messages/${message.id}/report`,
+      headers: { authorization: `Bearer ${token(app, b.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      reporterId: b.id,
+      messageId: message.id,
+      reason: 'SPAM_OR_FRAUD',
+    })
+  })
+
+  it('409 ao denunciar a mesma mensagem duas vezes', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const message = await makeMessage(convo.id, a.id, { content: 'spam' })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/messages/${message.id}/report`,
+      headers: { authorization: `Bearer ${token(app, b.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+    expect(first.statusCode).toBe(201)
+
+    const second = await app.inject({
+      method: 'POST',
+      url: `/messages/${message.id}/report`,
+      headers: { authorization: `Bearer ${token(app, b.id)}` },
+      body: { reason: 'HARASSMENT' },
+    })
+    expect(second.statusCode).toBe(409)
+  })
+
+  it('403 ao denunciar mensagem de conversa onde não participa', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const stranger = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const message = await makeMessage(convo.id, a.id, { content: 'oi' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/messages/${message.id}/report`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('404 para mensagem inexistente', async () => {
+    const reporter = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/messages/00000000-0000-0000-0000-000000000000/report',
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('400 ao denunciar a própria mensagem', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const message = await makeMessage(convo.id, a.id, { content: 'minha' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/messages/${message.id}/report`,
+      headers: { authorization: `Bearer ${token(app, a.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+    expect(res.statusCode).toBe(400)
   })
 })
 

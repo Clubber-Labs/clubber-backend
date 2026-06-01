@@ -49,6 +49,13 @@ model User {
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
 
   categoryPreferences UserCategoryPreference[]
+
+  // Chat
+  conversationsCreated       Conversation[]            @relation("conversationsCreated")
+  conversationParticipations ConversationParticipant[] @relation("conversationParticipations")
+  messagesSent               Message[]                 @relation("messagesSent")
+  blocksMade                 Block[]                   @relation("blocksMade")
+  blocksReceived             Block[]                   @relation("blocksReceived")
   @@map("users")
 }
 
@@ -85,6 +92,98 @@ model UserCategoryPreference {
   @@unique([userId, category])
   @@index([userId])
   @@map("user_category_preferences")
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ParticipantRole {
+  MEMBER
+  ADMIN
+}
+
+model Conversation {
+  id            String           @id @default(uuid())
+  type          ConversationType
+  title         String?
+  createdById   String
+  createdBy     User             @relation("conversationsCreated", fields: [createdById], references: [id])
+  lastMessageAt DateTime?
+  // Chave determinística do par DIRECT (uuids ordenados e juntados). null em GROUP.
+  directKey     String?          @unique
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             String          @id @default(uuid())
+  conversationId String
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User            @relation("conversationParticipations", fields: [userId], references: [id], onDelete: Cascade)
+  role           ParticipantRole @default(MEMBER)
+  lastReadAt     DateTime?
+  joinedAt       DateTime        @default(now())
+  leftAt         DateTime?
+  createdAt      DateTime        @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId, leftAt])
+  @@index([conversationId, leftAt])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("messagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String?
+  createdAt      DateTime     @default(now())
+  deletedAt      DateTime?
+
+  attachments MessageAttachment[]
+  reports     Report[]
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model MessageAttachment {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  url       String
+  key       String
+  format    String
+  size      Int
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([messageId, order])
+  @@map("message_attachments")
+}
+
+model Block {
+  id        String   @id @default(uuid())
+  blockerId String
+  blocker   User     @relation("blocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocks")
 }
 
 enum SocialProvider {
@@ -298,11 +397,16 @@ model Report {
   commentId String?
   comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
 
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
+  @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
   @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
   @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
-  
+  @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
+
   @@map("reports")
 }
 
