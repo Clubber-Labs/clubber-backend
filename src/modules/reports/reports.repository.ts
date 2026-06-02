@@ -46,3 +46,40 @@ export async function createCommentReport(
     data: { ...data, reporterId, commentId },
   })
 }
+
+export async function findMessageById(messageId: string) {
+  return prisma.message.findUnique({
+    where: { id: messageId },
+    select: { id: true, conversationId: true, senderId: true },
+  })
+}
+
+/** Participação ativa do reporter na conversa da mensagem (autorização). */
+export async function findActiveConversationParticipant(
+  conversationId: string,
+  userId: string,
+) {
+  return prisma.conversationParticipant.findFirst({
+    where: { conversationId, userId, leftAt: null },
+    select: { userId: true },
+  })
+}
+
+export async function findExistingMessageReport(
+  reporterId: string,
+  messageId: string,
+) {
+  return prisma.report.findFirst({
+    where: { reporterId, messageId, status: 'PENDING' },
+  })
+}
+
+export async function createMessageReport(
+  data: CreateReportBody,
+  reporterId: string,
+  messageId: string,
+) {
+  return prisma.report.create({
+    data: { ...data, reporterId, messageId },
+  })
+}

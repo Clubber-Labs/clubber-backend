@@ -7,10 +7,12 @@ export type RankWeights = {
   temporalDecayHours: number
   /** Half-life em horas para decay de eventos passados (decai mais rápido). */
   pastDecayHours: number
-  /** Multiplicador de log(1+confirmedCount) na soma de engajamento. */
+  /** Multiplicador de log(1+confirmedCount) na soma de engajamento (popularidade geral). */
   engagementAttending: number
   engagementComments: number
   engagementReactions: number
+  /** Multiplicador de log(1+amigosDistintos) — impulso por interação de amigos. */
+  friendEngagement: number
   /** Bônus se a categoria do evento bate com o top 1/2/3 do usuário. */
   categoryTop1: number
   categoryTop2: number
@@ -22,19 +24,29 @@ export type RankWeights = {
   reasonFriendReacted: number
   reasonFriendCommented: number
   reasonSelfInteraction: number
+  /** Razão de descoberta (evento sem laço social) — sem bônus: amigos desempatam na frente. */
+  reasonDiscovery: number
   /** Bônus aditivo quando o evento está acontecendo agora — destaque visual. */
   ongoingBoost: number
   /** Bônus menor quando o evento está prestes a acontecer (≤48h). */
   soonBoost: number
+  /** Pico do sinal de proximidade quando a distância é ~0. */
+  proximityNear: number
+  /** Half-life em km do decaimento do sinal de proximidade. */
+  proximityHalfLifeKm: number
 }
 
 export const DEFAULT_RANK_WEIGHTS: RankWeights = {
-  temporalNow: 100,
+  // Tempo é o 2º critério — reduzido pra não rivalizar com popularidade.
+  temporalNow: 80,
   temporalDecayHours: 72,
   pastDecayHours: 24,
-  engagementAttending: 30,
-  engagementComments: 10,
-  engagementReactions: 5,
+  // Popularidade lidera — engajamento geral pondera mais que qualquer outro sinal.
+  engagementAttending: 40,
+  engagementComments: 12,
+  engagementReactions: 6,
+  // Impulso leve: interação de amigo vale ~1,3x a de estranho.
+  friendEngagement: 12,
   categoryTop1: 25,
   categoryTop2: 15,
   categoryTop3: 8,
@@ -44,8 +56,11 @@ export const DEFAULT_RANK_WEIGHTS: RankWeights = {
   reasonFriendReacted: 15,
   reasonFriendCommented: 10,
   reasonSelfInteraction: 20,
-  ongoingBoost: 50,
+  reasonDiscovery: 0,
+  ongoingBoost: 30,
   soonBoost: 10,
+  proximityNear: 40,
+  proximityHalfLifeKm: 10,
 }
 
 export type RankReason =
@@ -55,12 +70,17 @@ export type RankReason =
   | { kind: 'friend_reacted' }
   | { kind: 'friend_commented' }
   | { kind: 'self_interaction' }
+  | { kind: 'discovery' }
 
 export type RankContext = {
   /** Top 3 categorias preferidas, em ordem de afinidade. */
   preferredCategories: string[]
   reason: RankReason
   counts: { attendances: number; comments: number; reactions: number }
+  /** Distância do usuário ao evento em metros, ou null se não há localização. */
+  distanceMeters: number | null
+  /** Nº de amigos distintos que interagiram com o evento. */
+  friendInteractionCount: number
 }
 
 function temporalSignal(
@@ -94,6 +114,32 @@ function engagementSignal(
     Math.log1p(counts.comments) * weights.engagementComments +
     Math.log1p(counts.reactions) * weights.engagementReactions
   )
+}
+
+/**
+ * Impulso por interação de amigos — monotônico crescente no nº de amigos
+ * distintos: cada amigo que confirma/reage/comenta sobe o evento. Como esses
+ * amigos também entram no engajamento geral, a interação de amigo acaba valendo
+ * um pouco mais que a de estranho ("leve impulso").
+ */
+function friendEngagementSignal(
+  friendInteractionCount: number,
+  weights: RankWeights,
+): number {
+  return Math.log1p(friendInteractionCount) * weights.friendEngagement
+}
+
+/**
+ * Sinal de proximidade — decaimento exponencial por km. Neutro (0) quando não
+ * há localização do usuário (distanceMeters null).
+ */
+function proximitySignal(
+  distanceMeters: number | null,
+  weights: RankWeights,
+): number {
+  if (distanceMeters === null) return 0
+  const km = distanceMeters / 1000
+  return weights.proximityNear * 2 ** (-km / weights.proximityHalfLifeKm)
 }
 
 function categorySignal(
@@ -134,6 +180,8 @@ function reasonSignal(reason: RankReason, weights: RankWeights): number {
       return weights.reasonFriendCommented
     case 'self_interaction':
       return weights.reasonSelfInteraction
+    case 'discovery':
+      return weights.reasonDiscovery
   }
 }
 
@@ -152,6 +200,8 @@ export function rankEvent(
     temporalSignal(event, weights, now) +
     statusBoostSignal(event, weights, now) +
     engagementSignal(context.counts, weights) +
+    friendEngagementSignal(context.friendInteractionCount, weights) +
+    proximitySignal(context.distanceMeters, weights) +
     categorySignal(event.category, context.preferredCategories, weights) +
     reasonSignal(context.reason, weights)
   )

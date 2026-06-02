@@ -46,6 +46,19 @@ describe('GET /users/me', () => {
     const res = await app.inject({ method: 'GET', url: '/users/me' })
     expect(res.statusCode).toBe(401)
   })
+
+  it('retorna 401 quando o token é válido mas o usuário não existe mais', async () => {
+    // Token assinado para um id inexistente (ex.: conta deletada após o login).
+    const ghostToken = app.jwt.sign({ sub: crypto.randomUUID() })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${ghostToken}` },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
 })
 
 describe('GET /users/:id', () => {
@@ -281,6 +294,129 @@ describe('POST /users — conflitos de unique constraint', () => {
   })
 })
 
+describe('preferredCategories no perfil', () => {
+  it('POST /users persiste preferredCategories e reflete em GET /users/me', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Maria',
+        lastname: 'Silva',
+        username: 'mariasilva',
+        phone: '11999998888',
+        email: 'maria@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'TECH'],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const { user, token: jwt } = res.json()
+    expect(user.preferredCategories).toEqual(
+      expect.arrayContaining(['MUSIC', 'TECH']),
+    )
+
+    const rows = await testPrisma.userCategoryPreference.findMany({
+      where: { userId: user.id },
+    })
+    expect(rows.map((r) => r.category).sort()).toEqual(['MUSIC', 'TECH'])
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${jwt}` },
+    })
+    expect(me.json().preferredCategories).toEqual(
+      expect.arrayContaining(['MUSIC', 'TECH']),
+    )
+  })
+
+  it('POST /users com categoria inválida retorna 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Joao',
+        lastname: 'Souza',
+        username: 'joaosouza',
+        phone: '11988887777',
+        email: 'joao@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['FOO'],
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('PUT /users/:id substitui as preferências (semântica PUT)', async () => {
+    const user = await makeUser()
+    await testPrisma.userCategoryPreference.createMany({
+      data: [
+        { userId: user.id, category: 'SPORTS' },
+        { userId: user.id, category: 'PARTY' },
+      ],
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { preferredCategories: ['ART', 'TECH'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredCategories).toEqual(
+      expect.arrayContaining(['ART', 'TECH']),
+    )
+
+    const rows = await testPrisma.userCategoryPreference.findMany({
+      where: { userId: user.id },
+    })
+    expect(rows.map((r) => r.category).sort()).toEqual(['ART', 'TECH'])
+  })
+
+  it('PUT /users/:id com array vazio limpa as preferências', async () => {
+    const user = await makeUser()
+    await testPrisma.userCategoryPreference.create({
+      data: { userId: user.id, category: 'MUSIC' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { preferredCategories: [] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredCategories).toEqual([])
+    const count = await testPrisma.userCategoryPreference.count({
+      where: { userId: user.id },
+    })
+    expect(count).toBe(0)
+  })
+
+  it('PUT /users/:id sem preferredCategories não altera as existentes', async () => {
+    const user = await makeUser()
+    await testPrisma.userCategoryPreference.create({
+      data: { userId: user.id, category: 'MUSIC' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { bio: 'nova bio' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredCategories).toEqual(['MUSIC'])
+  })
+})
+
 describe('GET /users/search', () => {
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({
@@ -439,7 +575,7 @@ describe('GET /users/search', () => {
     expect(body2.nextCursor).toBe(null)
   })
 
-  it('retorna shape completo para usuário público', async () => {
+  it('retorna shape completo (kind=full) para usuário público', async () => {
     const viewer = await makeUser()
     await makeUser({ username: 'public_user', isPrivate: false })
 
@@ -452,6 +588,7 @@ describe('GET /users/search', () => {
       .json()
       .data.find((u: { username: string }) => u.username === 'public_user')
     expect(found).toBeDefined()
+    expect(found.kind).toBe('full')
     expect(found).toHaveProperty('bio')
     expect(found).toHaveProperty('followersCount')
     expect(found).toHaveProperty('followingCount')
@@ -459,7 +596,7 @@ describe('GET /users/search', () => {
     expect(found.isPrivate).toBe(false)
   })
 
-  it('retorna shape reduzido para privado sem follow', async () => {
+  it('retorna shape reduzido (kind=reduced) para privado sem follow', async () => {
     const viewer = await makeUser()
     await makeUser({ username: 'private_user', isPrivate: true })
 
@@ -472,6 +609,7 @@ describe('GET /users/search', () => {
       .json()
       .data.find((u: { username: string }) => u.username === 'private_user')
     expect(found).toBeDefined()
+    expect(found.kind).toBe('reduced')
     expect(found.isPrivate).toBe(true)
     expect(found.followStatus).toBe(null)
     expect(found).not.toHaveProperty('bio')
@@ -480,7 +618,7 @@ describe('GET /users/search', () => {
     expect(found).not.toHaveProperty('createdAt')
   })
 
-  it('retorna shape reduzido para privado com follow PENDING', async () => {
+  it('retorna shape reduzido (kind=reduced) para privado com follow PENDING', async () => {
     const viewer = await makeUser()
     const target = await makeUser({
       username: 'pending_priv',
@@ -496,12 +634,13 @@ describe('GET /users/search', () => {
     const found = res
       .json()
       .data.find((u: { username: string }) => u.username === 'pending_priv')
+    expect(found.kind).toBe('reduced')
     expect(found.followStatus).toBe('PENDING')
     expect(found).not.toHaveProperty('bio')
     expect(found).not.toHaveProperty('followersCount')
   })
 
-  it('retorna shape completo para privado com follow ACCEPTED', async () => {
+  it('retorna shape completo (kind=full) para privado com follow ACCEPTED', async () => {
     const viewer = await makeUser()
     const target = await makeUser({
       username: 'accepted_priv',
@@ -517,13 +656,14 @@ describe('GET /users/search', () => {
     const found = res
       .json()
       .data.find((u: { username: string }) => u.username === 'accepted_priv')
+    expect(found.kind).toBe('full')
     expect(found.followStatus).toBe('ACCEPTED')
     expect(found.isPrivate).toBe(true)
     expect(found).toHaveProperty('bio')
     expect(found).toHaveProperty('followersCount')
   })
 
-  it('o próprio viewer aparece com followStatus null', async () => {
+  it('o próprio viewer aparece com followStatus null e kind=full', async () => {
     const viewer = await makeUser({ username: 'self_finder' })
 
     const res = await app.inject({
@@ -535,7 +675,45 @@ describe('GET /users/search', () => {
       .json()
       .data.find((u: { id: string }) => u.id === viewer.id)
     expect(found).toBeDefined()
+    expect(found.kind).toBe('full')
     expect(found.followStatus).toBe(null)
+  })
+
+  it('o próprio viewer privado também aparece com kind=full', async () => {
+    const viewer = await makeUser({
+      username: 'self_priv',
+      isPrivate: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=self_priv',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { id: string }) => u.id === viewer.id)
+    expect(found).toBeDefined()
+    expect(found.kind).toBe('full')
+    expect(found).toHaveProperty('bio')
+  })
+
+  it('todo item de data tem kind como discriminante', async () => {
+    const viewer = await makeUser()
+    await makeUser({ username: 'mix_pub', isPrivate: false })
+    await makeUser({ username: 'mix_priv', isPrivate: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=mix_',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const items = res.json().data as Array<{ kind: string }>
+    expect(items.length).toBeGreaterThan(0)
+    for (const item of items) {
+      expect(['full', 'reduced']).toContain(item.kind)
+    }
   })
 })
 

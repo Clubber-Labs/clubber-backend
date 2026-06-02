@@ -14,6 +14,7 @@ import {
   findUserByUsername,
   searchUsers as searchUsersRepo,
   updateUser,
+  updateUserWithPreferences,
 } from './users.repository'
 import type {
   CreateUserBody,
@@ -22,6 +23,20 @@ import type {
 } from './users.schema'
 
 type Logger = { error: (msg: string) => void }
+
+/**
+ * Achata `categoryPreferences: [{ category }]` (shape do Prisma) em
+ * `preferredCategories: string[]` para a resposta da API.
+ */
+function withPreferredCategories<
+  T extends { categoryPreferences?: { category: string }[] },
+>(user: T) {
+  const { categoryPreferences, ...rest } = user
+  return {
+    ...rest,
+    preferredCategories: (categoryPreferences ?? []).map((p) => p.category),
+  }
+}
 
 export async function listUsers(limit: number, cursor?: string) {
   const users = await findAllUsers(limit, cursor)
@@ -45,9 +60,12 @@ export async function searchUsers(
 
     // Privacy gate: privado sem follow ACCEPTED só expõe card mínimo,
     // sem bio/counts/createdAt. O próprio viewer sempre vê seu shape completo.
+    // `kind` é tag discriminante explícita pra o client distinguir as variantes
+    // sem heurística (presença/ausência de campos opcionais).
     const hidePrivate = u.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
     if (hidePrivate) {
       return {
+        kind: 'reduced' as const,
         id: u.id,
         username: u.username,
         name: u.name,
@@ -58,7 +76,7 @@ export async function searchUsers(
       }
     }
 
-    return { ...u, followStatus }
+    return { kind: 'full' as const, ...u, followStatus }
   })
 
   return { data, nextCursor }
@@ -74,14 +92,21 @@ export async function getUserById(id: string, viewerId?: string) {
     viewerId && viewerId !== id ? await findFollow(viewerId, id) : null
   const followStatus = follow?.status ?? null
 
-  return { ...rest, eventsCount: _count.events, followStatus }
+  return {
+    ...withPreferredCategories(rest),
+    eventsCount: _count.events,
+    followStatus,
+  }
 }
 
 export async function getMe(userId: string) {
   const user = await findUserById(userId)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  // Token válido cujo usuário não existe mais (ex.: conta deletada) = sessão
+  // inválida → 401, sinal inequívoco para o cliente deslogar (não 404, que
+  // confundiria com "recurso ausente").
+  if (!user) throw { statusCode: 401, message: 'Sessão inválida' }
   const { _count, ...rest } = user
-  return { ...rest, eventsCount: _count.events }
+  return { ...withPreferredCategories(rest), eventsCount: _count.events }
 }
 
 export async function registerUser(data: CreateUserBody) {
@@ -103,7 +128,8 @@ export async function registerUser(data: CreateUserBody) {
 
   const passwordHash = await hash(data.password, 10)
 
-  return createUser({ ...data, password: passwordHash })
+  const user = await createUser({ ...data, password: passwordHash })
+  return withPreferredCategories(user)
 }
 
 export async function editUser(id: string, data: UpdateUserBody) {
@@ -119,7 +145,12 @@ export async function editUser(id: string, data: UpdateUserBody) {
     }
   }
 
-  return updateUser(id, data)
+  const { preferredCategories, ...rest } = data
+  const updated =
+    preferredCategories !== undefined
+      ? await updateUserWithPreferences(id, rest, preferredCategories)
+      : await updateUser(id, rest)
+  return withPreferredCategories(updated)
 }
 
 export async function removeUser(id: string, logger: Logger) {
@@ -153,7 +184,7 @@ export async function changeUserAvatar(
     if (current.avatarKey) {
       await deleteUploaded(current.avatarKey, logger)
     }
-    return updated
+    return withPreferredCategories(updated)
   } catch (err) {
     await deleteUploaded(uploaded.key, logger)
     throw err

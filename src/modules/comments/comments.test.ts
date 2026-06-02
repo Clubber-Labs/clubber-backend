@@ -89,6 +89,82 @@ describe('GET /events/:eventId/comments', () => {
       nextCursor: null,
     })
   })
+
+  it('reflete a reação do viewer em userLiked após reagir (read-after-write)', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário curtível' },
+    })
+    const commentId = created.json().id
+
+    // antes de reagir: não curtido
+    const before = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    const commentBefore = before
+      .json()
+      .data.find((c: { id: string }) => c.id === commentId)
+    expect(commentBefore.userLiked).toBe(false)
+    expect(commentBefore.reactionsCount).toBe(0)
+
+    const reacted = await app.inject({
+      method: 'POST',
+      url: `/comments/${commentId}/reactions`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(reacted.statusCode).toBe(201)
+
+    // depois de reagir: o GET reflete userLiked=true e reactionsCount=1
+    const after = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    const commentAfter = after
+      .json()
+      .data.find((c: { id: string }) => c.id === commentId)
+    expect(commentAfter.userLiked).toBe(true)
+    expect(commentAfter.reactionsCount).toBe(1)
+  })
+
+  it('userLiked é por viewer: outro usuário não vê a reação como sua', async () => {
+    const author = await makeUser()
+    const other = await makeUser()
+    const event = await makeEvent(author.id)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário' },
+    })
+    const commentId = created.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/comments/${commentId}/reactions`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    // other vê reactionsCount=1, mas userLiked=false (não reagiu)
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+    })
+    const comment = res
+      .json()
+      .data.find((c: { id: string }) => c.id === commentId)
+    expect(comment.reactionsCount).toBe(1)
+    expect(comment.userLiked).toBe(false)
+  })
 })
 
 describe('DELETE /events/:eventId/comments/:commentId', () => {
@@ -202,5 +278,39 @@ describe('DELETE /posts/:postId/comments/:commentId', () => {
     })
 
     expect(res.statusCode).toBe(204)
+  })
+})
+
+describe('GET /posts/:postId/comments', () => {
+  it('reflete a reação do viewer em userLiked após reagir (read-after-write)', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    await makeAttendance(user.id, event.id, 'CONFIRMED')
+    const post = await makePost(app, user.id, event.id)
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário curtível' },
+    })
+    const commentId = created.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/comments/${commentId}/reactions`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    const comment = res
+      .json()
+      .data.find((c: { id: string }) => c.id === commentId)
+    expect(comment.userLiked).toBe(true)
+    expect(comment.reactionsCount).toBe(1)
   })
 })

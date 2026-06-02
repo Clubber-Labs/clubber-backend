@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import type { EventCategory } from '../lib/event-categories'
 import { testPrisma } from './prisma'
 
 let counter = 0
@@ -63,7 +64,7 @@ export async function makeEvent(
   authorId: string,
   overrides: {
     isPublic?: boolean
-    category?: string
+    category?: EventCategory
     date?: Date
     endDate?: Date | null
     canceledAt?: Date | null
@@ -81,7 +82,7 @@ export async function makeEvent(
       endDate: overrides.endDate ?? null,
       latitude: overrides.latitude ?? -25.4,
       longitude: overrides.longitude ?? -49.3,
-      category: overrides.category ?? 'Festa',
+      category: overrides.category ?? 'PARTY',
       isPublic: overrides.isPublic ?? true,
       isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
@@ -173,6 +174,15 @@ export async function makeComment(
   })
 }
 
+export async function makeUserCategoryPreference(
+  userId: string,
+  category: EventCategory,
+) {
+  return testPrisma.userCategoryPreference.create({
+    data: { userId, category },
+  })
+}
+
 export async function makeFeaturedEvent(
   eventId: string,
   createdBy: string,
@@ -191,5 +201,64 @@ export async function makeFeaturedEvent(
       endsAt: overrides.endsAt ?? new Date(now.getTime() + 3600_000),
       canceledAt: overrides.canceledAt ?? null,
     },
+  })
+}
+
+/** Chave determinística do par DIRECT — deve casar com a do chat.repository. */
+export function directKeyFor(a: string, b: string) {
+  return [a, b].sort().join(':')
+}
+
+export async function makeDirectConversation(userAId: string, userBId: string) {
+  return testPrisma.conversation.create({
+    data: {
+      type: 'DIRECT',
+      createdById: userAId,
+      directKey: directKeyFor(userAId, userBId),
+      participants: {
+        create: [{ userId: userAId }, { userId: userBId }],
+      },
+    },
+  })
+}
+
+export async function makeGroupConversation(
+  createdById: string,
+  memberIds: string[] = [],
+  overrides: { title?: string } = {},
+) {
+  return testPrisma.conversation.create({
+    data: {
+      type: 'GROUP',
+      title: overrides.title ?? 'Grupo de teste',
+      createdById,
+      participants: {
+        create: [
+          { userId: createdById, role: 'ADMIN' },
+          ...memberIds.map((userId) => ({ userId })),
+        ],
+      },
+    },
+  })
+}
+
+export async function makeMessage(
+  conversationId: string,
+  senderId: string,
+  overrides: { content?: string | null; createdAt?: Date } = {},
+) {
+  return testPrisma.message.create({
+    data: {
+      conversationId,
+      senderId,
+      content: overrides.content === undefined ? 'Mensagem' : overrides.content,
+      ...(overrides.createdAt && { createdAt: overrides.createdAt }),
+    },
+  })
+}
+
+export async function makeBlock(blockerId: string, blockedId: string) {
+  return testPrisma.block.create({
+    data: { blockerId, blockedId },
   })
 }

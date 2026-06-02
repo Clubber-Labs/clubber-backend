@@ -32,6 +32,10 @@ if (!redisUrl.endsWith('/15')) {
 
 afterEach(async () => {
   await testPrisma.$transaction([
+    // Chat: conversation cascateia participants/messages/attachments;
+    // conversation antes de user (createdById é RESTRICT).
+    testPrisma.conversation.deleteMany(),
+    testPrisma.block.deleteMany(),
     testPrisma.reaction.deleteMany(),
     testPrisma.comment.deleteMany(),
     testPrisma.post.deleteMany(),
