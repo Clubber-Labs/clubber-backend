@@ -195,7 +195,7 @@ process.once('SIGINT', shutdown)
 process.once('SIGTERM', shutdown)
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
-  app.log.info(`🔥 Server is running on http://localhost:${env.PORT}`)
+  app.log.info(`Server is running on http://localhost:${env.PORT}`)
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
   }

@@ -13,7 +13,7 @@ export async function postAttendance(
   const { eventId } = request.params as EventParams
   const { type } = request.body as AttendanceBody
   const attendance = await confirmAttendance(request.user.sub, eventId, type)
-  request.log.info(`User ${request.user.sub} confirmed attendance for event ${eventId} with type ${type}`)
+  request.log.info({ userId: request.user.sub, eventId, type }, 'User confirmed attendance for event')
   return reply.status(201).send(attendance)
 }
 
@@ -23,7 +23,7 @@ export async function removeAttendance(
 ) {
   const { eventId } = request.params as EventParams
   await cancelAttendance(request.user.sub, eventId)
-  request.log.info(`User ${request.user.sub} cancelled attendance for event ${eventId}`)
+  request.log.info({ userId: request.user.sub, eventId }, 'User cancelled attendance for event')
   return reply.status(204).send()
 }
 
@@ -33,6 +33,6 @@ export async function getAttendances(
 ) {
   const { eventId } = request.params as EventParams
   const attendances = await listAttendances(eventId, request.user.sub)
-  request.log.info(`User ${request.user.sub} requested attendances for event ${eventId}`)
+  request.log.info({ userId: request.user.sub, eventId }, 'User requested attendances for event')
   return reply.send(attendances)
 }
