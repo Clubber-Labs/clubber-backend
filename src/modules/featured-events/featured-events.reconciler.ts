@@ -35,7 +35,7 @@ let isReconciling = false
 const reconcilerLog = logger.child({ component: 'featured-events-reconciler' })
 
 export function startFeaturedEventsReconciler(intervalMs: number) {
-  reconcilerLog.info(`Starting featured events reconciler with interval ${intervalMs}ms`)
+  reconcilerLog.info({ intervalMs }, 'Starting featured events reconciler')
   if (timer) return
   timer = setInterval(() => {
     // Evita sobreposição de ticks na mesma instância: se um reconcile
@@ -44,7 +44,7 @@ export function startFeaturedEventsReconciler(intervalMs: number) {
     isReconciling = true
     reconcileFeaturedEvents()
       .catch((err) => {
-        reconcilerLog.error(`[featured-events] reconciliation failed:`, err)
+        reconcilerLog.error({ err }, 'featured-events reconciliation failed')
       })
       .finally(() => {
         isReconciling = false

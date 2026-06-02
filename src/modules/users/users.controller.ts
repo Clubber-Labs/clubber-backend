@@ -78,7 +78,7 @@ export async function deleteUserHandler(
       message: 'Você não tem permissão para deletar este usuário',
     }
   await removeUser(id, request.log)
-  request.log.info({ userId: request.user.sub, targetUserId: id }, 'User deleted another user')
+  request.log.info({ userId: request.user.sub }, 'User deleted their own account')
   return reply.status(204).send()
 }
 
