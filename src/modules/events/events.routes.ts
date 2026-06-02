@@ -54,6 +54,9 @@ export async function eventsRoutes(app: FastifyInstance) {
     {
       schema: { querystring: viewportQuerySchema },
       onRequest: [app.authenticateOptional],
+      // Mais pesado que a lista/heatmap (window function + hidratação completa).
+      // Limite generoso: cobre panning com debounce, barra abuso/scripts.
+      config: { rateLimit: { max: 240, timeWindow: '1 minute' } },
     },
     getEventsViewport,
   )

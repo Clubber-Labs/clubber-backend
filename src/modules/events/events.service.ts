@@ -146,11 +146,25 @@ function hydrateWithState(
   }
 }
 
+function assertCanFilterByFriends(friendsOnly: boolean, viewerId?: string) {
+  if (friendsOnly && !viewerId) {
+    throw {
+      statusCode: 401,
+      message: 'Autenticação necessária para filtrar por amigos',
+    }
+  }
+}
+
 export async function listEventsForMap(
   query: MapEventsQuery,
   viewerId?: string,
 ) {
-  return findEventsForMap(query, viewerId)
+  assertCanFilterByFriends(query.friendsOnly, viewerId)
+  const followingIds =
+    query.friendsOnly && viewerId
+      ? await findAcceptedFollowingIds(viewerId)
+      : []
+  return findEventsForMap(query, viewerId, followingIds)
 }
 
 /**
@@ -162,6 +176,7 @@ export async function listEventsForViewport(
   query: ViewportQuery,
   viewerId?: string,
 ) {
+  assertCanFilterByFriends(query.friendsOnly, viewerId)
   const followingIds = viewerId ? await findAcceptedFollowingIds(viewerId) : []
   const { events, truncated } = await findEventsInViewport(
     query,
@@ -186,8 +201,9 @@ export async function listEventsForViewport(
     const top = topMap.get(e.id) ?? []
     return {
       ...normalized,
-      // friendAttendances = subconjunto de amigos do topAttendances (amigos
-      // vêm primeiro, então isto preserva o top-N de amigos sem outra query).
+      // Subconjunto de amigos do topAttendances — NÃO é a lista completa de
+      // amigos presentes: é o top-5 de amigos (amigos vêm primeiro no ranking,
+      // então cabem antes do limite). Para avatares no pin; total via _count.
       friendAttendances: top
         .filter((a) => a.isFriend)
         .map((a) => ({ user: a.user })),

@@ -45,8 +45,7 @@ export async function getEventsViewport(
   reply: FastifyReply,
 ) {
   const query = request.query as ViewportQuery
-  const viewerId = (request.user as { sub: string } | undefined)?.sub
-  const result = await listEventsForViewport(query, viewerId)
+  const result = await listEventsForViewport(query, request.user?.sub)
   return reply.send(result)
 }
 
@@ -55,8 +54,7 @@ export async function getEventsSearch(
   reply: FastifyReply,
 ) {
   const { q, limit, cursor } = request.query as SearchEventsQuery
-  const viewerId = (request.user as { sub: string } | undefined)?.sub
-  const result = await searchEventsService(q, limit, cursor, viewerId)
+  const result = await searchEventsService(q, limit, cursor, request.user?.sub)
   return reply.send(result)
 }
 

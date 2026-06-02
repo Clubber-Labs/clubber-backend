@@ -1594,3 +1594,35 @@ describe('GET /events/map (heatmap) — friendsOnly e 48h', () => {
     expect(ids).not.toContain(old.id)
   })
 })
+
+describe('friendsOnly exige autenticação', () => {
+  it('viewport: friendsOnly=true sem token → 401', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&friendsOnly=true`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('heatmap: friendsOnly=true sem token → 401', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map?${BBOX_IN}&friendsOnly=true`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('viewport: friendsOnly=true autenticado sem amigos → 200 vazio (não 401)', async () => {
+    const loner = await makeUser()
+    const author = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&friendsOnly=true`,
+      headers: { authorization: `Bearer ${token(app, loner.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toEqual([])
+  })
+})

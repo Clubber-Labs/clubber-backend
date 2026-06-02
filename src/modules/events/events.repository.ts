@@ -20,7 +20,6 @@ import {
   buildCommentInclude,
   commentAuthorSelect,
 } from '../comments/comments.repository'
-import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import type {
   CreateEventBody,
   ListEventsQuery,
@@ -368,11 +367,6 @@ const MAP_BBOX_FETCH_CAP = 2000
 const MAP_RESPONSE_CAP = 500
 
 /**
- * Eventos para o heatmap dentro do bbox.
- * Peso = 2 * CONFIRMED + 1 * INTERESTED + STATUS_HEATMAP_BOOST[status].
- * Mobile renderiza heatmap a partir desses pontos brutos.
- */
-/**
  * Restringe à rede do viewer: eventos cujo autor é amigo (following aceito) OU
  * que têm presença/interesse de algum amigo. followingIds vazio → nada casa.
  */
@@ -392,9 +386,17 @@ function friendsOnlyWhere(followingIds: string[]): Prisma.EventWhereInput {
   }
 }
 
+/**
+ * Eventos para o heatmap dentro do bbox.
+ * Peso = 2 * CONFIRMED + 1 * INTERESTED + STATUS_HEATMAP_BOOST[status].
+ * Mobile renderiza heatmap a partir desses pontos brutos. `followingIds` (vazio
+ * quando sem friendsOnly/sem viewer) é resolvido no service, mantendo o
+ * repositório sem conhecer outros módulos.
+ */
 export async function findEventsForMap(
   query: MapEventsQuery,
-  viewerId?: string,
+  viewerId: string | undefined,
+  followingIds: string[],
   now: Date = new Date(),
 ): Promise<MapEventPoint[]> {
   const bbox: Bbox = {
@@ -406,11 +408,6 @@ export async function findEventsForMap(
 
   const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP, viewerId)
   if (idsInBbox.length === 0) return []
-
-  const followingIds =
-    query.friendsOnly && viewerId
-      ? await findAcceptedFollowingIds(viewerId)
-      : []
 
   const events = await prisma.event.findMany({
     where: {
