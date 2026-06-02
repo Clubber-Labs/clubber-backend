@@ -1,6 +1,7 @@
 import { cache } from '../../lib/cache'
 import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
+import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import {
   createEvent,
   createEventImage,
@@ -10,10 +11,13 @@ import {
   findEventImageKeys,
   findEventsByAuthor,
   findEventsForMap,
+  findEventsInViewport,
   findPublicEvents,
+  findTopAttendancesByEvent,
   findViewerStatesForEvents,
   type NormalizedEvent,
   type SharedEvent,
+  searchEvents,
   updateEvent,
 } from './events.repository'
 import type {
@@ -21,6 +25,7 @@ import type {
   ListEventsQuery,
   MapEventsQuery,
   UpdateEventBody,
+  ViewportQuery,
 } from './events.schema'
 
 type Logger = { error: (msg: string) => void }
@@ -146,6 +151,67 @@ export async function listEventsForMap(
   viewerId?: string,
 ) {
   return findEventsForMap(query, viewerId)
+}
+
+/**
+ * Viewport: FeedEvent completos no bbox + friendAttendances (top N por
+ * prioridade/recência) + estado do viewer. Sem cache (depende do bbox e do
+ * viewer). Retorna { data, truncated }.
+ */
+export async function listEventsForViewport(
+  query: ViewportQuery,
+  viewerId?: string,
+) {
+  const followingIds = viewerId ? await findAcceptedFollowingIds(viewerId) : []
+  const { events, truncated } = await findEventsInViewport(
+    query,
+    viewerId,
+    followingIds,
+  )
+  if (events.length === 0) return { data: [], truncated }
+
+  const eventIds = events.map((e) => e.id)
+  const commentIds = events.flatMap((e) => e.recentComments.map((c) => c.id))
+  const [topMap, states] = await Promise.all([
+    findTopAttendancesByEvent(eventIds, followingIds),
+    viewerId
+      ? findViewerStatesForEvents(viewerId, eventIds, commentIds)
+      : Promise.resolve(null),
+  ])
+
+  const data = events.map((e) => {
+    const normalized = states
+      ? hydrateWithState(e, states.get(e.id))
+      : hydrateAnon(e)
+    const top = topMap.get(e.id) ?? []
+    return {
+      ...normalized,
+      // friendAttendances = subconjunto de amigos do topAttendances (amigos
+      // vêm primeiro, então isto preserva o top-N de amigos sem outra query).
+      friendAttendances: top
+        .filter((a) => a.isFriend)
+        .map((a) => ({ user: a.user })),
+      topAttendances: top.map((a) => ({ user: a.user })),
+    }
+  })
+  return { data, truncated }
+}
+
+/**
+ * Busca textual global por título/descrição/endereço, paginada por cursor.
+ * Hidrata o estado do viewer (userLiked/userAttendance) na lista resultante.
+ */
+export async function searchEventsService(
+  q: string,
+  limit: number,
+  cursor: string | undefined,
+  viewerId?: string,
+) {
+  const events = await searchEvents(q, limit, cursor, viewerId)
+  const nextCursor =
+    events.length === limit ? events[events.length - 1].id : null
+  const shared: SharedListResult = { data: events, nextCursor }
+  return mergeViewerState(shared, viewerId)
 }
 
 export async function listUserEvents(

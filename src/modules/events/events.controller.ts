@@ -5,9 +5,11 @@ import type {
   EventParams,
   ListEventsQuery,
   MapEventsQuery,
+  SearchEventsQuery,
   UpdateEventBody,
   UserEventsParams,
   UserEventsQuery,
+  ViewportQuery,
 } from './events.schema'
 import {
   addEvent,
@@ -16,8 +18,10 @@ import {
   getEventById,
   listEvents,
   listEventsForMap,
+  listEventsForViewport,
   listUserEvents,
   removeEvent,
+  searchEventsService,
 } from './events.service'
 
 export async function getEvents(request: FastifyRequest, reply: FastifyReply) {
@@ -34,6 +38,26 @@ export async function getEventsMap(
   const query = request.query as MapEventsQuery
   const points = await listEventsForMap(query, request.user?.sub)
   return reply.send(points)
+}
+
+export async function getEventsViewport(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const query = request.query as ViewportQuery
+  const viewerId = (request.user as { sub: string } | undefined)?.sub
+  const result = await listEventsForViewport(query, viewerId)
+  return reply.send(result)
+}
+
+export async function getEventsSearch(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { q, limit, cursor } = request.query as SearchEventsQuery
+  const viewerId = (request.user as { sub: string } | undefined)?.sub
+  const result = await searchEventsService(q, limit, cursor, viewerId)
+  return reply.send(result)
 }
 
 export async function getEvent(request: FastifyRequest, reply: FastifyReply) {

@@ -118,6 +118,7 @@ export const mapEventsQuerySchema = z
     bboxWest: z.coerce.number().min(-180).max(180),
     category: categoryFilter,
     status: statusFilter,
+    friendsOnly: booleanQuery.default(false),
     dateFrom: z.coerce.date().optional(),
     dateTo: z.coerce.date().optional(),
   })
@@ -129,6 +130,34 @@ export const mapEventsQuerySchema = z
     message: 'bboxEast deve ser maior que bboxWest',
     path: ['bboxEast'],
   })
+
+// Viewport: eventos completos (FeedEvent) dentro da área visível, com cap.
+export const viewportQuerySchema = z
+  .object({
+    bboxNorth: z.coerce.number().min(-90).max(90),
+    bboxSouth: z.coerce.number().min(-90).max(90),
+    bboxEast: z.coerce.number().min(-180).max(180),
+    bboxWest: z.coerce.number().min(-180).max(180),
+    category: categoryFilter,
+    status: statusFilter,
+    friendsOnly: booleanQuery.default(false),
+    limit: z.coerce.number().int().min(1).max(300).default(200),
+  })
+  .refine((q) => q.bboxNorth > q.bboxSouth, {
+    message: 'bboxNorth deve ser maior que bboxSouth',
+    path: ['bboxNorth'],
+  })
+  .refine((q) => q.bboxEast > q.bboxWest, {
+    message: 'bboxEast deve ser maior que bboxWest',
+    path: ['bboxEast'],
+  })
+
+// Busca textual global por título/descrição/endereço, paginada por cursor.
+export const searchEventsQuerySchema = z.object({
+  q: z.string().trim().min(2, 'Busca exige ao menos 2 caracteres'),
+  cursor: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
 
 export const userEventsParamsSchema = z.object({
   userId: z.string().uuid(),
@@ -146,3 +175,5 @@ export type UpdateEventBody = z.infer<typeof updateEventSchema>
 export type EventParams = z.infer<typeof eventParamSchema>
 export type ListEventsQuery = z.infer<typeof listEventsQuerySchema>
 export type MapEventsQuery = z.infer<typeof mapEventsQuerySchema>
+export type ViewportQuery = z.infer<typeof viewportQuerySchema>
+export type SearchEventsQuery = z.infer<typeof searchEventsQuerySchema>

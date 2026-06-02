@@ -84,3 +84,46 @@ export function buildLifecycleWhere(opts: {
     ],
   }
 }
+
+/**
+ * Fim efetivo do evento >= now - windowMs. Mantém eventos futuros/ongoing e os
+ * que terminaram há no máximo `windowMs` (regra das 48h do mapa). Quando
+ * `endDate` é null, o fim efetivo é `date + DEFAULT_DURATION_MS`, então o piso
+ * para `date` recua a duração padrão.
+ */
+export function recentEndWhere(
+  now: Date,
+  windowMs: number,
+): Prisma.EventWhereInput {
+  const endFloor = new Date(now.getTime() - windowMs)
+  const startFloor = new Date(now.getTime() - windowMs - DEFAULT_DURATION_MS)
+  return {
+    OR: [
+      { endDate: { gte: endFloor } },
+      { AND: [{ endDate: null }, { date: { gte: startFloor } }] },
+    ],
+  }
+}
+
+/**
+ * WHERE de ciclo de vida para o mapa/busca: exclui cancelados e limita os
+ * eventos passados à janela recente (`recentPastMs`). Se `status[]` vier,
+ * aplica as condições de status — mas o teto de passado recente continua
+ * valendo (mesmo `status=PAST` não traz eventos antigos demais).
+ */
+export function buildMapLifecycleWhere(opts: {
+  status?: EventStatus[]
+  now: Date
+  recentPastMs: number
+}): Prisma.EventWhereInput {
+  const recent = recentEndWhere(opts.now, opts.recentPastMs)
+  if (opts.status?.length) {
+    return {
+      AND: [
+        recent,
+        { OR: opts.status.map((s) => statusConditionFor(s, opts.now)) },
+      ],
+    }
+  }
+  return { AND: [{ canceledAt: null }, recent] }
+}
