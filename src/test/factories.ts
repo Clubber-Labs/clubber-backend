@@ -1,5 +1,9 @@
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
+import {
+  PRIVACY_POLICY_VERSION,
+  PRIVACY_TERMS_VERSION,
+} from '../modules/privacy/privacy.schema'
 import { testPrisma } from './prisma'
 
 let counter = 0
@@ -16,10 +20,11 @@ export async function makeUser(
     phone?: string | null
     birthdate?: Date | null
     isPremium?: boolean
+    locationConsent?: boolean
   } = {},
 ) {
   const id = uid()
-  return testPrisma.user.create({
+  const user = await testPrisma.user.create({
     data: {
       name: `User${id}`,
       lastname: `Last${id}`,
@@ -41,6 +46,28 @@ export async function makeUser(
       isPremium: overrides.isPremium ?? false,
     },
   })
+
+  await testPrisma.userPrivacyConsent.createMany({
+    data: [
+      {
+        userId: user.id,
+        purposeKey: 'terms_privacy_required',
+        granted: true,
+        policyVersion: PRIVACY_POLICY_VERSION,
+        termsVersion: PRIVACY_TERMS_VERSION,
+        source: 'SYSTEM',
+      },
+      {
+        userId: user.id,
+        purposeKey: 'location_precise_nearby',
+        granted: overrides.locationConsent ?? true,
+        policyVersion: PRIVACY_POLICY_VERSION,
+        source: 'SYSTEM',
+      },
+    ],
+  })
+
+  return user
 }
 
 export async function makeSocialAccount(

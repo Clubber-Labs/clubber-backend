@@ -1,6 +1,10 @@
 import { hash } from 'bcryptjs'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import {
+  buildInitialConsentState,
+  createInitialUserConsents,
+} from '../privacy/privacy.service'
+import {
   findFollow,
   findFollowStatusesByFollower,
 } from '../follows/follows.repository'
@@ -109,7 +113,10 @@ export async function getMe(userId: string) {
   return { ...withPreferredCategories(rest), eventsCount: _count.events }
 }
 
-export async function registerUser(data: CreateUserBody) {
+export async function registerUser(
+  data: CreateUserBody,
+  context: { ip?: string; userAgent?: string } = {},
+) {
   const emailExists = await findUserByEmail(data.email)
   const usernameExists = await findUserByUsername(data.username)
 
@@ -126,9 +133,12 @@ export async function registerUser(data: CreateUserBody) {
     }
   }
 
+  const initialConsents = data.consents ?? []
+  buildInitialConsentState(initialConsents)
   const passwordHash = await hash(data.password, 10)
 
   const user = await createUser({ ...data, password: passwordHash })
+  await createInitialUserConsents(user.id, initialConsents, context)
   return withPreferredCategories(user)
 }
 

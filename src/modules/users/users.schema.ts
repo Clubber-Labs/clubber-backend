@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { eventCategorySchema } from '../../lib/event-categories'
+import { consentInputSchema } from '../privacy/privacy.schema'
 
 export const createUserSchema = z.object({
   name: z
@@ -30,6 +31,7 @@ export const createUserSchema = z.object({
   isPrivate: z.boolean().default(false),
   birthdate: z.coerce.date(),
   preferredCategories: z.array(eventCategorySchema).max(10).optional(),
+  consents: z.array(consentInputSchema).optional(),
 })
 
 export type CreateUserBody = z.infer<typeof createUserSchema>

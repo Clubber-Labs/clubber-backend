@@ -5,6 +5,7 @@ import {
   rankEvent,
 } from '../../lib/event-ranker'
 import { findDistancesForEvents, type LatLng } from '../../lib/spatial'
+import { userHasConsent } from '../privacy/privacy.service'
 import {
   findDiscoveryCandidateIds,
   findFollowingIds,
@@ -54,25 +55,33 @@ function decodeCursor(raw: string): FeedCursor | null {
  * pra manter percepção de "novidade" e absorver scroll-up/refresh.
  */
 export async function getFeed(userId: string, query: FeedQuery) {
+  const hasLocationConsent =
+    query.nearLat !== undefined && query.nearLng !== undefined
+      ? await userHasConsent(userId, 'location_precise_nearby')
+      : true
+  const effectiveQuery = hasLocationConsent
+    ? query
+    : { ...query, nearLat: undefined, nearLng: undefined, radiusKm: undefined }
+
   const cacheKey = cache.key(
     'feed',
     userId,
-    query.limit,
-    query.cursor ?? '',
-    query.nearLat ?? '',
-    query.nearLng ?? '',
-    query.radiusKm ?? '',
-    query.category?.join(',') ?? '',
-    query.status?.join(',') ?? '',
-    String(query.includePast),
-    query.dateFrom?.toISOString() ?? '',
-    query.dateTo?.toISOString() ?? '',
+    effectiveQuery.limit,
+    effectiveQuery.cursor ?? '',
+    effectiveQuery.nearLat ?? '',
+    effectiveQuery.nearLng ?? '',
+    effectiveQuery.radiusKm ?? '',
+    effectiveQuery.category?.join(',') ?? '',
+    effectiveQuery.status?.join(',') ?? '',
+    String(effectiveQuery.includePast),
+    effectiveQuery.dateFrom?.toISOString() ?? '',
+    effectiveQuery.dateTo?.toISOString() ?? '',
   )
   const cached =
     await cache.get<Awaited<ReturnType<typeof buildFeedResult>>>(cacheKey)
   if (cached) return cached
 
-  const result = await buildFeedResult(userId, query)
+  const result = await buildFeedResult(userId, effectiveQuery)
   await cache.set(cacheKey, result, 60)
   return result
 }

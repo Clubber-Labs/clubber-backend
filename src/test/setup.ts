@@ -44,6 +44,9 @@ afterEach(async () => {
     testPrisma.featuredEvent.deleteMany(),
     testPrisma.event.deleteMany(),
     testPrisma.follow.deleteMany(),
+    testPrisma.privacyConsentAuditLog.deleteMany(),
+    testPrisma.privacyRequest.deleteMany(),
+    testPrisma.userPrivacyConsent.deleteMany(),
     testPrisma.socialAccount.deleteMany(),
     testPrisma.user.deleteMany(),
   ])

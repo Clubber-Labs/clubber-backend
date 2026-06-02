@@ -30,6 +30,7 @@ import { feedRoutes } from './modules/feed/feed.routes'
 import { followsRoutes } from './modules/follows/follows.routes'
 import { healthRoutes } from './modules/health/health.routes'
 import { postsRoutes } from './modules/posts/posts.routes'
+import { privacyRoutes } from './modules/privacy/privacy.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
@@ -140,6 +141,7 @@ app.register(usersRoutes)
 app.register(followsRoutes)
 app.register(attendanceRoutes)
 app.register(postsRoutes)
+app.register(privacyRoutes)
 app.register(commentsRoutes)
 app.register(reactionsRoutes)
 app.register(feedRoutes)

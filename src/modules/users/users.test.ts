@@ -12,6 +12,11 @@ function token(app: FastifyInstance, userId: string) {
   return app.jwt.sign({ sub: userId })
 }
 
+const registrationConsents = [
+  { purposeKey: 'terms_privacy_required', granted: true },
+  { purposeKey: 'location_precise_nearby', granted: true },
+] as const
+
 beforeAll(async () => {
   app = buildApp()
   await app.ready()
@@ -284,6 +289,7 @@ describe('POST /users — conflitos de unique constraint', () => {
         email: 'duplicado@exemplo.com',
         password: 'senha12345',
         birthdate: '2000-01-01T00:00:00.000Z',
+        consents: registrationConsents,
       },
     })
 
@@ -291,6 +297,33 @@ describe('POST /users — conflitos de unique constraint', () => {
     expect(res.json().message).toBe(
       'Este e-mail já está cadastrado em outra conta.',
     )
+  })
+
+  it('retorna 400 quando termos e política não foram aceitos', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'semitermos',
+        phone: '99999999998',
+        email: 'semitermos@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        consents: [{ purposeKey: 'terms_privacy_required', granted: false }],
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().message).toBe(
+      'É necessário aceitar os Termos de Uso e a Política de Privacidade.',
+    )
+    await expect(
+      testPrisma.user.findUnique({
+        where: { email: 'semitermos@exemplo.com' },
+      }),
+    ).resolves.toBeNull()
   })
 })
 
@@ -308,6 +341,7 @@ describe('preferredCategories no perfil', () => {
         password: 'senha12345',
         birthdate: '2000-01-01T00:00:00.000Z',
         preferredCategories: ['MUSIC', 'TECH'],
+        consents: registrationConsents,
       },
     })
 

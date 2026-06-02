@@ -77,7 +77,7 @@ export async function findUserByUsername(username: string) {
 export async function createUser(
   data: Omit<CreateUserBody, 'password'> & { password: string | null },
 ) {
-  const { preferredCategories, ...userData } = data
+  const { preferredCategories, consents: _consents, ...userData } = data
   return prisma.user.create({
     data: {
       ...userData,
