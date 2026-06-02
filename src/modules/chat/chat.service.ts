@@ -52,6 +52,14 @@ function isUniqueViolation(err: unknown): boolean {
   )
 }
 
+function isRecordNotFound(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'P2025'
+  )
+}
+
 function shapeParticipants(participants: ConversationRow['participants']) {
   return participants.map((p) => ({
     userId: p.userId,
@@ -388,7 +396,20 @@ export async function editMessage(
       message: 'Apenas mensagens de texto podem ser editadas',
     }
   }
-  const updated = await editMessageContent(messageId, content)
+  let updated: MessageRow
+  try {
+    updated = await editMessageContent(messageId, content)
+  } catch (err) {
+    // Corrida: um DELETE concorrente apagou a mensagem (P2025). Mesmo contrato
+    // do check de deletedAt acima — não edita tombstone.
+    if (isRecordNotFound(err)) {
+      throw {
+        statusCode: 403,
+        message: 'Mensagem apagada não pode ser editada',
+      }
+    }
+    throw err
+  }
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }
@@ -433,6 +454,11 @@ export async function reactToMessage(
   return shapeMessage(updated)
 }
 
+// Diferente de reactToMessage, NÃO bloqueia mensagem apagada/SYSTEM de
+// propósito: remover a própria reação é um "desfazer" idempotente e deve
+// sempre funcionar (inclusive numa mensagem que acabou de ser apagada),
+// senão a reação ficaria presa. A simetria com reactToMessage é intencional
+// só no caminho de adicionar.
 export async function removeReaction(
   userId: string,
   conversationId: string,

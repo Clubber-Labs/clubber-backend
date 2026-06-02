@@ -150,6 +150,13 @@ export async function findConversationPartnerIds(userId: string) {
         AND p1."leftAt" IS NULL
         AND p2."leftAt" IS NULL
         AND p2."userId" <> ${userId}
+        -- Presença não atravessa bloqueio: num grupo compartilhado, um lado
+        -- que bloqueou o outro não deve receber online/last-seen dele.
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks b
+          WHERE (b."blockerId" = ${userId} AND b."blockedId" = p2."userId")
+             OR (b."blockerId" = p2."userId" AND b."blockedId" = ${userId})
+        )
     `,
   )
   return rows.map((r) => r.userid)
@@ -301,8 +308,11 @@ export async function createSystemMessage(
 }
 
 export async function editMessageContent(id: string, content: string) {
+  // `deletedAt: null` no where torna a edição atômica: se um DELETE concorrente
+  // apagar a mensagem entre o check do service e aqui, o update não encontra a
+  // linha e lança P2025 (tratado no service) — em vez de editar um tombstone.
   return prisma.message.update({
-    where: { id },
+    where: { id, deletedAt: null },
     data: { content, editedAt: new Date() },
     include: messageInclude,
   })

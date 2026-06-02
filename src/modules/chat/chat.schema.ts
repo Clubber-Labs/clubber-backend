@@ -36,7 +36,9 @@ export const editMessageSchema = z.object({
 })
 
 export const messageReactionSchema = z.object({
-  emoji: z.string().min(1).max(16),
+  // max 32: .length conta code units UTF-16, e sequências ZWJ (família
+  // 👨‍👩‍👧‍👦 = 11, bandeiras compostas) passariam de 16. 32 cobre com folga.
+  emoji: z.string().min(1).max(32),
 })
 
 export const renameConversationSchema = z.object({

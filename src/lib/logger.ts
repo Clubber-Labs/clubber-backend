@@ -6,6 +6,19 @@ import { env } from './env'
 const level =
   process.env.LOG_LEVEL ?? (env.NODE_ENV === 'test' ? 'silent' : 'info')
 
+// Params de query que carregam segredo (ex.: o JWT no handshake do WebSocket,
+// que vem como ?token=... porque o browser não manda header no upgrade).
+const SENSITIVE_QUERY = /([?&](?:token|ticket|access_token)=)[^&]*/gi
+
+/**
+ * Remove o valor de params sensíveis da URL antes de logar. O Fastify loga a
+ * `req.url` completa (com query string) em toda request; sem isso, um JWT
+ * passado via ?token= ficaria retido em qualquer agregador de logs.
+ */
+export function sanitizeLogUrl(url: string): string {
+  return url.replace(SENSITIVE_QUERY, '$1[REDACTED]')
+}
+
 // Em desenvolvimento, formata bonito e colorido no terminal via pino-pretty.
 // Em produção mantém JSON puro de uma linha (ideal pra agregadores de log) e
 // em teste fica sem transport (silencioso). pino-pretty é devDependency: só é
@@ -43,6 +56,24 @@ export const logger = pino({
       'headers.cookie',
     ],
     remove: true,
+  },
+  serializers: {
+    // Substitui o serializer padrão do Fastify pra sanitizar a URL logada,
+    // preservando os demais campos (method/host/remoteAddress).
+    req(request: {
+      method: string
+      url: string
+      host?: string
+      hostname?: string
+      ip?: string
+    }) {
+      return {
+        method: request.method,
+        url: sanitizeLogUrl(request.url),
+        host: request.host ?? request.hostname,
+        remoteAddress: request.ip,
+      }
+    },
   },
   ...(transport && { transport }),
 })

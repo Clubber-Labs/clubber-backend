@@ -11,6 +11,7 @@ import {
 } from '../../test/factories'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
+import { findConversationPartnerIds } from './chat.repository'
 
 let app: FastifyInstance
 
@@ -1112,5 +1113,60 @@ describe('mensagens de sistema em grupo', () => {
       body: { emoji: '👍' },
     })
     expect(react.statusCode).toBe(403)
+  })
+})
+
+describe('presença respeita bloqueio (findConversationPartnerIds)', () => {
+  it('exclui bloqueados em qualquer direção e mantém os demais', async () => {
+    const owner = await makeUser()
+    const memberA = await makeUser()
+    const memberB = await makeUser()
+    await makeGroupConversation(owner.id, [memberA.id, memberB.id])
+
+    const before = await findConversationPartnerIds(owner.id)
+    expect([...before].sort()).toEqual([memberA.id, memberB.id].sort())
+
+    await makeBlock(owner.id, memberB.id)
+
+    const afterOwner = await findConversationPartnerIds(owner.id)
+    expect(afterOwner).toContain(memberA.id)
+    expect(afterOwner).not.toContain(memberB.id)
+
+    // bloqueio vale nos dois sentidos: B também não recebe presença do owner
+    const afterB = await findConversationPartnerIds(memberB.id)
+    expect(afterB).not.toContain(owner.id)
+    expect(afterB).toContain(memberA.id)
+  })
+})
+
+describe('validação de emoji na reação', () => {
+  it('aceita emoji ZWJ composto (família)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const msg = await makeMessage(convo.id, a.id, { content: 'x' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/${msg.id}/reactions`,
+      headers: auth(b.id),
+      body: { emoji: '👨‍👩‍👧‍👦' },
+    })
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('rejeita string acima do limite (400)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const msg = await makeMessage(convo.id, a.id, { content: 'x' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/${msg.id}/reactions`,
+      headers: auth(b.id),
+      body: { emoji: 'x'.repeat(33) },
+    })
+    expect(res.statusCode).toBe(400)
   })
 })
