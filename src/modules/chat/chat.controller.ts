@@ -5,7 +5,9 @@ import type {
   ChatPaginationQuery,
   ConversationParam,
   CreateConversationBody,
+  EditMessageBody,
   MessageParam,
+  MessageReactionBody,
   ParticipantParam,
   RenameConversationBody,
   SendMessageBody,
@@ -13,13 +15,18 @@ import type {
 } from './chat.schema'
 import {
   addGroupParticipant,
+  clearConversation,
   deleteMessage,
+  editMessage,
   getConversation,
   leaveGroup,
   listInbox,
   listMessages,
   markAsRead,
+  markDelivered,
+  reactToMessage,
   removeGroupParticipant,
+  removeReaction,
   renameGroup,
   sendImageMessage,
   sendTextMessage,
@@ -71,8 +78,13 @@ export async function postMessage(
   reply: FastifyReply,
 ) {
   const { id } = request.params as ConversationParam
-  const { content } = request.body as SendMessageBody
-  const message = await sendTextMessage(request.user.sub, id, content)
+  const { content, replyToId } = request.body as SendMessageBody
+  const message = await sendTextMessage(
+    request.user.sub,
+    id,
+    content,
+    replyToId,
+  )
   return reply.status(201).send(message)
 }
 
@@ -95,6 +107,54 @@ export async function postRead(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as ConversationParam
   await markAsRead(request.user.sub, id)
   return reply.status(204).send()
+}
+
+export async function postDelivered(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ConversationParam
+  await markDelivered(request.user.sub, id)
+  return reply.status(204).send()
+}
+
+export async function deleteConversation(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ConversationParam
+  await clearConversation(request.user.sub, id)
+  return reply.status(204).send()
+}
+
+export async function patchMessage(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id, messageId } = request.params as MessageParam
+  const { content } = request.body as EditMessageBody
+  const message = await editMessage(request.user.sub, id, messageId, content)
+  return reply.send(message)
+}
+
+export async function postMessageReaction(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id, messageId } = request.params as MessageParam
+  const { emoji } = request.body as MessageReactionBody
+  const message = await reactToMessage(request.user.sub, id, messageId, emoji)
+  return reply.status(201).send(message)
+}
+
+export async function deleteMessageReaction(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id, messageId } = request.params as MessageParam
+  const { emoji } = request.body as MessageReactionBody
+  const message = await removeReaction(request.user.sub, id, messageId, emoji)
+  return reply.send(message)
 }
 
 export async function deleteMessageHandler(

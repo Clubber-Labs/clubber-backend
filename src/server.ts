@@ -14,6 +14,7 @@ import {
 } from 'fastify-type-provider-zod'
 import { env } from './lib/env'
 import { handlePrismaUniqueError } from './lib/errors'
+import { logger } from './lib/logger'
 import { redis } from './lib/redis'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
@@ -35,7 +36,9 @@ import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { usersRoutes } from './modules/users/users.routes'
 
-const app = fastify().withTypeProvider<ZodTypeProvider>()
+const app = fastify({
+  loggerInstance: logger,
+}).withTypeProvider<ZodTypeProvider>()
 
 app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)

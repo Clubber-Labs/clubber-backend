@@ -1,12 +1,41 @@
+import { logger } from './logger'
 import { redis } from './redis'
 
 export const CHAT_CHANNEL = 'chat:events'
 
-export type RealtimePayload = {
-  conversationId: string
-  participantIds: string[]
-  message: unknown
-}
+/**
+ * Eventos de chat publicados no Redis para entrega ao vivo via WebSocket.
+ * Discriminados por `type`; o gateway traduz cada um no frame entregue ao
+ * cliente. `participantIds` viaja junto pra que o subscriber não precise
+ * consultar o banco no caminho de entrega.
+ */
+export type RealtimeEvent =
+  | {
+      type: 'message'
+      conversationId: string
+      participantIds: string[]
+      message: unknown
+    }
+  | {
+      type: 'message_edited'
+      conversationId: string
+      participantIds: string[]
+      message: unknown
+    }
+  | {
+      type: 'typing'
+      conversationId: string
+      participantIds: string[]
+      userId: string
+      isTyping: boolean
+    }
+  | {
+      type: 'presence'
+      participantIds: string[]
+      userId: string
+      online: boolean
+      lastSeenAt: string | null
+    }
 
 /**
  * Publica eventos de chat para entrega ao vivo via WebSocket. Tolerante a
@@ -15,13 +44,13 @@ export type RealtimePayload = {
  * fonte da verdade; a entrega ao vivo é best-effort.
  */
 export const realtime = {
-  async publish(payload: RealtimePayload): Promise<void> {
+  async publish(event: RealtimeEvent): Promise<void> {
     if (!redis) return
     try {
-      await redis.publish(CHAT_CHANNEL, JSON.stringify(payload))
+      await redis.publish(CHAT_CHANNEL, JSON.stringify(event))
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      console.warn(`[realtime] publish falhou: ${message}`)
+      // Best-effort: entrega ao vivo falhou, mas a mensagem já foi persistida.
+      logger.warn({ err, type: event.type }, 'realtime publish falhou')
     }
   },
 }

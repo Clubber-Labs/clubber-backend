@@ -7,21 +7,30 @@ import {
   assertReachable,
 } from './chat.access'
 import {
+  addMessageReaction,
+  clearConversationForParticipant,
   createDirectConversation,
   createGroupConversation,
   createImageMessage,
+  createSystemMessage,
   createTextMessage,
   deactivateParticipant,
   directKeyFor,
+  editMessageContent,
+  findActiveParticipantUserIds,
   findConversationById,
   findConversationMessages,
   findConversationWithParticipants,
   findDirectByKey,
   findMessageById,
+  findMessageWithConversation,
   findParticipant,
+  findUserBrief,
   listInboxConversations,
+  markConversationDelivered,
   markConversationRead,
   reactivateParticipant,
+  removeMessageReaction,
   renameConversation,
   setParticipantRole,
   softDeleteMessage,
@@ -43,11 +52,23 @@ function isUniqueViolation(err: unknown): boolean {
   )
 }
 
+function isRecordNotFound(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: string }).code === 'P2025'
+  )
+}
+
 function shapeParticipants(participants: ConversationRow['participants']) {
   return participants.map((p) => ({
     userId: p.userId,
     role: p.role,
     user: p.user,
+    // Base dos recibos: o front deriva "entregue/visto" por mensagem comparando
+    // lastDeliveredAt/lastReadAt dos outros participantes com message.createdAt.
+    lastReadAt: p.lastReadAt,
+    lastDeliveredAt: p.lastDeliveredAt,
   }))
 }
 
@@ -62,6 +83,18 @@ function shapeConversation(conversation: ConversationRow) {
   }
 }
 
+function shapeReplyPreview(replyTo: MessageRow['replyTo']) {
+  if (!replyTo) return null
+  const deleted = replyTo.deletedAt !== null
+  return {
+    id: replyTo.id,
+    senderId: replyTo.senderId,
+    sender: replyTo.sender,
+    content: deleted ? null : replyTo.content,
+    deletedAt: replyTo.deletedAt,
+  }
+}
+
 function shapeMessage(message: MessageRow) {
   const deleted = message.deletedAt !== null
   return {
@@ -69,9 +102,15 @@ function shapeMessage(message: MessageRow) {
     conversationId: message.conversationId,
     senderId: message.senderId,
     sender: message.sender,
+    type: message.type,
     content: deleted ? null : message.content,
     attachments: deleted ? [] : message.attachments,
+    replyToId: message.replyToId,
+    replyTo: deleted ? null : shapeReplyPreview(message.replyTo),
+    // Lista crua [{ userId, emoji }] — o front agrega contagem e "minha".
+    reactions: message.reactions,
     createdAt: message.createdAt,
+    editedAt: message.editedAt,
     deletedAt: message.deletedAt,
   }
 }
@@ -122,10 +161,47 @@ async function publishMessage(
   message: MessageRow,
 ) {
   await realtime.publish({
+    type: 'message',
     conversationId,
     participantIds,
     message: shapeMessage(message),
   })
+}
+
+/** Entrega ao vivo de uma mensagem alterada (edição ou reação). Best-effort. */
+async function publishEditedMessage(
+  conversationId: string,
+  message: MessageRow,
+) {
+  const participantIds = await findActiveParticipantUserIds(conversationId)
+  await realtime.publish({
+    type: 'message_edited',
+    conversationId,
+    participantIds,
+    message: shapeMessage(message),
+  })
+}
+
+function displayName(user: { name: string; lastname: string }) {
+  return `${user.name} ${user.lastname}`.trim()
+}
+
+/**
+ * Persiste e entrega uma mensagem de sistema (entrou/saiu/renomeou). Tolerante
+ * a falha: um erro aqui nunca derruba a mutação de grupo que a originou.
+ */
+async function emitSystemMessage(
+  conversationId: string,
+  actorId: string,
+  content: string,
+) {
+  try {
+    const message = await createSystemMessage(conversationId, actorId, content)
+    const participantIds = await findActiveParticipantUserIds(conversationId)
+    await publishMessage(conversationId, participantIds, message)
+  } catch {
+    // best-effort: a ação principal já foi confirmada
+  }
 }
 
 async function requireGroup(conversationId: string) {
@@ -230,9 +306,23 @@ export async function sendTextMessage(
   userId: string,
   conversationId: string,
   content: string,
+  replyToId?: string,
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
-  const message = await createTextMessage(conversationId, userId, content)
+  if (replyToId) {
+    // Citar exige que a mensagem original seja da MESMA conversa (evita vazar
+    // conteúdo de outra conversa via preview do reply).
+    const replyTo = await findMessageById(replyToId)
+    if (!replyTo || replyTo.conversationId !== conversationId) {
+      throw { statusCode: 400, message: 'Mensagem citada inválida' }
+    }
+  }
+  const message = await createTextMessage(
+    conversationId,
+    userId,
+    content,
+    replyToId,
+  )
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
@@ -259,6 +349,133 @@ export async function markAsRead(userId: string, conversationId: string) {
   await markConversationRead(conversationId, userId)
 }
 
+export async function markDelivered(userId: string, conversationId: string) {
+  await assertActiveParticipant(conversationId, userId)
+  await markConversationDelivered(conversationId, userId)
+}
+
+/** Oculta a conversa só para o viewer (DM ou grupo); não sai do grupo. */
+export async function clearConversation(
+  userId: string,
+  conversationId: string,
+) {
+  await assertActiveParticipant(conversationId, userId)
+  await clearConversationForParticipant(conversationId, userId)
+}
+
+export async function editMessage(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  content: string,
+) {
+  await assertActiveParticipant(conversationId, userId)
+  const message = await findMessageById(messageId)
+  if (!message || message.conversationId !== conversationId) {
+    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+  }
+  if (message.type === 'SYSTEM') {
+    throw {
+      statusCode: 403,
+      message: 'Mensagem de sistema não pode ser editada',
+    }
+  }
+  // Só o autor edita (admin de grupo NÃO edita msg alheia — diferente do delete).
+  if (message.senderId !== userId) {
+    throw {
+      statusCode: 403,
+      message: 'Sem permissão para editar esta mensagem',
+    }
+  }
+  if (message.deletedAt !== null) {
+    throw { statusCode: 403, message: 'Mensagem apagada não pode ser editada' }
+  }
+  if (message.content === null) {
+    throw {
+      statusCode: 403,
+      message: 'Apenas mensagens de texto podem ser editadas',
+    }
+  }
+  let updated: MessageRow
+  try {
+    updated = await editMessageContent(messageId, content)
+  } catch (err) {
+    // Corrida: um DELETE concorrente apagou a mensagem (P2025). Mesmo contrato
+    // do check de deletedAt acima — não edita tombstone.
+    if (isRecordNotFound(err)) {
+      throw {
+        statusCode: 403,
+        message: 'Mensagem apagada não pode ser editada',
+      }
+    }
+    throw err
+  }
+  await publishEditedMessage(conversationId, updated)
+  return shapeMessage(updated)
+}
+
+async function loadMessageInConversation(
+  conversationId: string,
+  messageId: string,
+) {
+  const message = await findMessageById(messageId)
+  if (!message || message.conversationId !== conversationId) {
+    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+  }
+  return message
+}
+
+export async function reactToMessage(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+) {
+  await assertActiveParticipant(conversationId, userId)
+  const message = await loadMessageInConversation(conversationId, messageId)
+  if (message.type === 'SYSTEM') {
+    throw {
+      statusCode: 403,
+      message: 'Mensagem de sistema não pode receber reação',
+    }
+  }
+  if (message.deletedAt !== null) {
+    throw {
+      statusCode: 403,
+      message: 'Mensagem apagada não pode receber reação',
+    }
+  }
+  await addMessageReaction(messageId, userId, emoji)
+  const updated = await findMessageWithConversation(messageId)
+  if (!updated) {
+    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+  }
+  await publishEditedMessage(conversationId, updated)
+  return shapeMessage(updated)
+}
+
+// Diferente de reactToMessage, NÃO bloqueia mensagem apagada/SYSTEM de
+// propósito: remover a própria reação é um "desfazer" idempotente e deve
+// sempre funcionar (inclusive numa mensagem que acabou de ser apagada),
+// senão a reação ficaria presa. A simetria com reactToMessage é intencional
+// só no caminho de adicionar.
+export async function removeReaction(
+  userId: string,
+  conversationId: string,
+  messageId: string,
+  emoji: string,
+) {
+  await assertActiveParticipant(conversationId, userId)
+  await loadMessageInConversation(conversationId, messageId)
+  await removeMessageReaction(messageId, userId, emoji)
+  const updated = await findMessageWithConversation(messageId)
+  if (!updated) {
+    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+  }
+  await publishEditedMessage(conversationId, updated)
+  return shapeMessage(updated)
+}
+
 export async function deleteMessage(
   userId: string,
   conversationId: string,
@@ -268,6 +485,12 @@ export async function deleteMessage(
   const message = await findMessageById(messageId)
   if (!message || message.conversationId !== conversationId) {
     throw { statusCode: 404, message: 'Mensagem não encontrada' }
+  }
+  if (message.type === 'SYSTEM') {
+    throw {
+      statusCode: 403,
+      message: 'Mensagem de sistema não pode ser apagada',
+    }
   }
   if (message.senderId !== userId && participant.role !== 'ADMIN') {
     throw {
@@ -294,6 +517,17 @@ export async function addGroupParticipant(
     throw { statusCode: 409, message: 'Usuário já participa do grupo' }
   }
   await reactivateParticipant(conversationId, targetId)
+  const [actorUser, targetUser] = await Promise.all([
+    findUserBrief(userId),
+    findUserBrief(targetId),
+  ])
+  if (actorUser && targetUser) {
+    await emitSystemMessage(
+      conversationId,
+      userId,
+      `${displayName(actorUser)} adicionou ${displayName(targetUser)}`,
+    )
+  }
   return getConversation(userId, conversationId)
 }
 
@@ -312,12 +546,31 @@ export async function removeGroupParticipant(
   if (result.count === 0) {
     throw { statusCode: 404, message: 'Participante não encontrado' }
   }
+  const [actorUser, targetUser] = await Promise.all([
+    findUserBrief(userId),
+    findUserBrief(targetId),
+  ])
+  if (actorUser && targetUser) {
+    await emitSystemMessage(
+      conversationId,
+      userId,
+      `${displayName(actorUser)} removeu ${displayName(targetUser)}`,
+    )
+  }
 }
 
 export async function leaveGroup(userId: string, conversationId: string) {
   await assertActiveParticipant(conversationId, userId)
   await requireGroup(conversationId)
   await deactivateParticipant(conversationId, userId)
+  const actorUser = await findUserBrief(userId)
+  if (actorUser) {
+    await emitSystemMessage(
+      conversationId,
+      userId,
+      `${displayName(actorUser)} saiu do grupo`,
+    )
+  }
 }
 
 export async function renameGroup(
@@ -329,6 +582,14 @@ export async function renameGroup(
   await requireGroup(conversationId)
   assertAdmin(actor)
   await renameConversation(conversationId, title)
+  const actorUser = await findUserBrief(userId)
+  if (actorUser) {
+    await emitSystemMessage(
+      conversationId,
+      userId,
+      `${displayName(actorUser)} alterou o nome do grupo para "${title}"`,
+    )
+  }
   return getConversation(userId, conversationId)
 }
 
