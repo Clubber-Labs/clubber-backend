@@ -11,6 +11,9 @@ export type EventStatus = (typeof EVENT_STATUSES)[number]
 export const SOON_THRESHOLD_MS = 48 * 60 * 60 * 1000
 export const DEFAULT_DURATION_MS = 4 * 60 * 60 * 1000
 
+// Janela em que um evento PAST ainda aparece no mapa/busca antes de sumir.
+export const RECENT_PAST_MS = 48 * 60 * 60 * 1000
+
 export function resolveEndDate(date: Date, endDate: Date | null): Date {
   return endDate ?? new Date(date.getTime() + DEFAULT_DURATION_MS)
 }

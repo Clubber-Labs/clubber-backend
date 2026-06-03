@@ -9,6 +9,8 @@ import {
   getEvent,
   getEvents,
   getEventsMap,
+  getEventsSearch,
+  getEventsViewport,
   postEvent,
   putEvent,
   uploadEventImageHandler,
@@ -18,7 +20,9 @@ import {
   eventParamSchema,
   listEventsQuerySchema,
   mapEventsQuerySchema,
+  searchEventsQuerySchema,
   updateEventSchema,
+  viewportQuerySchema,
 } from './events.schema'
 
 export async function eventsRoutes(app: FastifyInstance) {
@@ -43,6 +47,28 @@ export async function eventsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticateOptional],
     },
     getEventsMap,
+  )
+
+  api.get(
+    '/events/map/events',
+    {
+      schema: { querystring: viewportQuerySchema },
+      onRequest: [app.authenticateOptional],
+      // Mais pesado que a lista/heatmap (window function + hidratação completa).
+      // Limite generoso: cobre panning com debounce, barra abuso/scripts.
+      config: { rateLimit: { max: 240, timeWindow: '1 minute' } },
+    },
+    getEventsViewport,
+  )
+
+  api.get(
+    '/events/search',
+    {
+      schema: { querystring: searchEventsQuerySchema },
+      onRequest: [app.authenticateOptional],
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    getEventsSearch,
   )
 
   api.get(

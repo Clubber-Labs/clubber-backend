@@ -1,6 +1,13 @@
-import type { Prisma } from '@prisma/client'
-import { buildLifecycleWhere } from '../../lib/event-filters'
-import { computeEventStatus, type EventStatus } from '../../lib/event-lifecycle'
+import { type AttendanceType, Prisma } from '@prisma/client'
+import {
+  buildLifecycleWhere,
+  buildMapLifecycleWhere,
+} from '../../lib/event-filters'
+import {
+  computeEventStatus,
+  type EventStatus,
+  RECENT_PAST_MS,
+} from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import { authorVisibleWhere } from '../../lib/profile-visibility'
 import {
@@ -18,7 +25,12 @@ import type {
   ListEventsQuery,
   MapEventsQuery,
   UpdateEventBody,
+  ViewportQuery,
 } from './events.schema'
+
+const POSITIVE_ATTENDANCE: AttendanceType[] = ['CONFIRMED', 'INTERESTED']
+// Quantos participantes em destaque acompanham cada evento no payload do mapa.
+const TOP_ATTENDANCES_LIMIT = 5
 
 const authorSelect = commentAuthorSelect
 
@@ -355,13 +367,36 @@ const MAP_BBOX_FETCH_CAP = 2000
 const MAP_RESPONSE_CAP = 500
 
 /**
+ * Restringe à rede do viewer: eventos cujo autor é amigo (following aceito) OU
+ * que têm presença/interesse de algum amigo. followingIds vazio → nada casa.
+ */
+function friendsOnlyWhere(followingIds: string[]): Prisma.EventWhereInput {
+  return {
+    OR: [
+      { authorId: { in: followingIds } },
+      {
+        attendances: {
+          some: {
+            userId: { in: followingIds },
+            type: { in: POSITIVE_ATTENDANCE },
+          },
+        },
+      },
+    ],
+  }
+}
+
+/**
  * Eventos para o heatmap dentro do bbox.
  * Peso = 2 * CONFIRMED + 1 * INTERESTED + STATUS_HEATMAP_BOOST[status].
- * Mobile renderiza heatmap a partir desses pontos brutos.
+ * Mobile renderiza heatmap a partir desses pontos brutos. `followingIds` (vazio
+ * quando sem friendsOnly/sem viewer) é resolvido no service, mantendo o
+ * repositório sem conhecer outros módulos.
  */
 export async function findEventsForMap(
   query: MapEventsQuery,
-  viewerId?: string,
+  viewerId: string | undefined,
+  followingIds: string[],
   now: Date = new Date(),
 ): Promise<MapEventPoint[]> {
   const bbox: Bbox = {
@@ -380,11 +415,12 @@ export async function findEventsForMap(
         { id: { in: idsInBbox } },
         { isPublic: true },
         authorVisibleWhere(viewerId),
-        buildLifecycleWhere({
-          includePast: false,
+        buildMapLifecycleWhere({
           status: query.status,
           now,
+          recentPastMs: RECENT_PAST_MS,
         }),
+        ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
         ...(query.category && query.category.length > 0
           ? [{ category: { in: query.category } }]
           : []),
@@ -438,6 +474,157 @@ export async function findEventsForMap(
   })
   points.sort((a, b) => b.weight - a.weight)
   return points.slice(0, MAP_RESPONSE_CAP)
+}
+
+export type TopAttendance = { user: AuthorPayload; isFriend: boolean }
+
+type TopAttendanceRow = AuthorPayload & {
+  eventid: string
+  isfriend: boolean
+}
+
+/**
+ * Participantes em destaque por evento (top {@link TOP_ATTENDANCES_LIMIT}),
+ * ordenados: amigos primeiro, depois confirmados antes de interessados, depois
+ * por recência. Um ROW_NUMBER por evento limita no SQL (sem trazer presenças
+ * demais). Cada item carrega `isFriend` para o caller derivar friendAttendances
+ * (subconjunto de amigos) sem uma segunda query.
+ */
+export async function findTopAttendancesByEvent(
+  eventIds: string[],
+  followingIds: string[],
+): Promise<Map<string, TopAttendance[]>> {
+  const map = new Map<string, TopAttendance[]>()
+  if (eventIds.length === 0) return map
+
+  // followingIds vazio → ninguém é amigo (anônimo ou sem rede): a coluna vira
+  // FALSE e a ordenação cai só em prioridade/recência.
+  const isFriendExpr = followingIds.length
+    ? Prisma.sql`a."userId" IN (${Prisma.join(followingIds)})`
+    : Prisma.sql`FALSE`
+
+  const rows = await prisma.$queryRaw<TopAttendanceRow[]>(Prisma.sql`
+    SELECT ranked."eventId" AS eventid,
+           ranked.is_friend AS isfriend,
+           u.id, u.name, u.lastname, u.username, u."avatarUrl"
+    FROM (
+      SELECT a."eventId", a."userId",
+             (${isFriendExpr}) AS is_friend,
+             ROW_NUMBER() OVER (
+               PARTITION BY a."eventId"
+               ORDER BY (${isFriendExpr}) DESC,
+                        CASE a.type WHEN 'CONFIRMED' THEN 0 ELSE 1 END ASC,
+                        a."createdAt" DESC
+             ) AS rn
+      FROM event_attendances a
+      WHERE a."eventId" IN (${Prisma.join(eventIds)})
+        AND a.type IN ('CONFIRMED', 'INTERESTED')
+    ) ranked
+    JOIN users u ON u.id = ranked."userId"
+    WHERE ranked.rn <= ${TOP_ATTENDANCES_LIMIT}
+    ORDER BY ranked."eventId", ranked.rn
+  `)
+
+  for (const r of rows) {
+    const arr = map.get(r.eventid) ?? []
+    arr.push({
+      user: {
+        id: r.id,
+        name: r.name,
+        lastname: r.lastname,
+        username: r.username,
+        avatarUrl: r.avatarUrl,
+      },
+      isFriend: r.isfriend,
+    })
+    map.set(r.eventid, arr)
+  }
+  return map
+}
+
+/**
+ * Eventos completos (shared shape) dentro do bbox para o mapa renderizar
+ * pins/clusters. Aplica visibilidade, regra das 48h (passado recente),
+ * categoria, status e (opcional) friendsOnly. `truncated` indica que havia
+ * mais eventos que o `limit` — o front sugere "aproxime para ver mais".
+ */
+export async function findEventsInViewport(
+  query: ViewportQuery,
+  viewerId: string | undefined,
+  followingIds: string[],
+  now: Date = new Date(),
+): Promise<{ events: SharedEvent[]; truncated: boolean }> {
+  const bbox: Bbox = {
+    north: query.bboxNorth,
+    south: query.bboxSouth,
+    east: query.bboxEast,
+    west: query.bboxWest,
+  }
+
+  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP, viewerId)
+  if (idsInBbox.length === 0) return { events: [], truncated: false }
+
+  const rows = (await prisma.event.findMany({
+    where: {
+      AND: [
+        { id: { in: idsInBbox } },
+        { isPublic: true },
+        authorVisibleWhere(viewerId),
+        buildMapLifecycleWhere({
+          status: query.status,
+          now,
+          recentPastMs: RECENT_PAST_MS,
+        }),
+        ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
+        ...(query.category && query.category.length > 0
+          ? [{ category: { in: query.category } }]
+          : []),
+      ],
+    },
+    // +1 pra detectar truncamento sem uma query de contagem extra.
+    take: query.limit + 1,
+    orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
+    include: buildSharedIncludes(),
+  })) as unknown as PrismaSharedEvent[]
+
+  const truncated = rows.length > query.limit
+  const page = truncated ? rows.slice(0, query.limit) : rows
+  return { events: page.map((e) => normalizeShared(e, now)), truncated }
+}
+
+/**
+ * Busca textual global por título/descrição/endereço (case-insensitive),
+ * paginada por cursor. Respeita visibilidade e a regra das 48h.
+ */
+export async function searchEvents(
+  q: string,
+  limit: number,
+  cursor: string | undefined,
+  viewerId: string | undefined,
+  now: Date = new Date(),
+): Promise<SharedEvent[]> {
+  const events = (await prisma.event.findMany({
+    where: {
+      AND: [
+        { isPublic: true },
+        authorVisibleWhere(viewerId),
+        buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
+        {
+          OR: [
+            { title: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { address: { contains: q, mode: 'insensitive' } },
+          ],
+        },
+      ],
+    },
+    take: limit,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
+    include: buildSharedIncludes(),
+  })) as unknown as PrismaSharedEvent[]
+
+  return events.map((e) => normalizeShared(e, now))
 }
 
 export async function createEvent(

@@ -71,13 +71,17 @@ export async function makeEvent(
     latitude?: number
     longitude?: number
     isFeatured?: boolean
+    title?: string
+    description?: string
+    address?: string | null
   } = {},
 ) {
   const id = uid()
   return testPrisma.event.create({
     data: {
-      title: `Event ${id}`,
-      description: `Description ${id}`,
+      title: overrides.title ?? `Event ${id}`,
+      description: overrides.description ?? `Description ${id}`,
+      address: overrides.address ?? null,
       date: overrides.date ?? new Date(Date.now() + 86400000),
       endDate: overrides.endDate ?? null,
       latitude: overrides.latitude ?? -25.4,

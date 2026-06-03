@@ -1178,3 +1178,451 @@ describe('POST /events/:id/images', () => {
     expect(res.statusCode).toBe(403)
   })
 })
+
+// Bbox que cobre os eventos default (lat -25.4, lng -49.3).
+const BBOX_IN = 'bboxNorth=-25.3&bboxSouth=-25.5&bboxEast=-49.2&bboxWest=-49.4'
+const BBOX_OUT = 'bboxNorth=-23.4&bboxSouth=-23.6&bboxEast=-46.5&bboxWest=-46.7'
+
+describe('GET /events/map/events (viewport)', () => {
+  it('retorna FeedEvent completos no bbox, envelopados em { data, truncated }', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(Array.isArray(body.data)).toBe(true)
+    expect(body.truncated).toBe(false)
+    const found = body.data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeDefined()
+    // shape canônico do FeedEvent
+    expect(found).toMatchObject({
+      id: event.id,
+      latitude: -25.4,
+      longitude: -49.3,
+      userLiked: false,
+      userAttendance: null,
+    })
+    expect(found.author).toMatchObject({ id: author.id })
+    expect(found._count).toMatchObject({ attendances: expect.any(Number) })
+    expect(['UPCOMING', 'SOON', 'ONGOING', 'PAST']).toContain(found.status)
+    expect(Array.isArray(found.friendAttendances)).toBe(true)
+  })
+
+  it('não retorna eventos fora do bbox', async () => {
+    const author = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_OUT}`,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toEqual([])
+  })
+
+  it('funciona anônimo (sem token): friendAttendances vazio', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found.friendAttendances).toEqual([])
+  })
+
+  it('topAttendances: amigos primeiro, depois não-amigos (até 5)', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const strangerA = await makeUser()
+    const strangerB = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    // não-amigos confirmam antes; amigo confirma por último (mais recente).
+    await makeAttendance(strangerA.id, event.id, 'CONFIRMED')
+    await makeAttendance(strangerB.id, event.id, 'CONFIRMED')
+    await makeAttendance(friend.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    // amigo primeiro, apesar de ter confirmado por último
+    expect(found.topAttendances[0].user.id).toBe(friend.id)
+    const ids = found.topAttendances.map(
+      (a: { user: { id: string } }) => a.user.id,
+    )
+    expect(ids).toContain(strangerA.id)
+    expect(ids).toContain(strangerB.id)
+    expect(found.topAttendances).toHaveLength(3)
+    // friendAttendances = subconjunto de amigos
+    expect(found.friendAttendances).toHaveLength(1)
+    expect(found.friendAttendances[0].user.id).toBe(friend.id)
+  })
+
+  it('topAttendances aparece mesmo anônimo (participantes gerais)', async () => {
+    const author = await makeUser()
+    const goer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    await makeAttendance(goer.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+    })
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found.friendAttendances).toEqual([])
+    expect(
+      found.topAttendances.map((a: { user: { id: string } }) => a.user.id),
+    ).toContain(goer.id)
+  })
+
+  it('truncated=true quando o cap (limit) é atingido', async () => {
+    const author = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+    await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&limit=1`,
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toHaveLength(1)
+    expect(res.json().truncated).toBe(true)
+  })
+
+  it('friendsOnly=true: só eventos de amigo ou com presença de amigo', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const stranger = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+
+    const friendEvent = await makeEvent(friend.id, { isPublic: true })
+    const strangerEvent = await makeEvent(stranger.id, { isPublic: true })
+    const strangerEventFriendGoing = await makeEvent(stranger.id, {
+      isPublic: true,
+    })
+    await makeAttendance(friend.id, strangerEventFriendGoing.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&friendsOnly=true`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toContain(friendEvent.id)
+    expect(ids).toContain(strangerEventFriendGoing.id)
+    expect(ids).not.toContain(strangerEvent.id)
+  })
+
+  it('friendAttendances ordena CONFIRMED antes de INTERESTED (prioridade > recência)', async () => {
+    const viewer = await makeUser()
+    const author = await makeUser()
+    const friendConfirmed = await makeUser()
+    const friendInterested = await makeUser()
+    await makeFollow(viewer.id, friendConfirmed.id)
+    await makeFollow(viewer.id, friendInterested.id)
+
+    const event = await makeEvent(author.id, { isPublic: true })
+    // CONFIRMED criado ANTES (mais antigo); INTERESTED depois (mais recente).
+    await makeAttendance(friendConfirmed.id, event.id, 'CONFIRMED')
+    await makeAttendance(friendInterested.id, event.id, 'INTERESTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found.friendAttendances[0].user.id).toBe(friendConfirmed.id)
+  })
+
+  it('regra das 48h: PAST recente aparece, PAST antigo some', async () => {
+    const author = await makeUser()
+    const recent = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    })
+    const old = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 80 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() - 72 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+    })
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toContain(recent.id)
+    expect(ids).not.toContain(old.id)
+  })
+
+  it('filtro status[] restringe o resultado', async () => {
+    const author = await makeUser()
+    const ongoing = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 30 * 60 * 1000),
+      endDate: new Date(Date.now() + 30 * 60 * 1000),
+    })
+    const upcoming = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&status=ONGOING`,
+    })
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toContain(ongoing.id)
+    expect(ids).not.toContain(upcoming.id)
+  })
+
+  it('bbox malformado (north <= south) → 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events/map/events?bboxNorth=-25.5&bboxSouth=-25.3&bboxEast=-49.2&bboxWest=-49.4',
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('autor privado: some para quem não segue, aparece para follower', async () => {
+    const privateAuthor = await makeUser({ isPrivate: true })
+    const stranger = await makeUser()
+    const follower = await makeUser()
+    await makeFollow(follower.id, privateAuthor.id)
+    const event = await makeEvent(privateAuthor.id, { isPublic: true })
+
+    const asStranger = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+    })
+    expect(
+      asStranger.json().data.some((e: { id: string }) => e.id === event.id),
+    ).toBe(false)
+
+    const asFollower = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+    })
+    expect(
+      asFollower.json().data.some((e: { id: string }) => e.id === event.id),
+    ).toBe(true)
+  })
+})
+
+describe('GET /events/search', () => {
+  it('acha por título e retorna FeedEvent com lat/lng, paginado', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, {
+      isPublic: true,
+      title: 'Festival de Jazz no Parque',
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events/search?q=Jazz',
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body).toHaveProperty('nextCursor')
+    const found = body.data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeDefined()
+    expect(found).toMatchObject({
+      id: event.id,
+      latitude: expect.any(Number),
+      longitude: expect.any(Number),
+    })
+    expect(found.author).toMatchObject({ id: author.id })
+  })
+
+  it('acha por descrição e por endereço', async () => {
+    const author = await makeUser()
+    const byDesc = await makeEvent(author.id, {
+      isPublic: true,
+      description: 'Encontro de tecnologia com palestras incríveis',
+    })
+    const byAddr = await makeEvent(author.id, {
+      isPublic: true,
+      address: 'Rua das Palmeiras, 123',
+    })
+
+    const desc = await app.inject({
+      method: 'GET',
+      url: '/events/search?q=palestras',
+    })
+    expect(
+      desc.json().data.some((e: { id: string }) => e.id === byDesc.id),
+    ).toBe(true)
+
+    const addr = await app.inject({
+      method: 'GET',
+      url: '/events/search?q=Palmeiras',
+    })
+    expect(
+      addr.json().data.some((e: { id: string }) => e.id === byAddr.id),
+    ).toBe(true)
+  })
+
+  it('q com menos de 2 chars → 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/events/search?q=a' })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('q ausente → 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/events/search' })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('regra das 48h: PAST antigo não aparece na busca', async () => {
+    const author = await makeUser()
+    const old = await makeEvent(author.id, {
+      isPublic: true,
+      title: 'Workshop Antigo de Cerâmica',
+      date: new Date(Date.now() - 80 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() - 72 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events/search?q=Cerâmica',
+    })
+    expect(res.json().data.some((e: { id: string }) => e.id === old.id)).toBe(
+      false,
+    )
+  })
+
+  it('paginação por cursor sem repetição', async () => {
+    const author = await makeUser()
+    await makeEvent(author.id, { isPublic: true, title: 'Corrida Matinal A' })
+    await makeEvent(author.id, { isPublic: true, title: 'Corrida Matinal B' })
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: '/events/search?q=Corrida&limit=1',
+    })
+    const body1 = page1.json()
+    expect(body1.data).toHaveLength(1)
+    expect(body1.nextCursor).toBeTruthy()
+
+    const page2 = await app.inject({
+      method: 'GET',
+      url: `/events/search?q=Corrida&limit=1&cursor=${body1.nextCursor}`,
+    })
+    const id1 = body1.data[0].id
+    const id2 = page2.json().data[0]?.id
+    expect(id2).not.toBe(id1)
+  })
+
+  it('autor privado não seguido é excluído da busca', async () => {
+    const privateAuthor = await makeUser({ isPrivate: true })
+    const stranger = await makeUser()
+    const event = await makeEvent(privateAuthor.id, {
+      isPublic: true,
+      title: 'Sarau Secreto de Poesia',
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events/search?q=Sarau',
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+    })
+    expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(
+      false,
+    )
+  })
+})
+
+describe('GET /events/map (heatmap) — friendsOnly e 48h', () => {
+  it('friendsOnly=true filtra só eventos da rede', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const stranger = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+    const friendEvent = await makeEvent(friend.id, { isPublic: true })
+    const strangerEvent = await makeEvent(stranger.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map?${BBOX_IN}&friendsOnly=true`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().map((p: { id: string }) => p.id)
+    expect(ids).toContain(friendEvent.id)
+    expect(ids).not.toContain(strangerEvent.id)
+  })
+
+  it('PAST recente (<48h) aparece no heatmap; antigo não', async () => {
+    const author = await makeUser()
+    const recent = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    })
+    const old = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(Date.now() - 80 * 60 * 60 * 1000),
+      endDate: new Date(Date.now() - 72 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map?${BBOX_IN}`,
+    })
+    const ids = res.json().map((p: { id: string }) => p.id)
+    expect(ids).toContain(recent.id)
+    expect(ids).not.toContain(old.id)
+  })
+})
+
+describe('friendsOnly exige autenticação', () => {
+  it('viewport: friendsOnly=true sem token → 401', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&friendsOnly=true`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('heatmap: friendsOnly=true sem token → 401', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map?${BBOX_IN}&friendsOnly=true`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('viewport: friendsOnly=true autenticado sem amigos → 200 vazio (não 401)', async () => {
+    const loner = await makeUser()
+    const author = await makeUser()
+    await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&friendsOnly=true`,
+      headers: { authorization: `Bearer ${token(app, loner.id)}` },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toEqual([])
+  })
+})

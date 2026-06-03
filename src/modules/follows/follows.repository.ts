@@ -9,6 +9,15 @@ const followerSelect = {
   avatarUrl: true,
 } as const
 
+/** IDs que o usuário segue com follow aceito — definição de "amigo" no app. */
+export async function findAcceptedFollowingIds(userId: string) {
+  const follows = await prisma.follow.findMany({
+    where: { followerId: userId, status: 'ACCEPTED' },
+    select: { followingId: true },
+  })
+  return follows.map((f) => f.followingId)
+}
+
 export async function createFollow(
   followerId: string,
   followingId: string,

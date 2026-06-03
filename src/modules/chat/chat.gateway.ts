@@ -1,63 +1,97 @@
 import fastifyWebsocket, { type WebSocket } from '@fastify/websocket'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
-import { CHAT_CHANNEL, type RealtimePayload } from '../../lib/realtime'
+import { CHAT_CHANNEL, type RealtimeEvent, realtime } from '../../lib/realtime'
 import { redis } from '../../lib/redis'
+import { createSocketRegistry, dispatchEvent, isTokenExpired } from './chat.hub'
+import {
+  findActiveParticipantUserIds,
+  findConversationPartnerIds,
+  touchLastSeen,
+} from './chat.repository'
 
-const WS_OPEN = 1
+// Intervalos de manutenção da conexão.
+const HEARTBEAT_MS = 30_000
+const TOKEN_RECHECK_MS = 60_000
 
 /**
  * Camada FINA de entrega ao vivo. Toda a regra de negócio (persistência,
- * autorização) está no REST/service; aqui só repassamos as mensagens já
- * publicadas no Redis para os sockets locais dos participantes.
+ * autorização) vive no REST/service; aqui repassamos eventos já publicados no
+ * Redis para os sockets locais dos participantes e recebemos sinais efêmeros
+ * (digitando). A lógica pura (registro de sockets, frames, expiração) está em
+ * chat.hub.ts e é coberta por testes; este arquivo é o glue de I/O, verificado
+ * manualmente.
  *
- * Multi-instância: o mapa userId→sockets é por processo; o pub/sub do Redis
- * (cliente dedicado via duplicate()) garante que cada instância entregue aos
- * seus sockets. Não é coberto pela suíte Vitest (verificação manual).
+ * Hardening: heartbeat ping/pong derruba conexões zumbis; o token é revalidado
+ * periodicamente (JWT expira no meio de uma sessão longa); timers e sockets são
+ * sempre limpos no close/error.
  */
 export async function chatGateway(app: FastifyInstance) {
   await app.register(fastifyWebsocket)
 
-  const sockets = new Map<string, Set<WebSocket>>()
-
-  function addSocket(userId: string, socket: WebSocket) {
-    const set = sockets.get(userId) ?? new Set<WebSocket>()
-    set.add(socket)
-    sockets.set(userId, set)
-  }
-
-  function removeSocket(userId: string, socket: WebSocket) {
-    const set = sockets.get(userId)
-    if (!set) return
-    set.delete(socket)
-    if (set.size === 0) sockets.delete(userId)
-  }
+  const log = app.log.child({ module: 'chat-ws' })
+  const registry = createSocketRegistry()
 
   if (redis) {
     const subscriber = redis.duplicate()
     subscriber.subscribe(CHAT_CHANNEL).catch((err) => {
-      app.log.error({ err }, 'falha ao assinar canal de chat')
+      log.error({ err }, 'falha ao assinar canal de chat')
     })
     subscriber.on('message', (_channel, raw) => {
       try {
-        const payload = JSON.parse(raw) as RealtimePayload
-        const frame = JSON.stringify({
-          type: 'message',
-          conversationId: payload.conversationId,
-          message: payload.message,
-        })
-        for (const userId of payload.participantIds) {
-          const set = sockets.get(userId)
-          if (!set) continue
-          for (const socket of set) {
-            if (socket.readyState === WS_OPEN) socket.send(frame)
-          }
-        }
+        const event = JSON.parse(raw) as RealtimeEvent
+        dispatchEvent(registry, event)
       } catch (err) {
-        app.log.error({ err }, 'falha ao entregar mensagem de chat')
+        log.error({ err }, 'falha ao entregar evento de chat')
       }
     })
     app.addHook('onClose', async () => {
       await subscriber.quit()
+    })
+    log.info('subscriber de chat ativo')
+  }
+
+  /** Anuncia presença (online/offline) aos parceiros de conversa do usuário. */
+  async function announcePresence(userId: string, online: boolean) {
+    try {
+      let lastSeenAt: string | null = null
+      if (!online) {
+        const seenAt = await touchLastSeen(userId)
+        lastSeenAt = seenAt.toISOString()
+      }
+      const participantIds = await findConversationPartnerIds(userId)
+      if (participantIds.length === 0) return
+      await realtime.publish({
+        type: 'presence',
+        participantIds,
+        userId,
+        online,
+        lastSeenAt,
+      })
+    } catch (err) {
+      log.error({ err, userId, online }, 'falha ao anunciar presença')
+    }
+  }
+
+  /** Sinais efêmeros vindos do cliente (apenas "digitando" no v1). */
+  async function handleInbound(userId: string, raw: string) {
+    let msg: { type?: string; conversationId?: string; isTyping?: boolean }
+    try {
+      msg = JSON.parse(raw)
+    } catch {
+      return
+    }
+    if (msg.type !== 'typing' || typeof msg.conversationId !== 'string') return
+    // Valida participação antes de propagar (evita spoof p/ conversa alheia).
+    const participantIds = await findActiveParticipantUserIds(
+      msg.conversationId,
+    )
+    if (!participantIds.includes(userId)) return
+    await realtime.publish({
+      type: 'typing',
+      conversationId: msg.conversationId,
+      participantIds,
+      userId,
+      isTyping: msg.isTyping === true,
     })
   }
 
@@ -65,19 +99,63 @@ export async function chatGateway(app: FastifyInstance) {
     '/ws/chat',
     { websocket: true },
     (socket: WebSocket, request: FastifyRequest) => {
-      const token = (request.query as { token?: string }).token
-      let userId: string
+      const token = (request.query as { token?: string }).token ?? ''
+      let claims: { sub: string; exp?: number }
       try {
-        const payload = app.jwt.verify<{ sub: string }>(token ?? '')
-        userId = payload.sub
+        claims = app.jwt.verify<{ sub: string; exp?: number }>(token)
       } catch {
         socket.close(4401, 'unauthorized')
         return
       }
+      const userId = claims.sub
 
-      addSocket(userId, socket)
-      socket.on('close', () => removeSocket(userId, socket))
-      socket.on('error', () => removeSocket(userId, socket))
+      const cameOnline = registry.add(userId, socket)
+      if (cameOnline) void announcePresence(userId, true)
+      log.info(
+        { userId, online: cameOnline, sockets: registry.onlineCount() },
+        'socket conectado',
+      )
+
+      // Heartbeat: ping periódico; encerra sockets que pararam de responder.
+      let alive = true
+      socket.on('pong', () => {
+        alive = true
+      })
+      const heartbeat = setInterval(() => {
+        if (!alive) {
+          log.warn({ userId }, 'socket sem pong; encerrando')
+          socket.terminate()
+          return
+        }
+        alive = false
+        try {
+          socket.ping()
+        } catch {
+          socket.terminate()
+        }
+      }, HEARTBEAT_MS)
+
+      // Revalida o JWT: fecha a sessão quando o token expira.
+      const tokenCheck = setInterval(() => {
+        if (isTokenExpired(claims, Math.floor(Date.now() / 1000))) {
+          log.info({ userId }, 'token expirado; fechando socket')
+          socket.close(4401, 'token expired')
+        }
+      }, TOKEN_RECHECK_MS)
+
+      socket.on('message', (raw: Buffer) => {
+        void handleInbound(userId, raw.toString())
+      })
+
+      const cleanup = () => {
+        clearInterval(heartbeat)
+        clearInterval(tokenCheck)
+        const wentOffline = registry.remove(userId, socket)
+        if (wentOffline) void announcePresence(userId, false)
+        log.info({ userId, offline: wentOffline }, 'socket desconectado')
+      }
+      socket.on('close', cleanup)
+      socket.on('error', cleanup)
     },
   )
 }

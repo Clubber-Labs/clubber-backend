@@ -405,13 +405,8 @@ export async function hydrateEvents(
   })
 }
 
-export async function findFollowingIds(userId: string) {
-  const follows = await prisma.follow.findMany({
-    where: { followerId: userId, status: 'ACCEPTED' },
-    select: { followingId: true },
-  })
-  return follows.map((f) => f.followingId)
-}
+// Fonte única da definição de "amigo" (following aceito), em follows.repository.
+export { findAcceptedFollowingIds as findFollowingIds } from '../follows/follows.repository'
 
 /**
  * Categorias preferidas do usuário: as EXPLÍCITAS (escolhidas no perfil) têm

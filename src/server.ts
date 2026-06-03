@@ -14,6 +14,7 @@ import {
 } from 'fastify-type-provider-zod'
 import { env } from './lib/env'
 import { handlePrismaUniqueError } from './lib/errors'
+import { logger } from './lib/logger'
 import { redis } from './lib/redis'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
