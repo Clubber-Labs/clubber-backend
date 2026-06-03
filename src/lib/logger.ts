@@ -1,7 +1,8 @@
 import { pino } from 'pino'
 import { env } from './env'
 
-const level = process.env.LOG_LEVEL ?? (env.NODE_ENV === 'test' ? 'silent' : 'info')
+const level =
+  process.env.LOG_LEVEL ?? (env.NODE_ENV === 'test' ? 'silent' : 'info')
 
 const SENSITIVE_QUERY = /([?&](?:token|ticket|access_token)=)[^&]*/gi
 
@@ -36,10 +37,12 @@ export const logger = pino({
   },
   serializers: {
     err: (err: Error) => ({
-    type: err.constructor.name,
-    message: err.message,
-    stack: err.stack ?? '',
-    ...((err as { code?: string }).code && { code: (err as { code?: string }).code }),
+      type: err.constructor.name,
+      message: err.message,
+      stack: err.stack ?? '',
+      ...((err as { code?: string }).code && {
+        code: (err as { code?: string }).code,
+      }),
     }),
     req(request: {
       method: string

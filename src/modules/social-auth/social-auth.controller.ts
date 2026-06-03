@@ -8,6 +8,9 @@ export async function postSocialLogin(
 ) {
   const { user, profileIncomplete } = await socialLogin(request.body)
   const token = await reply.jwtSign({ sub: user.id })
-  request.log.info({ userId: user.id, provider: request.body.provider }, 'User logged in with social provider')
+  request.log.info(
+    { userId: user.id, provider: request.body.provider },
+    'User logged in with social provider',
+  )
   return reply.send({ token, user, profileIncomplete })
 }

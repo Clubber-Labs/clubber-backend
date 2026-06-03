@@ -46,9 +46,9 @@ const app = fastify({
         type: err.constructor.name,
         message: err.message,
         stack: err.stack ?? '',
-        ...(err as { code?: string }).code && { 
+        ...((err as { code?: string }).code && {
           code: (err as { code?: string }).code,
-        },
+        }),
       }),
       req: (req) => ({
         method: req.method,
@@ -58,7 +58,7 @@ const app = fastify({
         statusCode: res.statusCode,
       }),
     },
-    ...(isDev && { 
+    ...(isDev && {
       transport: {
         target: 'pino-pretty',
         options: {
