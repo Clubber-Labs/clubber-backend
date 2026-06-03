@@ -28,7 +28,13 @@ import type {
   ViewportQuery,
 } from './events.schema'
 
-type Logger = { error: (msg: string) => void }
+type Logger = {
+  trace: (obj: object | string, msg?: string) => void
+  debug: (obj: object | string, msg?: string) => void
+  info: (obj: object | string, msg?: string) => void
+  warn: (obj: object | string, msg?: string) => void
+  error: (obj: object | string, msg?: string) => void
+}
 
 type SharedListResult = {
   data: SharedEvent[]

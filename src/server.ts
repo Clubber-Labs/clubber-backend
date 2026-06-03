@@ -14,7 +14,7 @@ import {
 } from 'fastify-type-provider-zod'
 import { env } from './lib/env'
 import { handlePrismaUniqueError } from './lib/errors'
-import { logger } from './lib/logger'
+import { sanitizeLogUrl } from './lib/logger'
 import { redis } from './lib/redis'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
@@ -36,8 +36,41 @@ import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { usersRoutes } from './modules/users/users.routes'
 
+const isDev = env.NODE_ENV === 'development'
+
 const app = fastify({
-  loggerInstance: logger,
+  logger: {
+    level: env.LOG_LEVEL,
+    serializers: {
+      err: (err: Error) => ({
+        type: err.constructor.name,
+        message: err.message,
+        stack: err.stack ?? '',
+        ...((err as { code?: string }).code && {
+          code: (err as { code?: string }).code,
+        }),
+      }),
+      req: (req) => ({
+        method: req.method,
+        url: sanitizeLogUrl(req.url),
+      }),
+      res: (res) => ({
+        statusCode: res.statusCode,
+      }),
+    },
+    ...(isDev && {
+      transport: {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+          translateTime: 'SYS:HH:MM:ss',
+          ignore: 'pid,hostname,reqId,module',
+          messageFormat: '{if module}[{module}] {end}{msg}',
+          singleLine: false,
+        },
+      },
+    }),
+  },
 }).withTypeProvider<ZodTypeProvider>()
 
 app.setValidatorCompiler(validatorCompiler)
@@ -173,7 +206,7 @@ process.once('SIGINT', shutdown)
 process.once('SIGTERM', shutdown)
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
-  console.log(`🔥 Server is running on http://localhost:${env.PORT}`)
+  app.log.info(`Server is running on http://localhost:${env.PORT}`)
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
   }

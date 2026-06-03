@@ -14,6 +14,7 @@ export async function postEventReport(
   const { eventId } = request.params as ReportEventParams
   const body = request.body as CreateReportBody
   const report = await reportEvent(body, request.user.sub, eventId)
+  request.log.info({ userId: request.user.sub, eventId }, 'User reported event')
   return reply.status(201).send(report)
 }
 
@@ -24,6 +25,10 @@ export async function postCommentReport(
   const { commentId } = request.params as ReportCommentParams
   const body = request.body as CreateReportBody
   const report = await reportComment(body, request.user.sub, commentId)
+  request.log.info(
+    { userId: request.user.sub, commentId },
+    'User reported comment',
+  )
   return reply.status(201).send(report)
 }
 
