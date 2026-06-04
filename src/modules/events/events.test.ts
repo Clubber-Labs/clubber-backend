@@ -415,7 +415,7 @@ describe('GET /events', () => {
       date: new Date(Date.now() + 86_400_000),
       latitude: -25.4,
       longitude: -49.3,
-      category: 'Festa',
+      category: 'PARTY' as const,
       isPublic: true,
       authorId: author.id,
     }))
@@ -437,7 +437,7 @@ describe('GET /events', () => {
       date: new Date(Date.now() + 86_400_000),
       latitude: -25.4,
       longitude: -49.3,
-      category: 'Festa',
+      category: 'PARTY' as const,
       isPublic: true,
       authorId: author.id,
     }))
@@ -445,19 +445,19 @@ describe('GET /events', () => {
     await makeEvent(author.id, {
       latitude: -25.4,
       longitude: -49.3,
-      category: 'Show',
+      category: 'MUSIC',
     })
     await makeEvent(author.id, {
       latitude: -25.4,
       longitude: -49.3,
-      category: 'Show',
+      category: 'MUSIC',
     })
 
-    // 1003 eventos no raio, mas só 2 são 'Show' → cap (1000) aplica sobre o
+    // 1003 eventos no raio, mas só 2 são MUSIC → cap (1000) aplica sobre o
     // conjunto filtrado, então NÃO estoura: 200 com 2 resultados.
     const res = await app.inject({
       method: 'GET',
-      url: '/events?nearLat=-25.4&nearLng=-49.3&radiusKm=50&category=Show',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&radiusKm=50&category=MUSIC',
     })
 
     expect(res.statusCode).toBe(200)

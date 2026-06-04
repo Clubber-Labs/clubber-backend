@@ -148,7 +148,11 @@ function spatialFiltersPredicate(filters: SpatialFilters): Prisma.Sql {
     lifecycleSqlPredicate(filters.status, filters.includePast ?? false, now),
   ]
   if (filters.category && filters.category.length > 0) {
-    conds.push(Prisma.sql`e.category IN (${Prisma.join(filters.category)})`)
+    // category é enum "EventCategory" no schema; o cast pra text evita
+    // "operator does not exist: EventCategory = text" no raw query.
+    conds.push(
+      Prisma.sql`e.category::text IN (${Prisma.join(filters.category)})`,
+    )
   }
   if (filters.dateFrom !== undefined) {
     conds.push(Prisma.sql`e.date >= ${filters.dateFrom}`)
