@@ -74,6 +74,9 @@ function buildSharedIncludes(): Prisma.EventInclude {
     },
     images: {
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      // 1 imagem: o feed (EventCard) renderiza só images[0] como capa; o
+      // detalhe carrega a galeria completa via endpoint dedicado.
+      take: 1,
       select: eventImageSelect,
     },
   }

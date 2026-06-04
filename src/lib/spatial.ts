@@ -58,6 +58,11 @@ export type DistanceCursor = { dist: number; id: string }
 
 export type EventDistanceRow = { id: string; dist: number }
 
+// `events.id` é UUID no Postgres. Validar no decode evita "ERROR: invalid
+// input syntax for type uuid" virar 500 quando o cliente manda cursor
+// adulterado — o controller-level decode null → 400 "Cursor inválido".
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * Filtros secundários aplicados DENTRO da SQL espacial (não depois, no Prisma).
  * Empurrar pro SQL garante que cap/limite/keyset operem sobre o conjunto real
@@ -252,10 +257,12 @@ export async function findEventIdsByDistance(
     radiusKm !== undefined
       ? Prisma.sql`AND ST_DWithin(e.location, ${point}, ${radiusKm * 1000})`
       : Prisma.empty
+  // Sem JOIN com users: visibilityPredicate usa `e.authorIsPrivate`
+  // (denormalizado via trigger) — o JOIN antigo era dead weight que derrubava
+  // o index-scan KNN do GiST.
   const rows = await prisma.$queryRaw<{ id: string }[]>(
     Prisma.sql`
       SELECT e.id FROM events e
-      INNER JOIN users a ON a.id = e."authorId"
       WHERE ${visibilityPredicate(viewerId)}
       ${whereRadius}
       ORDER BY e.location <-> ${point}
@@ -382,7 +389,7 @@ export function decodeDistanceCursor(s: string): DistanceCursor | null {
       typeof decoded.dist === 'number' &&
       Number.isFinite(decoded.dist) &&
       typeof decoded.id === 'string' &&
-      decoded.id.length > 0
+      UUID_RE.test(decoded.id)
     ) {
       return { dist: decoded.dist, id: decoded.id }
     }
@@ -460,7 +467,7 @@ export function decodePopularityCursor(s: string): PopularityCursor | null {
       typeof decoded.score === 'number' &&
       Number.isFinite(decoded.score) &&
       typeof decoded.id === 'string' &&
-      decoded.id.length > 0
+      UUID_RE.test(decoded.id)
     ) {
       return { score: decoded.score, id: decoded.id }
     }

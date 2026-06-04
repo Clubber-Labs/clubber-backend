@@ -473,6 +473,22 @@ describe('GET /events', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('orderBy=distance: cursor com id não-UUID retorna 400 (não 500)', async () => {
+    // Cursor bem-formado em base64url MAS com id que não é UUID — sem
+    // validação, vira "ERROR: invalid input syntax for type uuid" no Postgres
+    // (500). Com validação no decode, vira 400 limpo.
+    const malicious = Buffer.from(
+      JSON.stringify({ dist: 100, id: 'lixo' }),
+      'utf8',
+    ).toString('base64url')
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&cursor=${malicious}`,
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
   it('orderBy=distance: empate de distância — todos os eventos aparecem', async () => {
     const author = await makeUser()
     const a = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })

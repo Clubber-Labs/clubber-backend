@@ -81,7 +81,11 @@ export function resetMetrics() {
 }
 
 function escapeLabel(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  // Prometheus text format exige escape de \, " e \n nos values de label.
+  return value
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, '\\n')
 }
 
 export function renderMetrics(): string {
