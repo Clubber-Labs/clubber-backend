@@ -716,30 +716,39 @@ describe('GET /events', () => {
     ).toBe(false)
   })
 
-  it('orderBy=distance: empate paginado não duplica eventos entre páginas', async () => {
+  it('orderBy=distance: empate paginado cobre todos sem pular nem duplicar', async () => {
     const author = await makeUser()
-    // 3 eventos na MESMA coordenada (empate de distância exato)
-    await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
-    await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
-    await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    // 5 eventos na MESMA coordenada (empate de distância exato). Limit=2
+    // força corte no meio do grupo de empate — caso patológico do KNN-only
+    // que o drain de ties no consumer resolve.
+    const e1 = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    const e2 = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    const e3 = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    const e4 = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    const e5 = await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
+    const allIds = [e1.id, e2.id, e3.id, e4.id, e5.id].sort()
 
-    const page1 = await app.inject({
-      method: 'GET',
-      url: '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&limit=2',
-    })
-    const ids1 = page1.json().data.map((e: { id: string }) => e.id)
-    const cursor = page1.json().nextCursor as string
+    const seen: string[] = []
+    let cursor: string | null = null
+    for (let page = 0; page < 5; page++) {
+      const url: string =
+        '/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&limit=2' +
+        (cursor ? `&cursor=${encodeURIComponent(cursor)}` : '')
+      const res = await app.inject({ method: 'GET', url })
+      const body = res.json() as {
+        data: { id: string }[]
+        nextCursor: string | null
+      }
+      const ids = body.data.map((e) => e.id)
+      // Sem duplicata em relação a páginas anteriores.
+      expect(ids.filter((id) => seen.includes(id))).toEqual([])
+      seen.push(...ids)
+      if (!body.nextCursor) break
+      cursor = body.nextCursor
+    }
 
-    const page2 = await app.inject({
-      method: 'GET',
-      url: `/events?nearLat=-25.4&nearLng=-49.3&orderBy=distance&limit=2&cursor=${encodeURIComponent(cursor)}`,
-    })
-    const ids2 = page2.json().data.map((e: { id: string }) => e.id)
-
-    // Garantia do keyset com ORDER BY só por distância: o WHERE do cursor
-    // (dist,id) de-dup → SEM duplicata entre páginas. (Em empate de coordenada
-    // EXATA, a página pode não trazer todos — trade-off documentado do índice.)
-    expect(ids2.filter((id: string) => ids1.includes(id))).toEqual([])
+    // Cobertura total: todos os 5 eventos do grupo de empate apareceram.
+    expect(seen.sort()).toEqual(allIds)
   })
 })
 

@@ -13,10 +13,12 @@ import { authorVisibleWhere } from '../../lib/profile-visibility'
 import {
   type Bbox,
   type DistanceCursor,
+  type EventDistanceRow,
   decodeDistanceCursor,
   decodePopularityCursor,
   encodeDistanceCursor,
   encodePopularityCursor,
+  findEventIdsAtExactDistance,
   findEventIdsByDistanceKeyset,
   findEventIdsByPopularityKeyset,
   findEventIdsInBbox,
@@ -266,8 +268,41 @@ export async function findPublicEventsByDistance(
   })
   if (knnRows.length === 0) return { events: [], nextCursor: null }
 
-  const hasMore = knnRows.length > limit
-  const pageRows = hasMore ? knnRows.slice(0, limit) : knnRows
+  let hasMore = knnRows.length > limit
+  const pageRows: EventDistanceRow[] = hasMore
+    ? knnRows.slice(0, limit)
+    : knnRows.slice()
+
+  // Drain do grupo de empate na borda: se o peek (knnRows[limit]) tem MESMA
+  // distância do último da página, o grupo de empate cruza a borda. Com
+  // KNN-only a ordem entre empates é não-determinística — sem drenar o resto
+  // do grupo, o cursor pula (id < last.id no grupo, "perdido") ou repete
+  // (id > last.id, "duplicado") na próxima página. O drain busca os
+  // restantes do grupo até `MAX_TIE_DRAIN` e o cursor avança pro MAX(id)
+  // de todos os ties da página — garantindo cobertura total sem dup.
+  const lastDist = pageRows[pageRows.length - 1].dist
+  const tieAtBoundary = hasMore && knnRows[limit].dist === lastDist
+  if (tieAtBoundary) {
+    const drainedIds = await findEventIdsAtExactDistance({
+      center: { latitude: filters.nearLat, longitude: filters.nearLng },
+      dist: lastDist,
+      excludeIds: pageRows.map((r) => r.id),
+      filters: {
+        category: filters.category,
+        dateFrom: filters.dateFrom,
+        dateTo: filters.dateTo,
+        status: filters.status,
+        includePast: filters.includePast,
+        now,
+      },
+      viewerId,
+    })
+    for (const id of drainedIds) pageRows.push({ id, dist: lastDist })
+    // Conservativo: mesmo sem o peek de dist > lastDist, mantemos hasMore=true.
+    // Pior caso é a próxima página vir vazia — UX aceita; a alternativa seria
+    // outra query só pra confirmar, paga toda página com tie na borda.
+    hasMore = true
+  }
 
   const events = (await prisma.event.findMany({
     where: { id: { in: pageRows.map((r) => r.id) } },
@@ -279,9 +314,15 @@ export async function findPublicEventsByDistance(
     .map((r) => byId.get(r.id))
     .filter((e): e is PrismaSharedEvent => e !== undefined)
 
-  const last = pageRows[pageRows.length - 1]
+  // Cursor avança pro MAX(id) entre TODOS os eventos da página com a última
+  // distância (originais + drenados). Combinado com o drain acima, o WHERE
+  // do cursor `id > MAX AND dist == lastDist` retorna ∅ no grupo de empate
+  // — a próxima página só vê eventos com dist > lastDist.
+  const tieMaxId = pageRows
+    .filter((r) => r.dist === lastDist)
+    .reduce((max, r) => (r.id > max ? r.id : max), '')
   const nextCursor = hasMore
-    ? encodeDistanceCursor({ dist: last.dist, id: last.id })
+    ? encodeDistanceCursor({ dist: lastDist, id: tieMaxId })
     : null
 
   return {

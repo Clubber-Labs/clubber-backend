@@ -28,6 +28,16 @@ export type LatLng = { latitude: number; longitude: number }
 export const RADIUS_MAX_RESULTS = 1000
 
 /**
+ * Cap pra drain do grupo de empate de distância na borda da página (ver
+ * `findEventIdsAtExactDistance`). Coordenadas exatamente iguais entre N
+ * eventos quebram o keyset KNN-only — drenamos o grupo todo pra garantir
+ * que cursor.id seja o MAX(id) verdadeiro, eliminando dup E skip. Acima
+ * disso é patológico (mil eventos no MESMO ponto); aí degradamos pra
+ * "paginação imperfeita" em vez de OOM.
+ */
+export const MAX_TIE_DRAIN = 100
+
+/**
  * Snap de coordenadas a uma grade de ~110m (3 casas decimais). Usuários
  * próximos caem na mesma célula → compartilham a entrada de cache, o que
  * destrava o hit-rate da busca por proximidade (RNF05.2). O snap afeta a
@@ -294,9 +304,10 @@ export async function findEventIdsByDistanceKeyset(opts: {
   }
 
   // ORDER BY só por distância (sem `, id`): preserva o index-scan KNN do GiST
-  // (um 2º critério forçaria sort de ~80k linhas). O tiebreak por id fica no
-  // WHERE do cursor (de-dup ao paginar); em empate de coordenada EXATA a ordem
-  // entre eles é não-determinística — aceitável num feed "perto de mim".
+  // (um 2º critério forçaria sort de ~80k linhas). A ordem entre eventos em
+  // empate de distância é não-determinística — o consumer dreno o grupo de
+  // empate na borda da página (`findEventIdsAtExactDistance`) e usa MAX(id)
+  // como cursor pra eliminar dup e skip.
   const rows = await prisma.$queryRaw<{ id: string; dist: number }[]>(
     Prisma.sql`
       SELECT e.id, (e.location <-> ${point}) AS dist
@@ -307,6 +318,51 @@ export async function findEventIdsByDistanceKeyset(opts: {
     `,
   )
   return rows.map((r) => ({ id: r.id, dist: Number(r.dist) }))
+}
+
+/**
+ * Drain do grupo de empate de distância exata na borda de uma página KNN.
+ *
+ * Por que existe: KNN-only (`ORDER BY <->`) sem tiebreak por id tem ordem
+ * NÃO-DETERMINÍSTICA entre eventos no MESMO ponto geocodificado. Se a página
+ * cortar no meio de um grupo de empate, o cursor `{dist, last.id}` ou pula
+ * eventos (id < last.id no grupo) ou repete (id > last.id já visto). Drenar
+ * o grupo inteiro na borda + avançar pro `MAX(id)` do grupo elimina os dois.
+ *
+ * Cap em `MAX_TIE_DRAIN`: pra coords exatamente iguais entre N eventos com
+ * N >> 100, voltamos pro modo "paginação imperfeita" em vez de OOM. Em dados
+ * reais (geocoder) ties são raros e nunca > algumas unidades; cap é teto
+ * defensivo, não regime de operação.
+ */
+export async function findEventIdsAtExactDistance(opts: {
+  center: LatLng
+  dist: number
+  excludeIds: string[]
+  cap?: number
+  filters?: SpatialFilters
+  viewerId?: string
+}): Promise<string[]> {
+  const { center, dist, excludeIds, filters = {}, viewerId } = opts
+  const cap = opts.cap ?? MAX_TIE_DRAIN
+  if (excludeIds.length === 0) return []
+  const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${center.longitude}, ${center.latitude}), 4326)::geography`
+
+  const conditions: Prisma.Sql[] = [
+    visibilityPredicate(viewerId),
+    spatialFiltersPredicate(filters),
+    Prisma.sql`(e.location <-> ${point}) = ${dist}`,
+    Prisma.sql`e.id NOT IN (${Prisma.join(excludeIds)})`,
+  ]
+
+  const rows = await prisma.$queryRaw<{ id: string }[]>(
+    Prisma.sql`
+      SELECT e.id
+      FROM events e
+      WHERE ${Prisma.join(conditions, ' AND ')}
+      LIMIT ${cap}
+    `,
+  )
+  return rows.map((r) => r.id)
 }
 
 /**
