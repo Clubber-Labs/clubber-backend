@@ -4,6 +4,7 @@ import {
   findFollow,
   findFollowStatusesByFollower,
 } from '../follows/follows.repository'
+import { getConsentSummary } from '../consent/consent.service'
 import {
   createUser,
   deleteUser,
@@ -106,7 +107,12 @@ export async function getMe(userId: string) {
   // confundiria com "recurso ausente").
   if (!user) throw { statusCode: 401, message: 'Sessão inválida' }
   const { _count, ...rest } = user
-  return { ...withPreferredCategories(rest), eventsCount: _count.events }
+  // Paralelo: evita round-trip sequencial ao banco
+  const [preferredUser, consent] = await Promise.all([
+    Promise.resolve(withPreferredCategories(rest)),
+    getConsentSummary(userId),
+  ])
+  return { ...preferredUser, eventsCount: _count.events, consent }
 }
 
 export async function registerUser(data: CreateUserBody) {

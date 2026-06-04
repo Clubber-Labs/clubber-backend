@@ -34,6 +34,7 @@ import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
+import { consentRoutes } from './modules/consent/consent.routes'
 import { usersRoutes } from './modules/users/users.routes'
 
 const isDev = env.NODE_ENV === 'development'
@@ -173,6 +174,7 @@ app.register(categoriesRoutes)
 app.register(eventsRoutes)
 app.register(featuredEventsRoutes)
 app.register(usersRoutes)
+app.register(consentRoutes)
 app.register(followsRoutes)
 app.register(attendanceRoutes)
 app.register(postsRoutes)
