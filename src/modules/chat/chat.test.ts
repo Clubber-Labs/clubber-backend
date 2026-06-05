@@ -1989,6 +1989,65 @@ describe('idempotência de envio (Fase 2 #7)', () => {
     expect(r2.statusCode).toBe(201)
     expect(r2.json().id).not.toBe(r1.json().id)
   })
+
+  it('áudio: retry com a mesma key não re-sobe o arquivo nem duplica', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const send = () => {
+      const { body, contentType } = multipartFormData(
+        tinyM4aBuffer(),
+        'audio',
+        'nota.m4a',
+        'audio/mp4',
+        { durationMs: '1000' },
+      )
+      return app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/audio`,
+        headers: { ...idem(a.id, 'aud-1'), 'content-type': contentType },
+        payload: body,
+      })
+    }
+
+    const first = await send()
+    const second = await send()
+
+    expect(first.statusCode).toBe(201)
+    expect(second.json().id).toBe(first.json().id)
+    // Dedup ANTES do upload: o segundo nem sobe o arquivo.
+    expect(fakeStorage.uploads).toHaveLength(1)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(1)
+  })
+
+  it('vídeo: retry com a mesma key não duplica', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const publicId = `conversations/${convo.id}/${randomUUID()}`
+
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: idem(a.id, 'vid-1'),
+        body: { publicId },
+      })
+
+    const first = await send()
+    const second = await send()
+
+    expect(first.statusCode).toBe(201)
+    expect(second.json().id).toBe(first.json().id)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(1)
+  })
 })
 
 describe('mídia privada — URLs assinadas e revogação (Fase 2 #1)', () => {

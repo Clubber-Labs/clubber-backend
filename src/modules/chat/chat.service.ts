@@ -369,6 +369,14 @@ async function resolveIdempotencyConflict(
   idempotencyKey?: string,
 ) {
   if (!idempotencyKey || !isUniqueViolation(err)) return null
+  // Garante que o P2002 foi do unique de idempotência e não de uma constraint
+  // futura — senão devolveríamos a mensagem errada e mascararíamos o erro real.
+  // `meta.target` pode ser array de campos ou o nome do índice (ou ausente).
+  const target = (err as { meta?: { target?: unknown } }).meta?.target
+  if (target !== undefined) {
+    const fields = Array.isArray(target) ? target.join(',') : String(target)
+    if (!fields.includes('idempotencyKey')) return null
+  }
   const existing = await findMessageByIdempotencyKey(
     conversationId,
     userId,
@@ -510,20 +518,21 @@ export async function sendAudioMessage(
   let participantIds: string[]
   try {
     participantIds = await authorizeSend(conversationId, userId)
+    const existing = await findIdempotentMessage(
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (existing) {
+      file.resume() // retry: não vamos consumir/subir o áudio — drena o stream
+      return existing
+    }
   } catch (err) {
-    // Barramos ANTES de consumir o arquivo: drena o stream pra não deixar a
-    // conexão pendurada (o multipart espera o corpo ser lido).
+    // Barramos/erramos ANTES de consumir o arquivo: drena o stream pra não
+    // deixar a conexão pendurada (o multipart espera o corpo ser lido). Cobre
+    // tanto a falha de autorização quanto a do lookup de idempotência.
     file.resume()
     throw err
-  }
-  const existing = await findIdempotentMessage(
-    conversationId,
-    userId,
-    idempotencyKey,
-  )
-  if (existing) {
-    file.resume() // retry: não vamos consumir/subir o áudio — drena o stream
-    return existing
   }
   const uploaded = await uploadMessageAudio(file, conversationId, mimetype)
   let message: MessageRow

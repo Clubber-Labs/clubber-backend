@@ -118,6 +118,9 @@ export async function postMessageImage(
   reply: FastifyReply,
 ) {
   const { id } = request.params as ConversationParam
+  // Lê a key ANTES de abrir o multipart: se for inválida (400), nenhum stream
+  // foi aberto — evita deixar a conexão pendurada com o corpo não consumido.
+  const idempotencyKey = readIdempotencyKey(request)
   const data = await request.file()
   if (!data) {
     throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
@@ -128,7 +131,7 @@ export async function postMessageImage(
     request.user.sub,
     id,
     buffer,
-    readIdempotencyKey(request),
+    idempotencyKey,
   )
   return reply.status(201).send(message)
 }
@@ -173,6 +176,9 @@ export async function postMessageAudio(
   reply: FastifyReply,
 ) {
   const { id } = request.params as ConversationParam
+  // Lê a key ANTES de abrir o stream: se for inválida (400), nenhum stream foi
+  // aberto e não há corpo pendurado pra drenar.
+  const idempotencyKey = readIdempotencyKey(request)
   // throwFileSizeLimit: false → não lança no teto; o áudio sobe em STREAM (sem
   // toBuffer) e o truncamento é tratado na camada de upload (413).
   const data = await request.file({ throwFileSizeLimit: false })
@@ -188,7 +194,7 @@ export async function postMessageAudio(
     data.file,
     data.mimetype,
     meta,
-    readIdempotencyKey(request),
+    idempotencyKey,
   )
   return reply.status(201).send(message)
 }
