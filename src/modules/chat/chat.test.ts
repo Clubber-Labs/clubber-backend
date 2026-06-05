@@ -1843,6 +1843,213 @@ describe('ciclo de vida de mídia (auditoria 1.1/1.2)', () => {
   })
 })
 
+describe('idempotência de envio (Fase 2 #7)', () => {
+  const idem = (userId: string, key: string) => ({
+    ...auth(userId),
+    'idempotency-key': key,
+  })
+
+  it('texto: mesma Idempotency-Key não duplica (devolve a mesma mensagem)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: idem(a.id, 'key-1'),
+      body: { content: 'oi' },
+    })
+    const second = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: idem(a.id, 'key-1'),
+      body: { content: 'oi' },
+    })
+
+    expect(first.statusCode).toBe(201)
+    expect(second.statusCode).toBe(201)
+    expect(second.json().id).toBe(first.json().id)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(1)
+  })
+
+  it('texto: sem Idempotency-Key, dois envios iguais duplicam', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    for (let i = 0; i < 2; i++) {
+      await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages`,
+        headers: auth(a.id),
+        body: { content: 'oi' },
+      })
+    }
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(2)
+  })
+
+  it('texto: keys diferentes criam mensagens diferentes', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const r1 = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: idem(a.id, 'k1'),
+      body: { content: 'oi' },
+    })
+    const r2 = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: idem(a.id, 'k2'),
+      body: { content: 'oi' },
+    })
+    expect(r2.json().id).not.toBe(r1.json().id)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(2)
+  })
+
+  it('imagem: retry com a mesma key não re-sobe o arquivo nem duplica', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const png = await tinyPngBuffer()
+
+    const send = () => {
+      const { body, contentType } = multipartFormData(
+        png,
+        'image',
+        'foto.png',
+        'image/png',
+      )
+      return app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/images`,
+        headers: { ...idem(a.id, 'img-1'), 'content-type': contentType },
+        payload: body,
+      })
+    }
+
+    const first = await send()
+    const second = await send()
+
+    expect(second.json().id).toBe(first.json().id)
+    // Dedup ANTES do upload: o segundo nem sobe o arquivo.
+    expect(fakeStorage.uploads).toHaveLength(1)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(1)
+  })
+
+  it('Idempotency-Key acima de 200 chars → 400', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages`,
+      headers: idem(a.id, 'x'.repeat(201)),
+      body: { content: 'oi' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('a mesma key em conversas diferentes não colide', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const c = await makeUser()
+    const convo1 = await makeDirectConversation(a.id, b.id)
+    const convo2 = await makeDirectConversation(a.id, c.id)
+
+    const r1 = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo1.id}/messages`,
+      headers: idem(a.id, 'same'),
+      body: { content: 'um' },
+    })
+    const r2 = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo2.id}/messages`,
+      headers: idem(a.id, 'same'),
+      body: { content: 'dois' },
+    })
+    expect(r1.statusCode).toBe(201)
+    expect(r2.statusCode).toBe(201)
+    expect(r2.json().id).not.toBe(r1.json().id)
+  })
+
+  it('áudio: retry com a mesma key não re-sobe o arquivo nem duplica', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const send = () => {
+      const { body, contentType } = multipartFormData(
+        tinyM4aBuffer(),
+        'audio',
+        'nota.m4a',
+        'audio/mp4',
+        { durationMs: '1000' },
+      )
+      return app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/audio`,
+        headers: { ...idem(a.id, 'aud-1'), 'content-type': contentType },
+        payload: body,
+      })
+    }
+
+    const first = await send()
+    const second = await send()
+
+    expect(first.statusCode).toBe(201)
+    expect(second.json().id).toBe(first.json().id)
+    // Dedup ANTES do upload: o segundo nem sobe o arquivo.
+    expect(fakeStorage.uploads).toHaveLength(1)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(1)
+  })
+
+  it('vídeo: retry com a mesma key não duplica', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const publicId = `conversations/${convo.id}/${randomUUID()}`
+
+    const send = () =>
+      app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: idem(a.id, 'vid-1'),
+        body: { publicId },
+      })
+
+    const first = await send()
+    const second = await send()
+
+    expect(first.statusCode).toBe(201)
+    expect(second.json().id).toBe(first.json().id)
+    const count = await testPrisma.message.count({
+      where: { conversationId: convo.id },
+    })
+    expect(count).toBe(1)
+  })
+})
+
 describe('mídia privada — URLs assinadas e revogação (Fase 2 #1)', () => {
   it('imagem de chat sobe como authenticated (privada)', async () => {
     const a = await makeUser()

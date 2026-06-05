@@ -166,10 +166,16 @@ model Message {
   replyTo   Message?  @relation("messageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
   replies   Message[] @relation("messageReplies")
 
+  // Idempotência de envio: chave gerada pelo cliente (header Idempotency-Key).
+  // Retry com a mesma chave devolve a mensagem existente em vez de duplicar.
+  // Null = sem idempotência (Postgres trata nulls como distintos no unique).
+  idempotencyKey String?
+
   attachments MessageAttachment[]
   reactions   MessageReaction[]
   reports     Report[]
 
+  @@unique([conversationId, senderId, idempotencyKey])
   @@index([conversationId, createdAt])
   @@map("messages")
 }

@@ -34,6 +34,7 @@ import {
   findDirectByKey,
   findMessageAttachments,
   findMessageById,
+  findMessageByIdempotencyKey,
   findMessageWithConversation,
   findParticipant,
   findUserBrief,
@@ -337,13 +338,67 @@ export async function listMessages(
   return { data: messages.map(shapeMessage), nextCursor }
 }
 
+/**
+ * Idempotência de envio: se já existe uma mensagem com esta `idempotencyKey`
+ * (mesma conversa+remetente), devolve a existente — retry não duplica. Null se
+ * não houver key ou ainda não existir.
+ */
+async function findIdempotentMessage(
+  conversationId: string,
+  userId: string,
+  idempotencyKey?: string,
+) {
+  if (!idempotencyKey) return null
+  const existing = await findMessageByIdempotencyKey(
+    conversationId,
+    userId,
+    idempotencyKey,
+  )
+  return existing ? shapeMessage(existing) : null
+}
+
+/**
+ * Corrida: dois envios concorrentes com a mesma key passam pelo check inicial e
+ * ambos tentam inserir; o segundo viola o unique (P2002). Aqui devolvemos a
+ * mensagem que venceu em vez de propagar o erro. Null se não for esse caso.
+ */
+async function resolveIdempotencyConflict(
+  err: unknown,
+  conversationId: string,
+  userId: string,
+  idempotencyKey?: string,
+) {
+  if (!idempotencyKey || !isUniqueViolation(err)) return null
+  // Garante que o P2002 foi do unique de idempotência e não de uma constraint
+  // futura — senão devolveríamos a mensagem errada e mascararíamos o erro real.
+  // `meta.target` pode ser array de campos ou o nome do índice (ou ausente).
+  const target = (err as { meta?: { target?: unknown } }).meta?.target
+  if (target !== undefined) {
+    const fields = Array.isArray(target) ? target.join(',') : String(target)
+    if (!fields.includes('idempotencyKey')) return null
+  }
+  const existing = await findMessageByIdempotencyKey(
+    conversationId,
+    userId,
+    idempotencyKey,
+  )
+  return existing ? shapeMessage(existing) : null
+}
+
 export async function sendTextMessage(
   userId: string,
   conversationId: string,
   content: string,
   replyToId?: string,
+  idempotencyKey?: string,
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
+  const existing = await findIdempotentMessage(
+    conversationId,
+    userId,
+    idempotencyKey,
+  )
+  if (existing) return existing
   if (replyToId) {
     // Citar exige que a mensagem original seja da MESMA conversa (evita vazar
     // conteúdo de outra conversa via preview do reply).
@@ -352,12 +407,25 @@ export async function sendTextMessage(
       throw { statusCode: 400, message: 'Mensagem citada inválida' }
     }
   }
-  const message = await createTextMessage(
-    conversationId,
-    userId,
-    content,
-    replyToId,
-  )
+  let message: MessageRow
+  try {
+    message = await createTextMessage(
+      conversationId,
+      userId,
+      content,
+      replyToId,
+      idempotencyKey,
+    )
+  } catch (err) {
+    const dup = await resolveIdempotencyConflict(
+      err,
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (dup) return dup
+    throw err
+  }
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
@@ -371,6 +439,7 @@ async function persistAttachmentOrCleanup(
   conversationId: string,
   userId: string,
   attachment: Parameters<typeof createAttachmentMessage>[3],
+  idempotencyKey?: string,
 ) {
   try {
     return await createAttachmentMessage(
@@ -378,8 +447,13 @@ async function persistAttachmentOrCleanup(
       userId,
       null,
       attachment,
+      idempotencyKey,
     )
   } catch (err) {
+    // Imagem/áudio: o upload é exclusivo desta request (key único), então é
+    // seguro deletá-lo em QUALQUER falha do insert — inclusive corrida de
+    // idempotência (o vencedor tem o seu próprio asset). O caller converte o
+    // P2002 em "devolver a existente".
     await deleteUploaded(
       attachment.key,
       logger,
@@ -393,18 +467,42 @@ export async function sendImageMessage(
   userId: string,
   conversationId: string,
   buffer: Buffer,
+  idempotencyKey?: string,
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
+  const existing = await findIdempotentMessage(
+    conversationId,
+    userId,
+    idempotencyKey,
+  )
+  if (existing) return existing // retry: nem faz upload
   const uploaded = await uploadMessageImage(buffer, conversationId)
-  const message = await persistAttachmentOrCleanup(conversationId, userId, {
-    kind: 'IMAGE',
-    url: uploaded.url,
-    key: uploaded.key,
-    format: uploaded.format,
-    size: uploaded.size,
-    width: uploaded.width,
-    height: uploaded.height,
-  })
+  let message: MessageRow
+  try {
+    message = await persistAttachmentOrCleanup(
+      conversationId,
+      userId,
+      {
+        kind: 'IMAGE',
+        url: uploaded.url,
+        key: uploaded.key,
+        format: uploaded.format,
+        size: uploaded.size,
+        width: uploaded.width,
+        height: uploaded.height,
+      },
+      idempotencyKey,
+    )
+  } catch (err) {
+    const dup = await resolveIdempotencyConflict(
+      err,
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (dup) return dup // o asset órfão já foi limpo no persistAttachmentOrCleanup
+    throw err
+  }
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
@@ -415,26 +513,54 @@ export async function sendAudioMessage(
   file: Readable & { truncated?: boolean },
   mimetype: string,
   meta: AudioMessageMeta,
+  idempotencyKey?: string,
 ) {
   let participantIds: string[]
   try {
     participantIds = await authorizeSend(conversationId, userId)
+    const existing = await findIdempotentMessage(
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (existing) {
+      file.resume() // retry: não vamos consumir/subir o áudio — drena o stream
+      return existing
+    }
   } catch (err) {
-    // Barramos ANTES de consumir o arquivo: drena o stream pra não deixar a
-    // conexão pendurada (o multipart espera o corpo ser lido).
+    // Barramos/erramos ANTES de consumir o arquivo: drena o stream pra não
+    // deixar a conexão pendurada (o multipart espera o corpo ser lido). Cobre
+    // tanto a falha de autorização quanto a do lookup de idempotência.
     file.resume()
     throw err
   }
   const uploaded = await uploadMessageAudio(file, conversationId, mimetype)
-  const message = await persistAttachmentOrCleanup(conversationId, userId, {
-    kind: 'AUDIO',
-    url: uploaded.url,
-    key: uploaded.key,
-    format: uploaded.format,
-    size: uploaded.size,
-    durationMs: meta.durationMs,
-    waveform: meta.waveform ?? [],
-  })
+  let message: MessageRow
+  try {
+    message = await persistAttachmentOrCleanup(
+      conversationId,
+      userId,
+      {
+        kind: 'AUDIO',
+        url: uploaded.url,
+        key: uploaded.key,
+        format: uploaded.format,
+        size: uploaded.size,
+        durationMs: meta.durationMs,
+        waveform: meta.waveform ?? [],
+      },
+      idempotencyKey,
+    )
+  } catch (err) {
+    const dup = await resolveIdempotencyConflict(
+      err,
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (dup) return dup
+    throw err
+  }
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
@@ -478,8 +604,15 @@ export async function sendVideoMessage(
   userId: string,
   conversationId: string,
   publicId: string,
+  idempotencyKey?: string,
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
+  const existing = await findIdempotentMessage(
+    conversationId,
+    userId,
+    idempotencyKey,
+  )
+  if (existing) return existing
   const asset = await getStorage().getAsset(publicId, 'video')
   if (!asset) {
     throw { statusCode: 400, message: 'Vídeo não encontrado no provedor' }
@@ -493,17 +626,40 @@ export async function sendVideoMessage(
   if (asset.bytes > MAX_VIDEO_SIZE) {
     throw { statusCode: 413, message: 'Vídeo excede o limite de 50 MB' }
   }
-  const message = await persistAttachmentOrCleanup(conversationId, userId, {
-    kind: 'VIDEO',
-    url: asset.url,
-    key: asset.publicId,
-    format: asset.format,
-    size: asset.bytes,
-    durationMs: asset.durationMs,
-    width: asset.width,
-    height: asset.height,
-    thumbnailUrl: asset.thumbnailUrl,
-  })
+  let message: MessageRow
+  try {
+    message = await createAttachmentMessage(
+      conversationId,
+      userId,
+      null,
+      {
+        kind: 'VIDEO',
+        url: asset.url,
+        key: asset.publicId,
+        format: asset.format,
+        size: asset.bytes,
+        durationMs: asset.durationMs,
+        width: asset.width,
+        height: asset.height,
+        thumbnailUrl: asset.thumbnailUrl,
+      },
+      idempotencyKey,
+    )
+  } catch (err) {
+    // Corrida de idempotência: devolve a vencedora SEM deletar o asset — diferente
+    // de imagem/áudio, o vídeo é subido pelo cliente e o publicId pode ser o MESMO
+    // nas requests concorrentes (deletar quebraria a mensagem vencedora).
+    const dup = await resolveIdempotencyConflict(
+      err,
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (dup) return dup
+    // Falha não-idempotência → o asset (subido pelo cliente) virou órfão: limpa.
+    await deleteUploaded(asset.publicId, logger, 'video')
+    throw err
+  }
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
