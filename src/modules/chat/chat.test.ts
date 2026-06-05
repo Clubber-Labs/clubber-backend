@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
@@ -713,6 +714,223 @@ describe('anexo de áudio', () => {
       body: { content: 'tentando editar' },
     })
     expect(res.statusCode).toBe(403)
+  })
+})
+
+describe('vídeo — upload direto assinado', () => {
+  describe('assinatura (POST /messages/video/signature)', () => {
+    it('gera assinatura travada na pasta da conversa', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video/signature`,
+        headers: auth(a.id),
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = res.json()
+      expect(body.signature).toBeTruthy()
+      expect(body.timestamp).toBeTruthy()
+      expect(body.apiKey).toBeTruthy()
+      expect(body.cloudName).toBeTruthy()
+      expect(body.resourceType).toBe('video')
+      // A pasta é travada pelo backend na conversa — o cliente não a escolhe.
+      expect(body.folder).toBe(`conversations/${convo.id}`)
+    })
+
+    it('não-participante → 403', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const outsider = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video/signature`,
+        headers: auth(outsider.id),
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('sem autenticação → 401', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video/signature`,
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('conversa inexistente → 404', async () => {
+      const a = await makeUser()
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${randomUUID()}/messages/video/signature`,
+        headers: auth(a.id),
+      })
+      expect(res.statusCode).toBe(404)
+    })
+  })
+
+  describe('criar mensagem (POST /messages/video)', () => {
+    it('cria a mensagem a partir do publicId verificado no provider', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const publicId = `conversations/${convo.id}/${randomUUID()}`
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId },
+      })
+
+      expect(res.statusCode).toBe(201)
+      const attachment = res.json().attachments[0]
+      expect(res.json().attachments).toHaveLength(1)
+      expect(attachment.kind).toBe('VIDEO')
+      // Metadados vêm do provider (fake), não do cliente.
+      expect(attachment.durationMs).toBe(8200)
+      expect(attachment.width).toBe(1080)
+      expect(attachment.height).toBe(1920)
+      expect(attachment.format).toBe('mp4')
+      expect(attachment.url).toMatch(/^https:\/\/fake\.storage\//)
+    })
+
+    it('publicId de outra conversa → 403', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      // publicId aponta para a pasta de OUTRA conversa.
+      const publicId = `conversations/${randomUUID()}/${randomUUID()}`
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('asset inexistente no provider → 400', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const publicId = `conversations/${convo.id}/missing`
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('formato não suportado → 400', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const publicId = `conversations/${convo.id}/badformat`
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('vídeo acima do limite → 413', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const publicId = `conversations/${convo.id}/toobig`
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId },
+      })
+      expect(res.statusCode).toBe(413)
+    })
+
+    it('não-participante → 403', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const outsider = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const publicId = `conversations/${convo.id}/${randomUUID()}`
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(outsider.id),
+        body: { publicId },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    it('sem autenticação → 401', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        body: { publicId: `conversations/${convo.id}/${randomUUID()}` },
+      })
+      expect(res.statusCode).toBe(401)
+    })
+
+    it('publicId vazio → 400', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId: '' },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('mensagem só de vídeo não pode ser editada → 403', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const publicId = `conversations/${convo.id}/${randomUUID()}`
+
+      const created = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video`,
+        headers: auth(a.id),
+        body: { publicId },
+      })
+      const messageId = created.json().id
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/conversations/${convo.id}/messages/${messageId}`,
+        headers: auth(a.id),
+        body: { content: 'tentando editar' },
+      })
+      expect(res.statusCode).toBe(403)
+    })
   })
 })
 

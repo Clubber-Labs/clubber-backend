@@ -1,5 +1,11 @@
 import { realtime } from '../../lib/realtime'
-import { uploadMessageAudio, uploadMessageImage } from '../../lib/uploads'
+import { getStorage } from '../../lib/storage'
+import {
+  assertVideoFormat,
+  MAX_VIDEO_SIZE,
+  uploadMessageAudio,
+  uploadMessageImage,
+} from '../../lib/uploads'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   assertActiveParticipant,
@@ -362,6 +368,63 @@ export async function sendAudioMessage(
     size: uploaded.size,
     durationMs: meta.durationMs,
     waveform: meta.waveform ?? [],
+  })
+  await publishMessage(conversationId, participantIds, message)
+  return shapeMessage(message)
+}
+
+/** Pasta determinística do Cloudinary que isola os anexos de cada conversa. */
+function conversationFolder(conversationId: string) {
+  return `conversations/${conversationId}`
+}
+
+/**
+ * Assina os params para o cliente subir um vídeo DIRETO ao Cloudinary. Exige
+ * participante ativo (e, em DM, ausência de bloqueio) e trava a pasta na
+ * conversa — só quem participa consegue uma assinatura para aquela pasta.
+ */
+export async function createVideoUploadSignature(
+  userId: string,
+  conversationId: string,
+) {
+  await authorizeSend(conversationId, userId)
+  return getStorage().signUpload(conversationFolder(conversationId), 'video')
+}
+
+/**
+ * Cria a mensagem de vídeo a partir do publicId que o cliente subiu direto.
+ * NÃO confia no cliente: busca o asset no Cloudinary (fonte da verdade), exige
+ * que ele esteja na pasta DESTA conversa e valida formato/tamanho server-side.
+ */
+export async function sendVideoMessage(
+  userId: string,
+  conversationId: string,
+  publicId: string,
+) {
+  const participantIds = await authorizeSend(conversationId, userId)
+  const asset = await getStorage().getAsset(publicId, 'video')
+  if (!asset) {
+    throw { statusCode: 400, message: 'Vídeo não encontrado no provedor' }
+  }
+  // Liga o asset à conversa: impede anexar vídeo de outra conversa/pasta mesmo
+  // que o publicId exista. O prefixo é checado contra o public_id autoritativo.
+  const folder = conversationFolder(conversationId)
+  if (!asset.publicId.startsWith(`${folder}/`) && asset.folder !== folder) {
+    throw { statusCode: 403, message: 'Vídeo não pertence a esta conversa' }
+  }
+  assertVideoFormat(asset.format)
+  if (asset.bytes > MAX_VIDEO_SIZE) {
+    throw { statusCode: 413, message: 'Vídeo excede o limite de 50 MB' }
+  }
+  const message = await createAttachmentMessage(conversationId, userId, null, {
+    kind: 'VIDEO',
+    url: asset.url,
+    key: asset.publicId,
+    format: asset.format,
+    size: asset.bytes,
+    durationMs: asset.durationMs,
+    width: asset.width,
+    height: asset.height,
   })
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)

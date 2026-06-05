@@ -5,7 +5,9 @@ import { env } from '../env'
 import type {
   FileData,
   IStorageService,
+  RemoteAsset,
   UploadResult,
+  UploadSignature,
 } from './storage.interface'
 
 export class LocalStorageService implements IStorageService {
@@ -30,5 +32,21 @@ export class LocalStorageService implements IStorageService {
 
   async delete(key: string): Promise<void> {
     await fs.unlink(path.join(this.uploadDir, key))
+  }
+
+  // Upload direto assinado depende do provider externo (Cloudinary). No storage
+  // local não há para onde o cliente subir direto nem Admin API para verificar.
+  signUpload(): UploadSignature {
+    throw {
+      statusCode: 501,
+      message: 'Upload direto de vídeo requer o storage Cloudinary',
+    }
+  }
+
+  async getAsset(): Promise<RemoteAsset | null> {
+    throw {
+      statusCode: 501,
+      message: 'Upload direto de vídeo requer o storage Cloudinary',
+    }
   }
 }

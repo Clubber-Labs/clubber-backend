@@ -22,13 +22,16 @@ import {
   postMessageAudio,
   postMessageImage,
   postMessageReaction,
+  postMessageVideo,
   postParticipant,
   postRead,
+  postVideoUploadSignature,
 } from './chat.controller'
 import {
   addParticipantSchema,
   conversationParamSchema,
   createConversationSchema,
+  createVideoMessageSchema,
   editMessageSchema,
   messageParamSchema,
   messageReactionSchema,
@@ -164,6 +167,58 @@ export async function chatRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
     postMessageAudio,
+  )
+
+  api.post(
+    '/conversations/:id/messages/video/signature',
+    {
+      schema: {
+        params: conversationParamSchema,
+        tags: ['chat'],
+        summary: 'Assinar upload direto de vídeo',
+        description: [
+          'Retorna credenciais assinadas para o cliente subir o vídeo **direto ao Cloudinary** (o arquivo não passa pelo backend).',
+          '',
+          '**Fluxo (3 passos):**',
+          '1. `POST` aqui → recebe `{ signature, timestamp, apiKey, cloudName, folder, resourceType }`.',
+          '2. O cliente faz `POST` em `https://api.cloudinary.com/v1_1/{cloudName}/video/upload` com `file`, `api_key`, `timestamp`, `folder` e `signature`. O Cloudinary responde com `public_id`.',
+          '3. O cliente chama `POST /conversations/:id/messages/video` com `{ publicId }`.',
+          '',
+          'A `folder` é travada em `conversations/:id` — o cliente não a escolhe.',
+          '',
+          '**Erros:** `401`, `403` (não participa / bloqueado), `404` (conversa inexistente), `501` (storage local sem Cloudinary).',
+        ].join('\n'),
+      },
+      onRequest: [app.authenticate],
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    postVideoUploadSignature,
+  )
+
+  api.post(
+    '/conversations/:id/messages/video',
+    {
+      schema: {
+        params: conversationParamSchema,
+        body: createVideoMessageSchema,
+        tags: ['chat'],
+        summary: 'Criar mensagem de vídeo (a partir do upload direto)',
+        description: [
+          'Cria a mensagem de vídeo a partir do `publicId` que o cliente subiu direto ao Cloudinary (ver `/messages/video/signature`).',
+          '',
+          '**Body:** `{ "publicId": "conversations/<id>/<asset>" }`.',
+          '',
+          'O backend **verifica o asset no Cloudinary** (fonte da verdade): exige que esteja na pasta desta conversa, valida o formato (MP4/MOV/WebM) e o tamanho (máx. 50 MB), e lê duração/dimensões/tamanho reais do provider — não confia em valores enviados pelo cliente.',
+          '',
+          "**Resposta 201:** a mensagem criada, com `content: null` e `attachments[0]` = `{ kind: 'VIDEO', url, format, size, durationMs, width, height, waveform: [], order }`.",
+          '',
+          '**Erros:** `400` (asset inexistente / formato inválido), `401`, `403` (não participa / bloqueado / vídeo de outra conversa), `404` (conversa inexistente), `413` (vídeo acima de 50 MB).',
+        ].join('\n'),
+      },
+      onRequest: [app.authenticate],
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    postMessageVideo,
   )
 
   api.post(

@@ -7,6 +7,7 @@ import {
   type ChatPaginationQuery,
   type ConversationParam,
   type CreateConversationBody,
+  type CreateVideoMessageBody,
   type EditMessageBody,
   type MessageParam,
   type MessageReactionBody,
@@ -18,6 +19,7 @@ import {
 import {
   addGroupParticipant,
   clearConversation,
+  createVideoUploadSignature,
   deleteMessage,
   editMessage,
   getConversation,
@@ -33,6 +35,7 @@ import {
   sendAudioMessage,
   sendImageMessage,
   sendTextMessage,
+  sendVideoMessage,
   setParticipantRoleService,
   startConversation,
 } from './chat.service'
@@ -161,6 +164,25 @@ export async function postMessageAudio(
     data.mimetype,
     meta,
   )
+  return reply.status(201).send(message)
+}
+
+export async function postVideoUploadSignature(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ConversationParam
+  const signature = await createVideoUploadSignature(request.user.sub, id)
+  return reply.send(signature)
+}
+
+export async function postMessageVideo(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ConversationParam
+  const { publicId } = request.body as CreateVideoMessageBody
+  const message = await sendVideoMessage(request.user.sub, id, publicId)
   return reply.status(201).send(message)
 }
 

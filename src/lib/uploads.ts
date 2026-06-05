@@ -11,6 +11,14 @@ const AUDIO_MIMETYPE_EXTENSIONS: Record<string, string> = {
   'audio/aac': 'm4a',
 }
 
+// Vídeo: formatos aceitos (como o Cloudinary reporta no `format` do asset).
+// mp4 (Android), mov (iOS/QuickTime nativo) e webm (gravação web).
+const VIDEO_FORMATS = ['mp4', 'mov', 'webm']
+
+// Vídeo sobe DIRETO pro Cloudinary (upload assinado), não passa pelo backend.
+// O limite é validado server-side contra o tamanho real reportado pelo provider.
+export const MAX_VIDEO_SIZE = 50 * 1024 * 1024
+
 export function assertImageMimetype(mimetype: string) {
   if (!ALLOWED_MIMETYPES.includes(mimetype)) {
     throw {
@@ -25,6 +33,15 @@ export function assertAudioMimetype(mimetype: string) {
     throw {
       statusCode: 400,
       message: 'Formato de áudio não suportado. Use M4A/AAC',
+    }
+  }
+}
+
+export function assertVideoFormat(format: string) {
+  if (!VIDEO_FORMATS.includes(format)) {
+    throw {
+      statusCode: 400,
+      message: 'Formato de vídeo não suportado. Use MP4, MOV ou WebM',
     }
   }
 }

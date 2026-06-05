@@ -21,6 +21,8 @@ const messageInclude = {
       size: true,
       durationMs: true,
       waveform: true,
+      width: true,
+      height: true,
       order: true,
     },
   },
@@ -233,14 +235,17 @@ export async function createTextMessage(
 }
 
 type AttachmentInput = {
-  kind: 'IMAGE' | 'AUDIO'
+  kind: 'IMAGE' | 'AUDIO' | 'VIDEO'
   url: string
   key: string
   format: string
   size: number
-  // Só áudio preenche; imagem deixa duração null e waveform vazio.
+  // Áudio e vídeo preenchem durationMs; imagem deixa null. waveform é só áudio.
   durationMs?: number | null
   waveform?: number[]
+  // Só vídeo preenche; imagem/áudio deixam null.
+  width?: number | null
+  height?: number | null
 }
 
 export async function createAttachmentMessage(
@@ -265,6 +270,8 @@ export async function createAttachmentMessage(
               size: attachment.size,
               durationMs: attachment.durationMs ?? null,
               waveform: attachment.waveform ?? [],
+              width: attachment.width ?? null,
+              height: attachment.height ?? null,
               order: 0,
             },
           ],

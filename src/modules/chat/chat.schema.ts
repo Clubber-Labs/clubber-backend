@@ -51,6 +51,13 @@ export const audioMessageMetaSchema = z.object({
     .optional(),
 })
 
+export const createVideoMessageSchema = z.object({
+  // O cliente sobe o vídeo DIRETO ao Cloudinary (upload assinado) e envia só o
+  // publicId resultante. Os metadados (duração, dimensões, tamanho, formato) são
+  // lidos do provider no backend — fonte da verdade, não confiamos no cliente.
+  publicId: z.string().min(1, 'publicId obrigatório').max(255),
+})
+
 export const messageReactionSchema = z.object({
   // max 32: .length conta code units UTF-16, e sequências ZWJ (família
   // 👨‍👩‍👧‍👦 = 11, bandeiras compostas) passariam de 16. 32 cobre com folga.
@@ -81,6 +88,7 @@ export type ParticipantParam = z.infer<typeof participantParamSchema>
 export type SendMessageBody = z.infer<typeof sendMessageSchema>
 export type EditMessageBody = z.infer<typeof editMessageSchema>
 export type AudioMessageMeta = z.infer<typeof audioMessageMetaSchema>
+export type CreateVideoMessageBody = z.infer<typeof createVideoMessageSchema>
 export type MessageReactionBody = z.infer<typeof messageReactionSchema>
 export type RenameConversationBody = z.infer<typeof renameConversationSchema>
 export type AddParticipantBody = z.infer<typeof addParticipantSchema>

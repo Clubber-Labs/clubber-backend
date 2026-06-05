@@ -194,6 +194,7 @@ model MessageReaction {
 enum AttachmentKind {
   IMAGE
   AUDIO
+  VIDEO
 }
 
 model MessageAttachment {
@@ -207,8 +208,13 @@ model MessageAttachment {
   size      Int
   // Áudio: duração da nota de voz e amplitudes pré-calculadas pelo cliente para
   // desenhar a waveform sem baixar o arquivo. Ambos null/vazio em imagem.
+  // Vídeo também usa durationMs (duração do clipe).
   durationMs Int?
   waveform   Int[]
+  // Vídeo: dimensões nativas do clipe para o cliente reservar o aspect-ratio
+  // antes do download (evita layout shift). Null em imagem/áudio.
+  width      Int?
+  height     Int?
   order      Int            @default(0)
   createdAt  DateTime       @default(now())
 
