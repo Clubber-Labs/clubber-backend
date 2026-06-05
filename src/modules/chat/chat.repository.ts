@@ -490,26 +490,55 @@ export async function softDeleteMessage(id: string) {
   })
 }
 
+/** Avança leitura (e entrega junto) do participante; devolve o watermark aplicado. */
 export async function markConversationRead(
   conversationId: string,
   userId: string,
-) {
+): Promise<Date> {
   const now = new Date()
   // Quem lê também recebeu: avança lastDeliveredAt junto (read implica delivered).
-  return prisma.conversationParticipant.updateMany({
+  await prisma.conversationParticipant.updateMany({
     where: { conversationId, userId },
     data: { lastReadAt: now, lastDeliveredAt: now },
   })
+  return now
 }
 
+/** Avança a entrega do participante; devolve o watermark aplicado. */
 export async function markConversationDelivered(
   conversationId: string,
   userId: string,
-) {
-  return prisma.conversationParticipant.updateMany({
+): Promise<Date> {
+  const now = new Date()
+  await prisma.conversationParticipant.updateMany({
     where: { conversationId, userId },
-    data: { lastDeliveredAt: new Date() },
+    data: { lastDeliveredAt: now },
   })
+  return now
+}
+
+/**
+ * Marca entrega só se o participante ainda não recebeu até `upTo` (createdAt da
+ * mensagem). Mantém o watermark monotônico e evita frame redundante quando ele
+ * já leu/recebeu além dessa mensagem. Devolve o novo watermark, ou null se nada
+ * avançou. Usado na marcação server-side ao entregar a mensagem pelo socket.
+ */
+export async function markDeliveredIfBehind(
+  conversationId: string,
+  userId: string,
+  upTo: Date,
+): Promise<Date | null> {
+  const now = new Date()
+  const res = await prisma.conversationParticipant.updateMany({
+    where: {
+      conversationId,
+      userId,
+      leftAt: null,
+      OR: [{ lastDeliveredAt: null }, { lastDeliveredAt: { lt: upTo } }],
+    },
+    data: { lastDeliveredAt: now },
+  })
+  return res.count > 0 ? now : null
 }
 
 export async function reactivateParticipant(

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { env } from '../../lib/env'
+import { CHAT_CHANNEL } from '../../lib/realtime'
+import { redis } from '../../lib/redis'
 import { buildApp } from '../../test/app'
 import {
   makeBlock,
@@ -18,7 +20,10 @@ import {
   tinyPngBuffer,
 } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
-import { findConversationPartnerIds } from './chat.repository'
+import {
+  findConversationPartnerIds,
+  markDeliveredIfBehind,
+} from './chat.repository'
 
 let app: FastifyInstance
 
@@ -28,6 +33,47 @@ function token(userId: string) {
 
 function auth(userId: string) {
   return { authorization: `Bearer ${token(userId)}` }
+}
+
+type ChatFrame = {
+  type: string
+  conversationId?: string
+  userId?: string
+  at?: string
+  participantIds?: string[]
+}
+
+/**
+ * Assina o canal de eventos do chat, executa `action` e resolve com o primeiro
+ * frame que casa com `predicate`. Usado para provar que /read e /delivered
+ * publicam o recibo em tempo real (a suíte não abre socket real).
+ */
+async function waitForChatEvent(
+  predicate: (frame: ChatFrame) => boolean,
+  action: () => Promise<void>,
+): Promise<ChatFrame> {
+  if (!redis) throw new Error('REDIS_URL é obrigatório nos testes')
+  const sub = redis.duplicate()
+  try {
+    const received = new Promise<ChatFrame>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('timeout esperando evento de chat')),
+        2000,
+      )
+      sub.on('message', (_channel, raw) => {
+        const frame = JSON.parse(raw) as ChatFrame
+        if (predicate(frame)) {
+          clearTimeout(timer)
+          resolve(frame)
+        }
+      })
+    })
+    await sub.subscribe(CHAT_CHANNEL)
+    await action()
+    return await received
+  } finally {
+    await sub.quit()
+  }
 }
 
 beforeAll(async () => {
@@ -1453,6 +1499,75 @@ describe('recibos entregue/visto', () => {
       url: `/conversations/${crypto.randomUUID()}/delivered`,
     })
     expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('recibos em tempo real (frames WS)', () => {
+  it('POST /delivered publica frame delivered com userId e at', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    await makeMessage(convo.id, a.id, { content: 'oi' })
+
+    const frame = await waitForChatEvent(
+      (f) =>
+        f.type === 'delivered' &&
+        f.conversationId === convo.id &&
+        f.userId === b.id,
+      async () => {
+        await app.inject({
+          method: 'POST',
+          url: `/conversations/${convo.id}/delivered`,
+          headers: auth(b.id),
+        })
+      },
+    )
+
+    expect(typeof frame.at).toBe('string')
+    expect(frame.participantIds).toEqual(expect.arrayContaining([a.id, b.id]))
+  })
+
+  it('POST /read publica frame read com userId e at', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    await makeMessage(convo.id, a.id, { content: 'oi' })
+
+    const frame = await waitForChatEvent(
+      (f) =>
+        f.type === 'read' && f.conversationId === convo.id && f.userId === b.id,
+      async () => {
+        await app.inject({
+          method: 'POST',
+          url: `/conversations/${convo.id}/read`,
+          headers: auth(b.id),
+        })
+      },
+    )
+
+    expect(typeof frame.at).toBe('string')
+  })
+})
+
+describe('markDeliveredIfBehind (entrega monotônica)', () => {
+  it('avança quando atrás de upTo e não regride quando já cobre', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const past = new Date(Date.now() - 60_000)
+    const future = new Date(Date.now() + 60_000)
+
+    // B nunca recebeu → está atrás de `past` → avança e retorna o novo watermark
+    const first = await markDeliveredIfBehind(convo.id, b.id, past)
+    expect(first).toBeInstanceOf(Date)
+
+    // Mesmo `upTo` no passado, já coberto → null (não regride nem duplica frame)
+    const again = await markDeliveredIfBehind(convo.id, b.id, past)
+    expect(again).toBeNull()
+
+    // Mensagem mais nova (futuro) ainda não coberta → avança de novo
+    const advanced = await markDeliveredIfBehind(convo.id, b.id, future)
+    expect(advanced).toBeInstanceOf(Date)
   })
 })
 

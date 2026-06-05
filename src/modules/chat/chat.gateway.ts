@@ -2,10 +2,16 @@ import fastifyWebsocket, { type WebSocket } from '@fastify/websocket'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { CHAT_CHANNEL, type RealtimeEvent, realtime } from '../../lib/realtime'
 import { redis } from '../../lib/redis'
-import { createSocketRegistry, dispatchEvent, isTokenExpired } from './chat.hub'
+import {
+  createSocketRegistry,
+  dispatchEvent,
+  isTokenExpired,
+  localDeliveryRecipients,
+} from './chat.hub'
 import {
   findActiveParticipantUserIds,
   findConversationPartnerIds,
+  markDeliveredIfBehind,
   touchLastSeen,
 } from './chat.repository'
 
@@ -40,6 +46,7 @@ export async function chatGateway(app: FastifyInstance) {
       try {
         const event = JSON.parse(raw) as RealtimeEvent
         dispatchEvent(registry, event)
+        void markLocalDeliveries(event)
       } catch (err) {
         log.error({ err }, 'falha ao entregar evento de chat')
       }
@@ -48,6 +55,37 @@ export async function chatGateway(app: FastifyInstance) {
       await subscriber.quit()
     })
     log.info('subscriber de chat ativo')
+  }
+
+  /**
+   * Marca entrega server-side: ao receber uma `message`, avança o
+   * lastDeliveredAt dos destinatários conectados neste processo e emite
+   * `delivered` ao remetente — sem depender do ack do app. Best-effort: erro
+   * aqui nunca derruba a entrega da mensagem. O guard `markDeliveredIfBehind`
+   * mantém o watermark monotônico e evita frame duplicado/atrasado.
+   */
+  async function markLocalDeliveries(event: RealtimeEvent) {
+    if (event.type !== 'message') return
+    const upTo = new Date(event.createdAt)
+    for (const userId of localDeliveryRecipients(registry, event)) {
+      try {
+        const at = await markDeliveredIfBehind(
+          event.conversationId,
+          userId,
+          upTo,
+        )
+        if (!at) continue
+        await realtime.publish({
+          type: 'delivered',
+          conversationId: event.conversationId,
+          participantIds: event.participantIds,
+          userId,
+          at: at.toISOString(),
+        })
+      } catch (err) {
+        log.error({ err, userId }, 'falha ao marcar entrega server-side')
+      }
+    }
   }
 
   /** Anuncia presença (online/offline) aos parceiros de conversa do usuário. */

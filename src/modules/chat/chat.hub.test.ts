@@ -5,8 +5,10 @@ import {
   createSocketRegistry,
   dispatchEvent,
   isTokenExpired,
+  localDeliveryRecipients,
   messageFrame,
   presenceFrame,
+  receiptFrame,
   typingFrame,
   WS_OPEN,
 } from './chat.hub'
@@ -90,6 +92,38 @@ describe('frames', () => {
     })
   })
 
+  it('receiptFrame serializa recibo de entregue/lido com o watermark', () => {
+    expect(
+      JSON.parse(
+        receiptFrame('delivered', {
+          conversationId: 'c1',
+          userId: 'u1',
+          at: '2026-06-05T12:31:10.000Z',
+        }),
+      ),
+    ).toEqual({
+      type: 'delivered',
+      conversationId: 'c1',
+      userId: 'u1',
+      at: '2026-06-05T12:31:10.000Z',
+    })
+
+    expect(
+      JSON.parse(
+        receiptFrame('read', {
+          conversationId: 'c1',
+          userId: 'u1',
+          at: '2026-06-05T12:32:00.000Z',
+        }),
+      ),
+    ).toEqual({
+      type: 'read',
+      conversationId: 'c1',
+      userId: 'u1',
+      at: '2026-06-05T12:32:00.000Z',
+    })
+  })
+
   it('typingFrame e presenceFrame carregam os campos efêmeros', () => {
     expect(
       JSON.parse(
@@ -143,6 +177,8 @@ describe('dispatchEvent', () => {
       type: 'message',
       conversationId: 'c1',
       participantIds: ['u1', 'u2'],
+      senderId: 'u1',
+      createdAt: '2026-06-05T12:00:00.000Z',
       message: { id: 'm1' },
     }
     expect(dispatchEvent(reg, event)).toBe(2)
@@ -191,5 +227,45 @@ describe('dispatchEvent', () => {
       type: 'presence',
       online: true,
     })
+  })
+
+  it('read/delivered: não retornam pro próprio autor do recibo', () => {
+    for (const type of ['read', 'delivered'] as const) {
+      const reg = createSocketRegistry()
+      const author = fakeSocket()
+      const sender = fakeSocket()
+      reg.add('leitor', author.socket)
+      reg.add('remetente', sender.socket)
+
+      const event: RealtimeEvent = {
+        type,
+        conversationId: 'c1',
+        participantIds: ['leitor', 'remetente'],
+        userId: 'leitor',
+        at: '2026-06-05T12:31:10.000Z',
+      }
+      expect(dispatchEvent(reg, event)).toBe(1)
+      expect(author.sent).toEqual([])
+      expect(JSON.parse(sender.sent[0])).toMatchObject({
+        type,
+        userId: 'leitor',
+        at: '2026-06-05T12:31:10.000Z',
+      })
+    }
+  })
+})
+
+describe('localDeliveryRecipients', () => {
+  it('exclui o remetente e os offline; mantém destinatários online', () => {
+    const reg = createSocketRegistry()
+    reg.add('remetente', fakeSocket().socket)
+    reg.add('online', fakeSocket().socket)
+    // 'offline' nunca entra no registro
+
+    const recipients = localDeliveryRecipients(reg, {
+      participantIds: ['remetente', 'online', 'offline'],
+      senderId: 'remetente',
+    })
+    expect(recipients).toEqual(['online'])
   })
 })

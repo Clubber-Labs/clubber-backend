@@ -97,6 +97,33 @@ export function presenceFrame(event: {
   })
 }
 
+/** Recibo de entrega/leitura: `userId` recebeu/leu tudo até `at` (ISO 8601). */
+export function receiptFrame(
+  type: 'delivered' | 'read',
+  event: { conversationId: string; userId: string; at: string },
+): string {
+  return JSON.stringify({
+    type,
+    conversationId: event.conversationId,
+    userId: event.userId,
+    at: event.at,
+  })
+}
+
+/**
+ * Destinatários de uma mensagem que estão conectados NESTE processo (exceto o
+ * remetente) — alvos da marcação de entrega server-side. O gateway só conhece
+ * os sockets locais, então cada instância marca apenas quem ela atende.
+ */
+export function localDeliveryRecipients(
+  registry: ReturnType<typeof createSocketRegistry>,
+  event: { participantIds: string[]; senderId: string },
+): string[] {
+  return event.participantIds.filter(
+    (id) => id !== event.senderId && registry.isOnline(id),
+  )
+}
+
 /** JWT expirou? (claim `exp` em segundos; ausência = sem expiração). */
 export function isTokenExpired(
   claims: { exp?: number },
@@ -129,6 +156,12 @@ export function dispatchEvent(
       return registry.deliver(
         event.participantIds.filter((id) => id !== event.userId),
         presenceFrame(event),
+      )
+    case 'delivered':
+    case 'read':
+      return registry.deliver(
+        event.participantIds.filter((id) => id !== event.userId),
+        receiptFrame(event.type, event),
       )
   }
 }

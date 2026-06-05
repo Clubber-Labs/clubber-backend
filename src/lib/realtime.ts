@@ -14,6 +14,10 @@ export type RealtimeEvent =
       type: 'message'
       conversationId: string
       participantIds: string[]
+      // `senderId`/`createdAt` viajam fora de `message` (opaco) pra o gateway
+      // marcar entrega server-side sem desserializar o payload.
+      senderId: string
+      createdAt: string
       message: unknown
     }
   | {
@@ -35,6 +39,22 @@ export type RealtimeEvent =
       userId: string
       online: boolean
       lastSeenAt: string | null
+    }
+  // Recibos: `userId` é quem recebeu/leu; `at` é o watermark (ISO 8601). O
+  // gateway entrega o frame aos OUTROS participantes, nunca ao próprio autor.
+  | {
+      type: 'delivered'
+      conversationId: string
+      participantIds: string[]
+      userId: string
+      at: string
+    }
+  | {
+      type: 'read'
+      conversationId: string
+      participantIds: string[]
+      userId: string
+      at: string
     }
 
 /**

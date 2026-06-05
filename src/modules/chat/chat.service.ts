@@ -203,6 +203,9 @@ async function publishMessage(
     type: 'message',
     conversationId,
     participantIds,
+    // O gateway usa estes pra marcar entrega server-side sem abrir o payload.
+    senderId: message.senderId,
+    createdAt: message.createdAt.toISOString(),
     message: shapeMessage(message),
   })
 }
@@ -685,12 +688,31 @@ export async function sendVideoMessage(
 
 export async function markAsRead(userId: string, conversationId: string) {
   await assertActiveParticipant(conversationId, userId)
-  await markConversationRead(conversationId, userId)
+  const at = await markConversationRead(conversationId, userId)
+  await publishReceipt('read', conversationId, userId, at)
 }
 
 export async function markDelivered(userId: string, conversationId: string) {
   await assertActiveParticipant(conversationId, userId)
-  await markConversationDelivered(conversationId, userId)
+  const at = await markConversationDelivered(conversationId, userId)
+  await publishReceipt('delivered', conversationId, userId, at)
+}
+
+/** Anuncia o recibo (entregue/lido) aos outros participantes em tempo real. */
+async function publishReceipt(
+  type: 'delivered' | 'read',
+  conversationId: string,
+  userId: string,
+  at: Date,
+) {
+  const participantIds = await findActiveParticipantUserIds(conversationId)
+  await realtime.publish({
+    type,
+    conversationId,
+    participantIds,
+    userId,
+    at: at.toISOString(),
+  })
 }
 
 /** Oculta a conversa só para o viewer (DM ou grupo); não sai do grupo. */
