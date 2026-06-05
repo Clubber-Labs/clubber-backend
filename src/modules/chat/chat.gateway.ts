@@ -67,25 +67,30 @@ export async function chatGateway(app: FastifyInstance) {
   async function markLocalDeliveries(event: RealtimeEvent) {
     if (event.type !== 'message') return
     const upTo = new Date(event.createdAt)
-    for (const userId of localDeliveryRecipients(registry, event)) {
-      try {
-        const at = await markDeliveredIfBehind(
-          event.conversationId,
-          userId,
-          upTo,
-        )
-        if (!at) continue
-        await realtime.publish({
-          type: 'delivered',
-          conversationId: event.conversationId,
-          participantIds: event.participantIds,
-          userId,
-          at: at.toISOString(),
-        })
-      } catch (err) {
-        log.error({ err, userId }, 'falha ao marcar entrega server-side')
-      }
-    }
+    // Em paralelo: cada destinatário é uma linha/publish independente, sem
+    // contenção. O try/catch por destinatário isola a falha (não derruba os
+    // outros) e preserva o log com o userId.
+    await Promise.allSettled(
+      localDeliveryRecipients(registry, event).map(async (userId) => {
+        try {
+          const at = await markDeliveredIfBehind(
+            event.conversationId,
+            userId,
+            upTo,
+          )
+          if (!at) return
+          await realtime.publish({
+            type: 'delivered',
+            conversationId: event.conversationId,
+            participantIds: event.participantIds,
+            userId,
+            at: at.toISOString(),
+          })
+        } catch (err) {
+          log.error({ err, userId }, 'falha ao marcar entrega server-side')
+        }
+      }),
+    )
   }
 
   /** Anuncia presença (online/offline) aos parceiros de conversa do usuário. */

@@ -498,7 +498,7 @@ export async function markConversationRead(
   const now = new Date()
   // Quem lê também recebeu: avança lastDeliveredAt junto (read implica delivered).
   await prisma.conversationParticipant.updateMany({
-    where: { conversationId, userId },
+    where: { conversationId, userId, leftAt: null },
     data: { lastReadAt: now, lastDeliveredAt: now },
   })
   return now
@@ -511,7 +511,7 @@ export async function markConversationDelivered(
 ): Promise<Date> {
   const now = new Date()
   await prisma.conversationParticipant.updateMany({
-    where: { conversationId, userId },
+    where: { conversationId, userId, leftAt: null },
     data: { lastDeliveredAt: now },
   })
   return now

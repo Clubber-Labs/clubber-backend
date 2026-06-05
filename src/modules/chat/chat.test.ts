@@ -1500,6 +1500,42 @@ describe('recibos entregue/visto', () => {
     })
     expect(res.statusCode).toBe(401)
   })
+
+  it('401 sem autenticação no /read', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${crypto.randomUUID()}/read`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('403 quando quem marca lido não participa da conversa', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const stranger = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/read`,
+      headers: auth(stranger.id),
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('403 quando quem marca entrega não participa da conversa', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const stranger = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/delivered`,
+      headers: auth(stranger.id),
+    })
+    expect(res.statusCode).toBe(403)
+  })
 })
 
 describe('recibos em tempo real (frames WS)', () => {
