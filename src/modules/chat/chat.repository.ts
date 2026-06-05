@@ -216,10 +216,17 @@ export async function createTextMessage(
   senderId: string,
   content: string,
   replyToId?: string,
+  idempotencyKey?: string,
 ) {
   const [message] = await prisma.$transaction([
     prisma.message.create({
-      data: { conversationId, senderId, content, replyToId: replyToId ?? null },
+      data: {
+        conversationId,
+        senderId,
+        content,
+        replyToId: replyToId ?? null,
+        idempotencyKey: idempotencyKey ?? null,
+      },
       include: messageInclude,
     }),
     prisma.conversation.update({
@@ -256,6 +263,7 @@ export async function createAttachmentMessage(
   senderId: string,
   content: string | null,
   attachment: AttachmentInput,
+  idempotencyKey?: string,
 ) {
   const [message] = await prisma.$transaction([
     prisma.message.create({
@@ -263,6 +271,7 @@ export async function createAttachmentMessage(
         conversationId,
         senderId,
         content,
+        idempotencyKey: idempotencyKey ?? null,
         attachments: {
           create: [
             {
@@ -294,6 +303,24 @@ export async function createAttachmentMessage(
     }),
   ])
   return message
+}
+
+/** Idempotência: a mensagem já criada por (conversa, remetente, key), se houver. */
+export async function findMessageByIdempotencyKey(
+  conversationId: string,
+  senderId: string,
+  idempotencyKey: string,
+) {
+  return prisma.message.findUnique({
+    where: {
+      conversationId_senderId_idempotencyKey: {
+        conversationId,
+        senderId,
+        idempotencyKey,
+      },
+    },
+    include: messageInclude,
+  })
 }
 
 export async function findConversationMessages(

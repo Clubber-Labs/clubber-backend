@@ -79,6 +79,24 @@ export async function getMessages(
   return reply.send(result)
 }
 
+/**
+ * Lê o header `Idempotency-Key` (opcional) para deduplicar envios em retry.
+ * Vazio vira undefined (sem idempotência); acima de 200 chars é rejeitado.
+ */
+function readIdempotencyKey(request: FastifyRequest): string | undefined {
+  const raw = request.headers['idempotency-key']
+  const value = Array.isArray(raw) ? raw[0] : raw
+  const trimmed = value?.trim()
+  if (!trimmed) return undefined
+  if (trimmed.length > 200) {
+    throw {
+      statusCode: 400,
+      message: 'Idempotency-Key inválido (máx. 200 caracteres)',
+    }
+  }
+  return trimmed
+}
+
 export async function postMessage(
   request: FastifyRequest,
   reply: FastifyReply,
@@ -90,6 +108,7 @@ export async function postMessage(
     id,
     content,
     replyToId,
+    readIdempotencyKey(request),
   )
   return reply.status(201).send(message)
 }
@@ -105,7 +124,12 @@ export async function postMessageImage(
   }
   assertImageMimetype(data.mimetype)
   const buffer = await data.toBuffer()
-  const message = await sendImageMessage(request.user.sub, id, buffer)
+  const message = await sendImageMessage(
+    request.user.sub,
+    id,
+    buffer,
+    readIdempotencyKey(request),
+  )
   return reply.status(201).send(message)
 }
 
@@ -164,6 +188,7 @@ export async function postMessageAudio(
     data.file,
     data.mimetype,
     meta,
+    readIdempotencyKey(request),
   )
   return reply.status(201).send(message)
 }
@@ -183,7 +208,12 @@ export async function postMessageVideo(
 ) {
   const { id } = request.params as ConversationParam
   const { publicId } = request.body as CreateVideoMessageBody
-  const message = await sendVideoMessage(request.user.sub, id, publicId)
+  const message = await sendVideoMessage(
+    request.user.sub,
+    id,
+    publicId,
+    readIdempotencyKey(request),
+  )
   return reply.status(201).send(message)
 }
 
