@@ -15,6 +15,7 @@ import { blocksRoutes } from '../modules/blocks/blocks.routes'
 import { categoriesRoutes } from '../modules/categories/categories.routes'
 import { chatRoutes } from '../modules/chat/chat.routes'
 import { commentsRoutes } from '../modules/comments/comments.routes'
+import { consentRoutes } from '../modules/consent/consent.routes'
 import { eventInvitesRoutes } from '../modules/event-invites/event-invites.routes'
 import { eventsRoutes } from '../modules/events/events.routes'
 import { featuredEventsRoutes } from '../modules/featured-events/featured-events.routes'
@@ -81,6 +82,7 @@ export function buildApp() {
   app.register(reportsRoutes)
   app.register(blocksRoutes)
   app.register(chatRoutes)
+  app.register(consentRoutes)
 
   return app
 }

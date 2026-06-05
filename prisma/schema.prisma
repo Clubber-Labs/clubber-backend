@@ -58,6 +58,11 @@ model User {
   blocksMade                 Block[]                   @relation("blocksMade")
   blocksReceived             Block[]                   @relation("blocksReceived")
   messageReactions           MessageReaction[]         @relation("messageReactions")
+
+  // LGPD
+  consent        UserConsent?
+  consentLogs    ConsentAuditLog[]
+
   @@map("users")
 }
 
@@ -486,4 +491,60 @@ model FeaturedEvent {
 
   @@index([eventId, canceledAt, startsAt, endsAt])
   @@map("featured_events")
+}
+
+
+// ── LGPD ────────────────────────────────────────────────────
+
+model UserConsent {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Essencial (sempre true, imutável)
+  essentialAccepted  Boolean   @default(true)
+
+  // Os 7 consentimentos granulares da Política de Privacidade v1.0
+  locationPrecise    Boolean   @default(false)  // GPS em tempo real
+  socialFeed         Boolean   @default(false)  // Feed personalizado por amigos
+  socialVisibility   Boolean   @default(false)  // Visibilidade de atividades
+  pushNotifications  Boolean   @default(false)  // Notificações push
+  marketing          Boolean   @default(false)  // Comunicações de marketing
+  analytics          Boolean   @default(false)  // Analytics e métricas de uso
+  surveys            Boolean   @default(false)  // Participação em pesquisas
+
+  consentVersion     String    @default("1.0")
+  ipAddress          String?
+  userAgent          String?
+  collectedAt        DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  revokedAt          DateTime?
+
+  // @@index([userId]) removido — userId @unique já cria índice implícito
+  @@map("user_consents")
+}
+
+enum ConsentAction {
+  GRANTED
+  UPDATED
+  REVOKED
+  EXPORTED
+}
+
+model ConsentAuditLog {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  action         ConsentAction
+  changedFields  Json     // { field: string, from: boolean|null, to: boolean }[]
+  ipAddress      String?
+  userAgent      String?
+  consentVersion String
+
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("consent_audit_logs")
 }
