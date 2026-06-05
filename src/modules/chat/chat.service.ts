@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream'
+import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { getStorage, type RemoteAsset } from '../../lib/storage'
@@ -41,11 +42,13 @@ import {
   listInboxConversations,
   markConversationDelivered,
   markConversationRead,
+  QuotaExceededError,
   reactivateParticipant,
   removeMessageReaction,
   renameConversation,
   setParticipantRole,
   softDeleteMessage,
+  sumUserActiveMediaBytes,
   unreadCounts,
 } from './chat.repository'
 import type { AudioMessageMeta, CreateConversationBody } from './chat.schema'
@@ -430,37 +433,65 @@ export async function sendTextMessage(
   return shapeMessage(message)
 }
 
+const STORAGE_QUOTA_MESSAGE = 'Cota de armazenamento de mídia excedida'
+
 /**
- * Persiste a mensagem-anexo e, se o insert falhar DEPOIS do upload, remove o
- * asset órfão do storage antes de propagar o erro (best-effort). Evita lixo
- * pago no Cloudinary quando o banco rejeita a escrita.
+ * Pré-check de cota (best-effort, antes de subir): lança 413 se o usuário JÁ
+ * atingiu o teto — evita subir um arquivo que com certeza será rejeitado. O
+ * enforcement AUTORITATIVO (à prova de corrida) é feito dentro do lock no insert.
  */
-async function persistAttachmentOrCleanup(
+async function assertQuotaAvailable(userId: string): Promise<void> {
+  const used = await sumUserActiveMediaBytes(userId)
+  if (used >= env.CHAT_USER_STORAGE_QUOTA_BYTES) {
+    throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
+  }
+}
+
+/**
+ * Cria o anexo (com cota ATÔMICA no lock) para mídia de upload do BACKEND
+ * (imagem/áudio). O asset tem key ÚNICO desta request, então em qualquer falha
+ * do insert é seguro removê-lo. Converte cota estourada em 413 e corrida de
+ * idempotência na mensagem existente. No sucesso, publica ao vivo e devolve shaped.
+ */
+async function createBackendMediaMessage(
   conversationId: string,
   userId: string,
+  participantIds: string[],
   attachment: Parameters<typeof createAttachmentMessage>[3],
-  idempotencyKey?: string,
+  idempotencyKey: string | undefined,
+  additionalBytes: number,
 ) {
+  let message: MessageRow
   try {
-    return await createAttachmentMessage(
+    message = await createAttachmentMessage(
       conversationId,
       userId,
       null,
       attachment,
       idempotencyKey,
+      env.CHAT_USER_STORAGE_QUOTA_BYTES,
+      additionalBytes,
     )
   } catch (err) {
-    // Imagem/áudio: o upload é exclusivo desta request (key único), então é
-    // seguro deletá-lo em QUALQUER falha do insert — inclusive corrida de
-    // idempotência (o vencedor tem o seu próprio asset). O caller converte o
-    // P2002 em "devolver a existente".
     await deleteUploaded(
       attachment.key,
       logger,
       resourceTypeForKind(attachment.kind),
     )
+    if (err instanceof QuotaExceededError) {
+      throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
+    }
+    const dup = await resolveIdempotencyConflict(
+      err,
+      conversationId,
+      userId,
+      idempotencyKey,
+    )
+    if (dup) return dup // existente: não republica
     throw err
   }
+  await publishMessage(conversationId, participantIds, message)
+  return shapeMessage(message)
 }
 
 export async function sendImageMessage(
@@ -476,35 +507,24 @@ export async function sendImageMessage(
     idempotencyKey,
   )
   if (existing) return existing // retry: nem faz upload
+  await assertQuotaAvailable(userId) // pré best-effort: já cheio → nem sobe
   const uploaded = await uploadMessageImage(buffer, conversationId)
-  let message: MessageRow
-  try {
-    message = await persistAttachmentOrCleanup(
-      conversationId,
-      userId,
-      {
-        kind: 'IMAGE',
-        url: uploaded.url,
-        key: uploaded.key,
-        format: uploaded.format,
-        size: uploaded.size,
-        width: uploaded.width,
-        height: uploaded.height,
-      },
-      idempotencyKey,
-    )
-  } catch (err) {
-    const dup = await resolveIdempotencyConflict(
-      err,
-      conversationId,
-      userId,
-      idempotencyKey,
-    )
-    if (dup) return dup // o asset órfão já foi limpo no persistAttachmentOrCleanup
-    throw err
-  }
-  await publishMessage(conversationId, participantIds, message)
-  return shapeMessage(message)
+  return createBackendMediaMessage(
+    conversationId,
+    userId,
+    participantIds,
+    {
+      kind: 'IMAGE',
+      url: uploaded.url,
+      key: uploaded.key,
+      format: uploaded.format,
+      size: uploaded.size,
+      width: uploaded.width,
+      height: uploaded.height,
+    },
+    idempotencyKey,
+    uploaded.size,
+  )
 }
 
 export async function sendAudioMessage(
@@ -527,42 +547,31 @@ export async function sendAudioMessage(
       file.resume() // retry: não vamos consumir/subir o áudio — drena o stream
       return existing
     }
+    await assertQuotaAvailable(userId) // pré best-effort: já cheio → 413 sem subir
   } catch (err) {
     // Barramos/erramos ANTES de consumir o arquivo: drena o stream pra não
     // deixar a conexão pendurada (o multipart espera o corpo ser lido). Cobre
-    // tanto a falha de autorização quanto a do lookup de idempotência.
+    // autorização, lookup de idempotência e cota.
     file.resume()
     throw err
   }
   const uploaded = await uploadMessageAudio(file, conversationId, mimetype)
-  let message: MessageRow
-  try {
-    message = await persistAttachmentOrCleanup(
-      conversationId,
-      userId,
-      {
-        kind: 'AUDIO',
-        url: uploaded.url,
-        key: uploaded.key,
-        format: uploaded.format,
-        size: uploaded.size,
-        durationMs: meta.durationMs,
-        waveform: meta.waveform ?? [],
-      },
-      idempotencyKey,
-    )
-  } catch (err) {
-    const dup = await resolveIdempotencyConflict(
-      err,
-      conversationId,
-      userId,
-      idempotencyKey,
-    )
-    if (dup) return dup
-    throw err
-  }
-  await publishMessage(conversationId, participantIds, message)
-  return shapeMessage(message)
+  return createBackendMediaMessage(
+    conversationId,
+    userId,
+    participantIds,
+    {
+      kind: 'AUDIO',
+      url: uploaded.url,
+      key: uploaded.key,
+      format: uploaded.format,
+      size: uploaded.size,
+      durationMs: meta.durationMs,
+      waveform: meta.waveform ?? [],
+    },
+    idempotencyKey,
+    uploaded.size,
+  )
 }
 
 /** Pasta determinística do Cloudinary que isola os anexos de cada conversa. */
@@ -628,6 +637,7 @@ export async function sendVideoMessage(
   }
   let message: MessageRow
   try {
+    // A cota é verificada DENTRO do lock no insert (asset.bytes como adicional).
     message = await createAttachmentMessage(
       conversationId,
       userId,
@@ -644,8 +654,15 @@ export async function sendVideoMessage(
         thumbnailUrl: asset.thumbnailUrl,
       },
       idempotencyKey,
+      env.CHAT_USER_STORAGE_QUOTA_BYTES,
+      asset.bytes,
     )
   } catch (err) {
+    if (err instanceof QuotaExceededError) {
+      // O asset (subido pelo cliente) virou órfão pois recusamos a mensagem.
+      await deleteUploaded(asset.publicId, logger, 'video')
+      throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
+    }
     // Corrida de idempotência: devolve a vencedora SEM deletar o asset — diferente
     // de imagem/áudio, o vídeo é subido pelo cliente e o publicId pode ser o MESMO
     // nas requests concorrentes (deletar quebraria a mensagem vencedora).
@@ -656,7 +673,7 @@ export async function sendVideoMessage(
       idempotencyKey,
     )
     if (dup) return dup
-    // Falha não-idempotência → o asset (subido pelo cliente) virou órfão: limpa.
+    // Falha não-idempotência → o asset virou órfão: limpa.
     await deleteUploaded(asset.publicId, logger, 'video')
     throw err
   }

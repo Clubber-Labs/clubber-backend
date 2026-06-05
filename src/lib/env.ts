@@ -32,6 +32,12 @@ const baseSchema = z.object({
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
+  // Cota de armazenamento de mídia por usuário (anti-abuso/custo). Default 1 GB.
+  CHAT_USER_STORAGE_QUOTA_BYTES: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(1024 * 1024 * 1024),
 })
 
 const cloudinarySchema = z.object({
@@ -97,4 +103,5 @@ export const env = {
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
+  CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
 } as const

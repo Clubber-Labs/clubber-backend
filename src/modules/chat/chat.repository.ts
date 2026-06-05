@@ -261,15 +261,44 @@ type AttachmentInput = {
   thumbnailUrl?: string | null
 }
 
+/** Erro sentinela: a criação foi abortada (rollback) por estourar a cota. */
+export class QuotaExceededError extends Error {
+  constructor() {
+    super('storage quota exceeded')
+    this.name = 'QuotaExceededError'
+  }
+}
+
+/**
+ * Cria a mensagem-anexo de forma ATÔMICA com o enforcement de cota. Um advisory
+ * lock POR REMETENTE serializa os envios concorrentes do MESMO usuário, então a
+ * soma do uso + o check + o insert acontecem sem janela de corrida (TOCTOU) —
+ * sem broker/fila, só Postgres. Usuários diferentes não se bloqueiam. Lança
+ * QuotaExceededError (com rollback) se o novo arquivo estoura a cota.
+ */
 export async function createAttachmentMessage(
   conversationId: string,
   senderId: string,
   content: string | null,
   attachment: AttachmentInput,
-  idempotencyKey?: string,
+  idempotencyKey: string | undefined,
+  maxBytes: number,
+  additionalBytes: number,
 ) {
-  const [message] = await prisma.$transaction([
-    prisma.message.create({
+  return prisma.$transaction(async (tx) => {
+    // Lock por usuário, liberado no fim da transação (xact). hashtext mapeia o
+    // uuid do remetente para o int da chave do advisory lock. $executeRaw (não
+    // $queryRaw) porque a função retorna void e não há resultado a desserializar.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${senderId}))`
+    const agg = await tx.messageAttachment.aggregate({
+      _sum: { size: true },
+      where: { message: { senderId, deletedAt: null } },
+    })
+    const used = agg._sum.size ?? 0
+    if (used + additionalBytes > maxBytes) {
+      throw new QuotaExceededError()
+    }
+    const message = await tx.message.create({
       data: {
         conversationId,
         senderId,
@@ -294,18 +323,30 @@ export async function createAttachmentMessage(
         },
       },
       include: messageInclude,
-    }),
-    prisma.conversation.update({
+    })
+    await tx.conversation.update({
       where: { id: conversationId },
       data: { lastMessageAt: new Date() },
-    }),
+    })
     // Mensagem nova "reabre" a conversa pra quem a tinha ocultado (clearedAt).
-    prisma.conversationParticipant.updateMany({
+    await tx.conversationParticipant.updateMany({
       where: { conversationId, clearedAt: { not: null } },
       data: { clearedAt: null },
-    }),
-  ])
-  return message
+    })
+    return message
+  })
+}
+
+/**
+ * Soma de bytes de mídia ATIVA enviada por um usuário (anexos de mensagens não
+ * apagadas). Base da cota de armazenamento — apagar mensagem libera o espaço.
+ */
+export async function sumUserActiveMediaBytes(userId: string): Promise<number> {
+  const result = await prisma.messageAttachment.aggregate({
+    _sum: { size: true },
+    where: { message: { senderId: userId, deletedAt: null } },
+  })
+  return result._sum.size ?? 0
 }
 
 /** Idempotência: a mensagem já criada por (conversa, remetente, key), se houver. */

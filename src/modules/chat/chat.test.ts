@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { env } from '../../lib/env'
 import { buildApp } from '../../test/app'
 import {
   makeBlock,
@@ -2184,5 +2185,129 @@ describe('mídia privada — URLs assinadas e revogação (Fase 2 #1)', () => {
       headers: auth(member.id),
     })
     expect(after.statusCode).toBe(403)
+  })
+})
+
+describe('cota de armazenamento por usuário (Fase 2 #6)', () => {
+  // Semeia mídia de `senderId` com um tamanho dado (sem subir arquivo de fato).
+  async function seedMedia(
+    convoId: string,
+    senderId: string,
+    size: number,
+    opts: { deleted?: boolean } = {},
+  ) {
+    const msg = await makeMessage(convoId, senderId, { content: 'seed' })
+    await testPrisma.messageAttachment.create({
+      data: {
+        messageId: msg.id,
+        kind: 'IMAGE',
+        url: 'https://x/y.webp',
+        key: `seed-${msg.id}`,
+        format: 'webp',
+        size,
+        waveform: [],
+        order: 0,
+      },
+    })
+    if (opts.deleted) {
+      await testPrisma.message.update({
+        where: { id: msg.id },
+        data: { deletedAt: new Date() },
+      })
+    }
+    return msg
+  }
+
+  const sendImage = async (userId: string, convoId: string) => {
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(
+      png,
+      'image',
+      'foto.png',
+      'image/png',
+    )
+    return app.inject({
+      method: 'POST',
+      url: `/conversations/${convoId}/messages/images`,
+      headers: { ...auth(userId), 'content-type': contentType },
+      payload: body,
+    })
+  }
+
+  it('recusa upload quando o usuário atinge a cota → 413', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    await seedMedia(convo.id, a.id, env.CHAT_USER_STORAGE_QUOTA_BYTES)
+
+    const res = await sendImage(a.id, convo.id)
+    expect(res.statusCode).toBe(413)
+    // Nada novo foi subido (recusado antes do upload).
+    expect(fakeStorage.uploads).toHaveLength(0)
+  })
+
+  it('a cota conta só a mídia do próprio usuário', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    // B enche a própria cota; não deve afetar o A.
+    await seedMedia(convo.id, b.id, env.CHAT_USER_STORAGE_QUOTA_BYTES)
+
+    const res = await sendImage(a.id, convo.id)
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('mídia de mensagem apagada não conta para a cota', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    // A já teve mídia do tamanho da cota, mas a mensagem foi apagada.
+    await seedMedia(convo.id, a.id, env.CHAT_USER_STORAGE_QUOTA_BYTES, {
+      deleted: true,
+    })
+
+    const res = await sendImage(a.id, convo.id)
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('corrida: uploads concorrentes do mesmo usuário NÃO furam a cota', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    // Descobre o tamanho de uma imagem processada via um probe de OUTRO usuário
+    // (não consome a cota do A).
+    const probeUser = await makeUser()
+    const probeConvo = await makeDirectConversation(probeUser.id, b.id)
+    const probe = await sendImage(probeUser.id, probeConvo.id)
+    const imgSize: number = probe.json().attachments[0].size
+
+    // A começa com espaço para EXATAMENTE 1 imagem (não 2).
+    await seedMedia(
+      convo.id,
+      a.id,
+      env.CHAT_USER_STORAGE_QUOTA_BYTES - imgSize - Math.floor(imgSize / 2),
+    )
+
+    // 3 envios concorrentes. Sem o lock, todos leriam o mesmo uso e passariam,
+    // furando o teto; com o advisory lock, só 1 cabe.
+    const results = await Promise.all([
+      sendImage(a.id, convo.id),
+      sendImage(a.id, convo.id),
+      sendImage(a.id, convo.id),
+    ])
+    const created = results.filter((r) => r.statusCode === 201).length
+    const rejected = results.filter((r) => r.statusCode === 413).length
+    expect(created).toBe(1)
+    expect(rejected).toBe(2)
+
+    // Invariante: o uso final do A não passa da cota.
+    const finalUsed = await testPrisma.messageAttachment.aggregate({
+      _sum: { size: true },
+      where: { message: { senderId: a.id, deletedAt: null } },
+    })
+    expect(finalUsed._sum.size ?? 0).toBeLessThanOrEqual(
+      env.CHAT_USER_STORAGE_QUOTA_BYTES,
+    )
   })
 })
