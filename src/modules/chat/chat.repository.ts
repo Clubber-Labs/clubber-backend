@@ -13,7 +13,16 @@ const messageInclude = {
   sender: { select: userSelect },
   attachments: {
     orderBy: { order: 'asc' as const },
-    select: { id: true, url: true, format: true, size: true, order: true },
+    select: {
+      id: true,
+      kind: true,
+      url: true,
+      format: true,
+      size: true,
+      durationMs: true,
+      waveform: true,
+      order: true,
+    },
   },
   reactions: { select: { userId: true, emoji: true } },
   replyTo: {
@@ -223,11 +232,22 @@ export async function createTextMessage(
   return message
 }
 
-export async function createImageMessage(
+type AttachmentInput = {
+  kind: 'IMAGE' | 'AUDIO'
+  url: string
+  key: string
+  format: string
+  size: number
+  // Só áudio preenche; imagem deixa duração null e waveform vazio.
+  durationMs?: number | null
+  waveform?: number[]
+}
+
+export async function createAttachmentMessage(
   conversationId: string,
   senderId: string,
   content: string | null,
-  attachment: { url: string; key: string; format: string; size: number },
+  attachment: AttachmentInput,
 ) {
   const [message] = await prisma.$transaction([
     prisma.message.create({
@@ -235,7 +255,20 @@ export async function createImageMessage(
         conversationId,
         senderId,
         content,
-        attachments: { create: [{ ...attachment, order: 0 }] },
+        attachments: {
+          create: [
+            {
+              kind: attachment.kind,
+              url: attachment.url,
+              key: attachment.key,
+              format: attachment.format,
+              size: attachment.size,
+              durationMs: attachment.durationMs ?? null,
+              waveform: attachment.waveform ?? [],
+              order: 0,
+            },
+          ],
+        },
       },
       include: messageInclude,
     }),

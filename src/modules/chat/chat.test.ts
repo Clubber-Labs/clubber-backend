@@ -9,7 +9,11 @@ import {
   makeMessage,
   makeUser,
 } from '../../test/factories'
-import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
+import {
+  multipartFormData,
+  tinyM4aBuffer,
+  tinyPngBuffer,
+} from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
 import { findConversationPartnerIds } from './chat.repository'
 
@@ -501,6 +505,214 @@ describe('anexo de imagem', () => {
       payload: body,
     })
     expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('anexo de áudio', () => {
+  it('envia áudio (multipart) criando anexo com duração e waveform', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '3200', waveform: '[3, 7, 12, 9, 4]' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(201)
+    const attachment = res.json().attachments[0]
+    expect(res.json().attachments).toHaveLength(1)
+    expect(attachment.kind).toBe('AUDIO')
+    expect(attachment.durationMs).toBe(3200)
+    expect(attachment.waveform).toEqual([3, 7, 12, 9, 4])
+    expect(attachment.url).toMatch(/^https:\/\/fake\.storage\//)
+  })
+
+  it('áudio sem waveform usa lista vazia', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '1500' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().attachments[0].waveform).toEqual([])
+  })
+
+  it('mimetype não-áudio → 400', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      Buffer.from('not audio'),
+      'audio',
+      'a.txt',
+      'text/plain',
+      { durationMs: '1000' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('waveform com JSON inválido → 400', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '1000', waveform: 'not-json' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('durationMs fora do range → 400', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '700000' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('áudio sem durationMs → 400', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('não-participante → 403', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const outsider = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '1000' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(outsider.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('sem autenticação → 401', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '1000' },
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { 'content-type': contentType },
+      payload: body,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('mensagem só de áudio não pode ser editada → 403', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '1000' },
+    )
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    const messageId = created.json().id
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${convo.id}/messages/${messageId}`,
+      headers: auth(a.id),
+      body: { content: 'tentando editar' },
+    })
+    expect(res.statusCode).toBe(403)
   })
 })
 
