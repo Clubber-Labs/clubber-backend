@@ -7,7 +7,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { handlePrismaUniqueError } from '../lib/errors'
+import { errorHandler } from '../lib/error-handler'
 import { redis } from '../lib/redis'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
 import { authRoutes } from '../modules/auth/auth.routes'
@@ -33,27 +33,7 @@ export function buildApp() {
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
 
-  app.setErrorHandler((error: Error, request, reply) => {
-    const uniqueErr = handlePrismaUniqueError(error)
-    if (uniqueErr) {
-      return reply
-        .status(uniqueErr.statusCode)
-        .send({ message: uniqueErr.message })
-    }
-    const explicit = error as { statusCode?: number; message?: string }
-    if (explicit.statusCode && explicit.statusCode < 500) {
-      return reply
-        .status(explicit.statusCode)
-        .send({ message: explicit.message ?? 'Erro' })
-    }
-    request.log.error({ err: error }, 'Unhandled error')
-    return reply.status(500).send({
-      message:
-        process.env.NODE_ENV === 'production'
-          ? 'Erro interno do servidor.'
-          : (error.message ?? 'Internal Server Error'),
-    })
-  })
+  app.setErrorHandler(errorHandler)
 
   app.register(fastifyRateLimit, {
     global: false,

@@ -149,18 +149,19 @@ export async function postMessageAudio(
   reply: FastifyReply,
 ) {
   const { id } = request.params as ConversationParam
-  const data = await request.file()
+  // throwFileSizeLimit: false → não lança no teto; o áudio sobe em STREAM (sem
+  // toBuffer) e o truncamento é tratado na camada de upload (413).
+  const data = await request.file({ throwFileSizeLimit: false })
   if (!data) {
     throw { statusCode: 400, message: 'Nenhum áudio foi enviado' }
   }
   assertAudioMimetype(data.mimetype)
   // Campos de texto (enviados antes do arquivo) já estão em data.fields aqui.
   const meta = parseAudioMeta(data.fields as Record<string, unknown>)
-  const buffer = await data.toBuffer()
   const message = await sendAudioMessage(
     request.user.sub,
     id,
-    buffer,
+    data.file,
     data.mimetype,
     meta,
   )

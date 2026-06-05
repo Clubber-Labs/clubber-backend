@@ -5,6 +5,9 @@ import type {
   FileData,
   IStorageService,
   RemoteAsset,
+  StorageResourceType,
+  StreamData,
+  StreamUploadResult,
   UploadResult,
   UploadSignature,
 } from './storage.interface'
@@ -50,8 +53,38 @@ export class CloudinaryStorageService implements IStorageService {
     })
   }
 
-  async delete(key: string): Promise<void> {
-    await cloudinary.uploader.destroy(key)
+  async uploadStream(
+    file: StreamData,
+    folderConfig: string,
+  ): Promise<StreamUploadResult> {
+    return new Promise((resolve, reject) => {
+      const publicId = `${folderConfig}/${randomUUID()}`
+      const dest = cloudinary.uploader.upload_stream(
+        { public_id: publicId, resource_type: 'auto' },
+        (error, result) => {
+          if (error || !result) {
+            return reject(
+              error || new Error('Falha no upload para o Cloudinary'),
+            )
+          }
+          resolve({
+            url: result.secure_url,
+            key: result.public_id,
+            bytes: result.bytes,
+          })
+        },
+      )
+      // Propaga erro do source pro destino (não deixa o upload pendurado).
+      file.stream.on('error', (err) => dest.destroy(err))
+      file.stream.pipe(dest)
+    })
+  }
+
+  async delete(
+    key: string,
+    resourceType: StorageResourceType = 'image',
+  ): Promise<void> {
+    await cloudinary.uploader.destroy(key, { resource_type: resourceType })
   }
 
   signUpload(folder: string, resourceType: 'video'): UploadSignature {
@@ -84,6 +117,13 @@ export class CloudinaryStorageService implements IStorageService {
       // do public_id (tudo antes do último segmento).
       const folder =
         r.asset_folder ?? r.folder ?? publicId.split('/').slice(0, -1).join('/')
+      // Poster gerado on-demand pelo Cloudinary: 1 frame representativo do vídeo
+      // entregue como JPEG. Não custa storage nem transcoding (URL derivada).
+      const thumbnailUrl = cloudinary.url(r.public_id, {
+        resource_type: 'video',
+        format: 'jpg',
+        transformation: [{ start_offset: 'auto' }],
+      })
       return {
         publicId: r.public_id,
         url: r.secure_url,
@@ -94,6 +134,7 @@ export class CloudinaryStorageService implements IStorageService {
           typeof r.duration === 'number' ? Math.round(r.duration * 1000) : null,
         width: typeof r.width === 'number' ? r.width : null,
         height: typeof r.height === 'number' ? r.height : null,
+        thumbnailUrl,
       }
     } catch (err) {
       // Asset inexistente → 404 do Cloudinary vira null (o service trata como 400).

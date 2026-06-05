@@ -3,6 +3,9 @@ import type {
   FileData,
   IStorageService,
   RemoteAsset,
+  StorageResourceType,
+  StreamData,
+  StreamUploadResult,
   UploadResult,
   UploadSignature,
 } from '../lib/storage'
@@ -10,18 +13,52 @@ import type {
 export class FakeStorageService implements IStorageService {
   uploads: { key: string; url: string; size: number }[] = []
   deleted: string[] = []
+  deletedResources: { key: string; resourceType: StorageResourceType }[] = []
+  // Seam de teste: força o próximo uploadStream a reportar um tamanho acima do
+  // int4 do Postgres (> 2.147B). O insert do attachment estoura ("value out of
+  // range for type integer") → permite testar o delete compensatório sem mockar
+  // o Prisma (a falha vem do banco real).
+  forceOversizeBytes = false
+
+  private nextKey(folderConfig: string, ext: string): string {
+    return `${folderConfig}/${this.uploads.length + 1}${ext}`
+  }
 
   async upload(file: FileData, folderConfig: string): Promise<UploadResult> {
     // Espelha o storage real: extensão derivada do arquivo, não fixa em .webp.
     const ext = path.extname(file.filename) || '.bin'
-    const key = `${folderConfig}/${this.uploads.length + 1}${ext}`
+    const key = this.nextKey(folderConfig, ext)
     const url = `https://fake.storage/${key}`
     this.uploads.push({ key, url, size: file.buffer.length })
     return { key, url }
   }
 
-  async delete(key: string): Promise<void> {
+  async uploadStream(
+    file: StreamData,
+    folderConfig: string,
+  ): Promise<StreamUploadResult> {
+    // Consome o stream (como o provider real faria) e mede o tamanho.
+    let bytes = 0
+    for await (const chunk of file.stream) {
+      bytes += (chunk as Buffer).length
+    }
+    if (this.forceOversizeBytes) {
+      this.forceOversizeBytes = false
+      bytes = 3_000_000_000
+    }
+    const ext = path.extname(file.filename) || '.bin'
+    const key = this.nextKey(folderConfig, ext)
+    const url = `https://fake.storage/${key}`
+    this.uploads.push({ key, url, size: bytes })
+    return { key, url, bytes }
+  }
+
+  async delete(
+    key: string,
+    resourceType: StorageResourceType = 'image',
+  ): Promise<void> {
     this.deleted.push(key)
+    this.deletedResources.push({ key, resourceType })
   }
 
   signUpload(folder: string, resourceType: 'video'): UploadSignature {
@@ -57,12 +94,15 @@ export class FakeStorageService implements IStorageService {
       durationMs: 8200,
       width: 1080,
       height: 1920,
+      thumbnailUrl: `https://fake.storage/${publicId}.jpg`,
     }
   }
 
   reset() {
     this.uploads = []
     this.deleted = []
+    this.deletedResources = []
+    this.forceOversizeBytes = false
   }
 }
 

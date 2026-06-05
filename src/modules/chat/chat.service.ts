@@ -1,8 +1,12 @@
+import type { Readable } from 'node:stream'
+import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { getStorage } from '../../lib/storage'
 import {
   assertVideoFormat,
+  deleteUploaded,
   MAX_VIDEO_SIZE,
+  resourceTypeForKind,
   uploadMessageAudio,
   uploadMessageImage,
 } from '../../lib/uploads'
@@ -28,6 +32,7 @@ import {
   findConversationMessages,
   findConversationWithParticipants,
   findDirectByKey,
+  findMessageAttachments,
   findMessageById,
   findMessageWithConversation,
   findParticipant,
@@ -333,6 +338,33 @@ export async function sendTextMessage(
   return shapeMessage(message)
 }
 
+/**
+ * Persiste a mensagem-anexo e, se o insert falhar DEPOIS do upload, remove o
+ * asset órfão do storage antes de propagar o erro (best-effort). Evita lixo
+ * pago no Cloudinary quando o banco rejeita a escrita.
+ */
+async function persistAttachmentOrCleanup(
+  conversationId: string,
+  userId: string,
+  attachment: Parameters<typeof createAttachmentMessage>[3],
+) {
+  try {
+    return await createAttachmentMessage(
+      conversationId,
+      userId,
+      null,
+      attachment,
+    )
+  } catch (err) {
+    await deleteUploaded(
+      attachment.key,
+      logger,
+      resourceTypeForKind(attachment.kind),
+    )
+    throw err
+  }
+}
+
 export async function sendImageMessage(
   userId: string,
   conversationId: string,
@@ -340,12 +372,14 @@ export async function sendImageMessage(
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
   const uploaded = await uploadMessageImage(buffer, conversationId)
-  const message = await createAttachmentMessage(conversationId, userId, null, {
+  const message = await persistAttachmentOrCleanup(conversationId, userId, {
     kind: 'IMAGE',
     url: uploaded.url,
     key: uploaded.key,
     format: uploaded.format,
     size: uploaded.size,
+    width: uploaded.width,
+    height: uploaded.height,
   })
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
@@ -354,13 +388,21 @@ export async function sendImageMessage(
 export async function sendAudioMessage(
   userId: string,
   conversationId: string,
-  buffer: Buffer,
+  file: Readable & { truncated?: boolean },
   mimetype: string,
   meta: AudioMessageMeta,
 ) {
-  const participantIds = await authorizeSend(conversationId, userId)
-  const uploaded = await uploadMessageAudio(buffer, conversationId, mimetype)
-  const message = await createAttachmentMessage(conversationId, userId, null, {
+  let participantIds: string[]
+  try {
+    participantIds = await authorizeSend(conversationId, userId)
+  } catch (err) {
+    // Barramos ANTES de consumir o arquivo: drena o stream pra não deixar a
+    // conexão pendurada (o multipart espera o corpo ser lido).
+    file.resume()
+    throw err
+  }
+  const uploaded = await uploadMessageAudio(file, conversationId, mimetype)
+  const message = await persistAttachmentOrCleanup(conversationId, userId, {
     kind: 'AUDIO',
     url: uploaded.url,
     key: uploaded.key,
@@ -416,7 +458,7 @@ export async function sendVideoMessage(
   if (asset.bytes > MAX_VIDEO_SIZE) {
     throw { statusCode: 413, message: 'Vídeo excede o limite de 50 MB' }
   }
-  const message = await createAttachmentMessage(conversationId, userId, null, {
+  const message = await persistAttachmentOrCleanup(conversationId, userId, {
     kind: 'VIDEO',
     url: asset.url,
     key: asset.publicId,
@@ -425,6 +467,7 @@ export async function sendVideoMessage(
     durationMs: asset.durationMs,
     width: asset.width,
     height: asset.height,
+    thumbnailUrl: asset.thumbnailUrl,
   })
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
@@ -586,6 +629,12 @@ export async function deleteMessage(
   }
   if (message.deletedAt !== null) return // já apagada — idempotente
   await softDeleteMessage(messageId)
+  // Remove os arquivos no storage (best-effort): a falha de storage NÃO reverte
+  // o soft-delete. Sem isso, áudio/imagem/vídeo apagados viram lixo pago eterno.
+  const attachments = await findMessageAttachments(messageId)
+  for (const att of attachments) {
+    await deleteUploaded(att.key, logger, resourceTypeForKind(att.kind))
+  }
 }
 
 export async function addGroupParticipant(

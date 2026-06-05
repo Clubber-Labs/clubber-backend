@@ -23,6 +23,7 @@ const messageInclude = {
       waveform: true,
       width: true,
       height: true,
+      thumbnailUrl: true,
       order: true,
     },
   },
@@ -246,6 +247,8 @@ type AttachmentInput = {
   // Só vídeo preenche; imagem/áudio deixam null.
   width?: number | null
   height?: number | null
+  // Vídeo: poster gerado pelo provider.
+  thumbnailUrl?: string | null
 }
 
 export async function createAttachmentMessage(
@@ -272,6 +275,7 @@ export async function createAttachmentMessage(
               waveform: attachment.waveform ?? [],
               width: attachment.width ?? null,
               height: attachment.height ?? null,
+              thumbnailUrl: attachment.thumbnailUrl ?? null,
               order: 0,
             },
           ],
@@ -385,6 +389,14 @@ export async function findMessageWithConversation(id: string) {
   return prisma.message.findUnique({
     where: { id },
     include: messageInclude,
+  })
+}
+
+/** Anexos (key + kind) de uma mensagem — para limpar o storage ao apagá-la. */
+export async function findMessageAttachments(messageId: string) {
+  return prisma.messageAttachment.findMany({
+    where: { messageId },
+    select: { key: true, kind: true },
   })
 }
 

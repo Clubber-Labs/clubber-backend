@@ -1,7 +1,24 @@
+import type { Readable } from 'node:stream'
 import { imageProcessorService } from './image-processor'
-import { getStorage } from './storage'
+import { logger } from './logger'
+import { getStorage, type StorageResourceType } from './storage'
 
-const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif']
+// GIF fora de propósito: o processador (sharp/webp) achata GIF animado num
+// frame estático. Em vez de aceitar e degradar silenciosamente, rejeitamos —
+// é mais honesto que entregar um "GIF" parado. Ver 1.5 da auditoria.
+const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'image/webp']
+
+// Imagem e áudio compartilham o teto global do multipart (5 MB). Mensagem em PT
+// reaproveitada no truncamento do áudio e no error handler global (vídeo tem o
+// próprio 413, com limite de 50 MB).
+export const FILE_TOO_LARGE_MESSAGE = 'Arquivo acima do limite permitido (5 MB)'
+
+/** Mapeia o kind do attachment para o resource_type do provider (Cloudinary). */
+export function resourceTypeForKind(
+  kind: 'IMAGE' | 'AUDIO' | 'VIDEO',
+): StorageResourceType {
+  return kind === 'IMAGE' ? 'image' : 'video'
+}
 
 // Áudio AAC em container MP4/M4A — o formato que iOS grava nativamente.
 const AUDIO_MIMETYPE_EXTENSIONS: Record<string, string> = {
@@ -23,7 +40,7 @@ export function assertImageMimetype(mimetype: string) {
   if (!ALLOWED_MIMETYPES.includes(mimetype)) {
     throw {
       statusCode: 400,
-      message: 'Formato de imagem não suportado. Use JPEG, PNG, WebP ou GIF',
+      message: 'Formato de imagem não suportado. Use JPEG, PNG ou WebP',
     }
   }
 }
@@ -84,30 +101,46 @@ export async function uploadMessageImage(
     },
     `conversations/${conversationId}`,
   )
-  return { ...result, format: processed.format, size: processed.size }
+  // width/height vêm do sharp: o cliente reserva o aspect-ratio antes do
+  // download (evita layout shift), igual ao vídeo.
+  return {
+    ...result,
+    format: processed.format,
+    size: processed.size,
+    width: processed.width,
+    height: processed.height,
+  }
 }
 
 export async function uploadMessageAudio(
-  buffer: Buffer,
+  file: Readable & { truncated?: boolean },
   conversationId: string,
   mimetype: string,
 ) {
-  // Áudio NÃO passa pelo sharp (que é só pra imagem): sobe o binário cru. O
-  // Cloudinary detecta o formato via resource_type 'auto'; o size é o do buffer.
+  // Áudio NÃO passa pelo sharp (imagem). Sobe em STREAM (sem materializar o
+  // buffer): o Cloudinary detecta o formato via resource_type 'auto' e devolve o
+  // tamanho real em bytes. Evita reter o arquivo inteiro na memória.
   const format = AUDIO_MIMETYPE_EXTENSIONS[mimetype] ?? 'm4a'
-  const result = await getStorage().upload(
-    { buffer, filename: `audio.${format}`, mimetype },
+  const result = await getStorage().uploadStream(
+    { stream: file, filename: `audio.${format}`, mimetype },
     `conversations/${conversationId}`,
   )
-  return { ...result, format, size: buffer.length }
+  // Streaming não dispara o 413 do multipart sozinho: o busboy apenas trunca no
+  // teto e marca `truncated`. Se truncou, o asset parcial já subiu → limpa e 413.
+  if (file.truncated) {
+    await deleteUploaded(result.key, logger, 'video')
+    throw { statusCode: 413, message: FILE_TOO_LARGE_MESSAGE }
+  }
+  return { ...result, format, size: result.bytes }
 }
 
 export async function deleteUploaded(
   key: string,
   logger: { error: (msg: string) => void },
+  resourceType: StorageResourceType = 'image',
 ) {
   try {
-    await getStorage().delete(key)
+    await getStorage().delete(key, resourceType)
   } catch (err) {
     logger.error(`Falha ao deletar arquivo ${key}: ${(err as Error).message}`)
   }
