@@ -487,7 +487,10 @@ describe('anexo de imagem', () => {
     expect(res.statusCode).toBe(201)
     expect(res.json().attachments).toHaveLength(1)
     const attachment = res.json().attachments[0]
-    expect(attachment.url).toMatch(/^https:\/\/fake\.storage\//)
+    // URL ASSINADA (mídia privada), não a URL pública persistida.
+    expect(attachment.url).toContain('/signed/')
+    // O publicId (key) é interno — não vaza na resposta.
+    expect(attachment.key).toBeUndefined()
     // 1.4: imagem grava width/height (sharp) pro cliente reservar o aspect-ratio.
     expect(attachment.width).toBeGreaterThan(0)
     expect(attachment.height).toBeGreaterThan(0)
@@ -884,9 +887,11 @@ describe('vídeo — upload direto assinado', () => {
       expect(attachment.width).toBe(1080)
       expect(attachment.height).toBe(1920)
       expect(attachment.format).toBe('mp4')
-      expect(attachment.url).toMatch(/^https:\/\/fake\.storage\//)
-      // Thumbnail/poster derivado pelo provider para o preview do vídeo.
+      // URL e poster ASSINADOS (mídia privada); key não vaza.
+      expect(attachment.url).toContain('/signed/')
+      expect(attachment.thumbnailUrl).toContain('/signed/')
       expect(attachment.thumbnailUrl).toMatch(/\.jpg$/)
+      expect(attachment.key).toBeUndefined()
     })
 
     it('publicId de outra conversa → 403', async () => {
@@ -1830,5 +1835,142 @@ describe('ciclo de vida de mídia (auditoria 1.1/1.2)', () => {
       where: { conversationId: convo.id },
     })
     expect(count).toBe(0)
+  })
+})
+
+describe('mídia privada — URLs assinadas e revogação (Fase 2 #1)', () => {
+  it('imagem de chat sobe como authenticated (privada)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(
+      png,
+      'image',
+      'foto.png',
+      'image/png',
+    )
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/images`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(
+      fakeStorage.uploads[fakeStorage.uploads.length - 1]?.deliveryType,
+    ).toBe('authenticated')
+  })
+
+  it('áudio de chat sobe como authenticated (privada)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const { body, contentType } = multipartFormData(
+      tinyM4aBuffer(),
+      'audio',
+      'nota.m4a',
+      'audio/mp4',
+      { durationMs: '1000' },
+    )
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/audio`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+    expect(
+      fakeStorage.uploads[fakeStorage.uploads.length - 1]?.deliveryType,
+    ).toBe('authenticated')
+  })
+
+  it('assinatura de vídeo força entrega authenticated', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/video/signature`,
+      headers: auth(a.id),
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().type).toBe('authenticated')
+  })
+
+  it('a mesma mídia é servida com URL assinada em list e inbox', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(
+      png,
+      'image',
+      'foto.png',
+      'image/png',
+    )
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${convo.id}/messages/images`,
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
+    })
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/conversations/${convo.id}/messages`,
+      headers: auth(b.id),
+    })
+    expect(list.json().data[0].attachments[0].url).toContain('/signed/')
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(b.id),
+    })
+    const item = inbox
+      .json()
+      .data.find((c: { id: string }) => c.id === convo.id)
+    expect(item.lastMessage.attachments[0].url).toContain('/signed/')
+  })
+
+  it('quem saiu do grupo deixa de obter a URL da mídia (403)', async () => {
+    const owner = await makeUser()
+    const member = await makeUser()
+    const group = await makeGroupConversation(owner.id, [member.id])
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(
+      png,
+      'image',
+      'foto.png',
+      'image/png',
+    )
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/messages/images`,
+      headers: { ...auth(owner.id), 'content-type': contentType },
+      payload: body,
+    })
+
+    // Enquanto participa, o membro obtém a URL assinada.
+    const before = await app.inject({
+      method: 'GET',
+      url: `/conversations/${group.id}/messages`,
+      headers: auth(member.id),
+    })
+    expect(before.statusCode).toBe(200)
+    expect(before.json().data[0].attachments[0].url).toContain('/signed/')
+
+    // Ao sair, perde o acesso ao read path → nunca recebe URL nova (revogação).
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(member.id),
+    })
+    const after = await app.inject({
+      method: 'GET',
+      url: `/conversations/${group.id}/messages`,
+      headers: auth(member.id),
+    })
+    expect(after.statusCode).toBe(403)
   })
 })

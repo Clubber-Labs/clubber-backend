@@ -61,6 +61,12 @@ export class LocalStorageService implements IStorageService {
     await fs.unlink(path.join(this.uploadDir, key))
   }
 
+  // Sem assinatura no filesystem local: reconstrói a URL pública a partir do
+  // key (que já é o caminho com extensão). deliveryType/opts são irrelevantes.
+  signedUrl(key: string): string {
+    return `${env.PUBLIC_URL}/uploads/${key}`
+  }
+
   // Upload direto assinado depende do provider externo (Cloudinary). No storage
   // local não há para onde o cliente subir direto nem Admin API para verificar.
   signUpload(): UploadSignature {

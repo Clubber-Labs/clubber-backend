@@ -29,6 +29,12 @@ export interface StreamUploadResult extends UploadResult {
  */
 export type StorageResourceType = 'image' | 'video'
 
+/**
+ * Tipo de entrega no provider. 'upload' = público (default; avatar/evento).
+ * 'authenticated' = privado, acessível só via URL assinada (mídia de chat).
+ */
+export type StorageDeliveryType = 'upload' | 'authenticated'
+
 /** Credenciais assinadas para o cliente subir um arquivo DIRETO ao provider. */
 export interface UploadSignature {
   signature: string
@@ -37,6 +43,9 @@ export interface UploadSignature {
   cloudName: string
   folder: string
   resourceType: 'video'
+  // Entrega autenticada: o cliente sobe com este `type` para o asset ficar
+  // privado (acessível só via URL assinada). Vai dentro dos params assinados.
+  type: StorageDeliveryType
 }
 
 /** Metadados autoritativos de um asset já hospedado no provider (fonte da verdade). */
@@ -55,15 +64,32 @@ export interface RemoteAsset {
 }
 
 export interface IStorageService {
-  upload(file: FileData, folderConfig: string): Promise<UploadResult>
+  // deliveryType default 'upload' (público) mantém avatar/evento intactos; a
+  // mídia de chat passa 'authenticated' para o asset ficar privado.
+  upload(
+    file: FileData,
+    folderConfig: string,
+    deliveryType?: StorageDeliveryType,
+  ): Promise<UploadResult>
   /** Sobe um stream sem bufferizar o arquivo inteiro (áudio). */
   uploadStream(
     file: StreamData,
     folderConfig: string,
+    deliveryType?: StorageDeliveryType,
   ): Promise<StreamUploadResult>
   // resourceType default 'image' mantém os callers de imagem (avatar/evento)
   // intactos; áudio/vídeo passam 'video' para o destroy acertar o recurso.
   delete(key: string, resourceType?: StorageResourceType): Promise<void>
+  /**
+   * Gera uma URL de ENTREGA assinada (não-forjável) para um asset privado,
+   * a partir do key/publicId. Síncrono (puro cálculo de assinatura, sem I/O).
+   * `asThumbnail` deriva o poster JPEG de um vídeo.
+   */
+  signedUrl(
+    key: string,
+    resourceType: StorageResourceType,
+    opts?: { asThumbnail?: boolean },
+  ): string
   // Upload direto assinado (vídeo): o backend assina os params para o cliente
   // subir direto ao provider, e depois busca/verifica o asset resultante.
   signUpload(folder: string, resourceType: 'video'): UploadSignature

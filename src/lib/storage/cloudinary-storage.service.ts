@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { v2 as cloudinary } from 'cloudinary'
 import type { CloudinaryCredentials } from '../env'
+import { env } from '../env'
 import type {
   FileData,
   IStorageService,
   RemoteAsset,
+  StorageDeliveryType,
   StorageResourceType,
   StreamData,
   StreamUploadResult,
@@ -25,7 +27,11 @@ export class CloudinaryStorageService implements IStorageService {
     })
   }
 
-  async upload(file: FileData, folderConfig: string): Promise<UploadResult> {
+  async upload(
+    file: FileData,
+    folderConfig: string,
+    deliveryType: StorageDeliveryType = 'upload',
+  ): Promise<UploadResult> {
     return new Promise((resolve, reject) => {
       const fileId = randomUUID()
       const publicId = `${folderConfig}/${fileId}`
@@ -34,6 +40,7 @@ export class CloudinaryStorageService implements IStorageService {
         {
           public_id: publicId,
           resource_type: 'auto',
+          type: deliveryType,
         },
         (error, result) => {
           if (error || !result) {
@@ -56,11 +63,12 @@ export class CloudinaryStorageService implements IStorageService {
   async uploadStream(
     file: StreamData,
     folderConfig: string,
+    deliveryType: StorageDeliveryType = 'upload',
   ): Promise<StreamUploadResult> {
     return new Promise((resolve, reject) => {
       const publicId = `${folderConfig}/${randomUUID()}`
       const dest = cloudinary.uploader.upload_stream(
-        { public_id: publicId, resource_type: 'auto' },
+        { public_id: publicId, resource_type: 'auto', type: deliveryType },
         (error, result) => {
           if (error || !result) {
             return reject(
@@ -89,10 +97,12 @@ export class CloudinaryStorageService implements IStorageService {
 
   signUpload(folder: string, resourceType: 'video'): UploadSignature {
     const timestamp = Math.round(Date.now() / 1000)
-    // Assina apenas folder + timestamp: o cliente envia exatamente esses params
-    // (mais api_key/file). Trava a pasta na conversa — o cliente não escolhe.
+    const type: StorageDeliveryType = 'authenticated'
+    // Assina folder + timestamp + type: o cliente envia exatamente esses params
+    // (mais api_key/file). Trava a pasta na conversa (o cliente não escolhe) e
+    // força entrega autenticada (o vídeo sobe privado, acessível só assinado).
     const signature = cloudinary.utils.api_sign_request(
-      { folder, timestamp },
+      { folder, timestamp, type },
       this.credentials.apiSecret,
     )
     return {
@@ -102,7 +112,31 @@ export class CloudinaryStorageService implements IStorageService {
       cloudName: this.credentials.cloudName,
       folder,
       resourceType,
+      type,
     }
+  }
+
+  signedUrl(
+    key: string,
+    resourceType: StorageResourceType,
+    opts?: { asThumbnail?: boolean },
+  ): string {
+    const authTokenKey = env.CLOUDINARY_AUTH_TOKEN_KEY
+    return cloudinary.url(key, {
+      type: 'authenticated',
+      resource_type: resourceType,
+      sign_url: true,
+      secure: true,
+      ...(opts?.asThumbnail && {
+        format: 'jpg',
+        transformation: [{ start_offset: 'auto' }],
+      }),
+      // Expiração real (opcional, recurso pago): com a auth token key
+      // configurada, emite token com TTL; senão, sign_url eterno e não-forjável.
+      ...(authTokenKey && {
+        auth_token: { key: authTokenKey, duration: 60 * 60 },
+      }),
+    })
   }
 
   async getAsset(

@@ -106,6 +106,26 @@ function shapeReplyPreview(replyTo: MessageRow['replyTo']) {
   }
 }
 
+/**
+ * A mídia é privada (delivery 'authenticated'): troca a URL pública persistida
+ * por uma URL ASSINADA gerada do key (publicId) e DESCARTA o key (não vaza o
+ * publicId na API). Só participantes chegam aqui → quem saiu/bloqueou não recebe
+ * URL nova (revogação pela autorização). Áudio/vídeo são resource_type 'video'.
+ */
+function shapeAttachments(attachments: MessageRow['attachments']) {
+  const storage = getStorage()
+  return attachments.map(({ key, ...rest }) => {
+    const resourceType = resourceTypeForKind(rest.kind)
+    return {
+      ...rest,
+      url: storage.signedUrl(key, resourceType),
+      thumbnailUrl: rest.thumbnailUrl
+        ? storage.signedUrl(key, 'video', { asThumbnail: true })
+        : rest.thumbnailUrl,
+    }
+  })
+}
+
 function shapeMessage(message: MessageRow) {
   const deleted = message.deletedAt !== null
   return {
@@ -115,7 +135,7 @@ function shapeMessage(message: MessageRow) {
     sender: message.sender,
     type: message.type,
     content: deleted ? null : message.content,
-    attachments: deleted ? [] : message.attachments,
+    attachments: deleted ? [] : shapeAttachments(message.attachments),
     replyToId: message.replyToId,
     replyTo: deleted ? null : shapeReplyPreview(message.replyTo),
     // Lista crua [{ userId, emoji }] — o front agrega contagem e "minha".

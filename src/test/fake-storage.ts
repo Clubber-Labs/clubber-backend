@@ -3,6 +3,7 @@ import type {
   FileData,
   IStorageService,
   RemoteAsset,
+  StorageDeliveryType,
   StorageResourceType,
   StreamData,
   StreamUploadResult,
@@ -11,7 +12,12 @@ import type {
 } from '../lib/storage'
 
 export class FakeStorageService implements IStorageService {
-  uploads: { key: string; url: string; size: number }[] = []
+  uploads: {
+    key: string
+    url: string
+    size: number
+    deliveryType: StorageDeliveryType
+  }[] = []
   deleted: string[] = []
   deletedResources: { key: string; resourceType: StorageResourceType }[] = []
   // Seam de teste: força o próximo uploadStream a reportar um tamanho acima do
@@ -24,18 +30,23 @@ export class FakeStorageService implements IStorageService {
     return `${folderConfig}/${this.uploads.length + 1}${ext}`
   }
 
-  async upload(file: FileData, folderConfig: string): Promise<UploadResult> {
+  async upload(
+    file: FileData,
+    folderConfig: string,
+    deliveryType: StorageDeliveryType = 'upload',
+  ): Promise<UploadResult> {
     // Espelha o storage real: extensão derivada do arquivo, não fixa em .webp.
     const ext = path.extname(file.filename) || '.bin'
     const key = this.nextKey(folderConfig, ext)
     const url = `https://fake.storage/${key}`
-    this.uploads.push({ key, url, size: file.buffer.length })
+    this.uploads.push({ key, url, size: file.buffer.length, deliveryType })
     return { key, url }
   }
 
   async uploadStream(
     file: StreamData,
     folderConfig: string,
+    deliveryType: StorageDeliveryType = 'upload',
   ): Promise<StreamUploadResult> {
     // Consome o stream (como o provider real faria) e mede o tamanho.
     let bytes = 0
@@ -49,8 +60,19 @@ export class FakeStorageService implements IStorageService {
     const ext = path.extname(file.filename) || '.bin'
     const key = this.nextKey(folderConfig, ext)
     const url = `https://fake.storage/${key}`
-    this.uploads.push({ key, url, size: bytes })
+    this.uploads.push({ key, url, size: bytes, deliveryType })
     return { key, url, bytes }
+  }
+
+  // URL assinada determinística e reconhecível (marcador '/signed/'). Reflete o
+  // resource_type e, se thumbnail, termina em .jpg (como o poster de vídeo).
+  signedUrl(
+    key: string,
+    resourceType: StorageResourceType,
+    opts?: { asThumbnail?: boolean },
+  ): string {
+    const suffix = opts?.asThumbnail ? '.jpg' : ''
+    return `https://fake.storage/signed/${resourceType}/${key}${suffix}`
   }
 
   async delete(
@@ -69,6 +91,7 @@ export class FakeStorageService implements IStorageService {
       cloudName: 'fake-cloud',
       folder,
       resourceType,
+      type: 'authenticated',
     }
   }
 

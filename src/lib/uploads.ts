@@ -93,6 +93,7 @@ export async function uploadMessageImage(
   conversationId: string,
 ) {
   const processed = await imageProcessorService.processEventGallery(buffer)
+  // 'authenticated': mídia de chat é privada (acessível só via URL assinada).
   const result = await getStorage().upload(
     {
       buffer: processed.buffer,
@@ -100,6 +101,7 @@ export async function uploadMessageImage(
       mimetype: 'image/webp',
     },
     `conversations/${conversationId}`,
+    'authenticated',
   )
   // width/height vêm do sharp: o cliente reserva o aspect-ratio antes do
   // download (evita layout shift), igual ao vídeo.
@@ -121,9 +123,11 @@ export async function uploadMessageAudio(
   // buffer): o Cloudinary detecta o formato via resource_type 'auto' e devolve o
   // tamanho real em bytes. Evita reter o arquivo inteiro na memória.
   const format = AUDIO_MIMETYPE_EXTENSIONS[mimetype] ?? 'm4a'
+  // 'authenticated': mídia de chat é privada (acessível só via URL assinada).
   const result = await getStorage().uploadStream(
     { stream: file, filename: `audio.${format}`, mimetype },
     `conversations/${conversationId}`,
+    'authenticated',
   )
   // Streaming não dispara o 413 do multipart sozinho: o busboy apenas trunca no
   // teto e marca `truncated`. Se truncou, o asset parcial já subiu → limpa e 413.

@@ -17,6 +17,9 @@ const messageInclude = {
       id: true,
       kind: true,
       url: true,
+      // key (publicId): interno, usado só para gerar a URL assinada no read.
+      // NÃO é exposto na resposta — shapeMessage o descarta.
+      key: true,
       format: true,
       size: true,
       durationMs: true,

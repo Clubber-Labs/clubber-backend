@@ -41,6 +41,9 @@ const cloudinarySchema = z.object({
   CLOUDINARY_CLOUD_NAME_PROD: z.string().optional(),
   CLOUDINARY_API_KEY_PROD: z.string().optional(),
   CLOUDINARY_API_SECRET_PROD: z.string().optional(),
+  // Opcional (recurso pago do Cloudinary): URL auth key para URLs assinadas com
+  // EXPIRAÇÃO (auth_token). Sem ela, as URLs são assinadas mas não expiram.
+  CLOUDINARY_AUTH_TOKEN_KEY: z.string().optional(),
 })
 
 const parsed = baseSchema.extend(cloudinarySchema.shape).parse(process.env)
@@ -93,4 +96,5 @@ export const env = {
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
+  CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
 } as const
