@@ -47,6 +47,11 @@ export class CloudinaryStorageService implements IStorageService {
       const uploadStream = cloudinary.uploader.upload_stream(
         {
           public_id: publicId,
+          // No modo "dynamic folders" da conta, slash no public_id NÃO cria pasta
+          // na Media Library — só asset_folder posiciona o asset. Sem isto, todo
+          // upload via backend (imagem/áudio/avatar/evento) cai na raiz ("home").
+          // O public_id segue com o caminho (key/delete/ownership inalterados).
+          asset_folder: folderConfig,
           resource_type: 'auto',
           type: deliveryType,
         },
@@ -76,7 +81,14 @@ export class CloudinaryStorageService implements IStorageService {
     return new Promise((resolve, reject) => {
       const publicId = `${folderConfig}/${randomUUID()}`
       const dest = cloudinary.uploader.upload_stream(
-        { public_id: publicId, resource_type: 'auto', type: deliveryType },
+        {
+          public_id: publicId,
+          // Mesma razão do upload(): asset_folder posiciona o asset na pasta da
+          // conversa no modo dynamic folders (slash no public_id não basta).
+          asset_folder: folderConfig,
+          resource_type: 'auto',
+          type: deliveryType,
+        },
         (error, result) => {
           if (error || !result) {
             return reject(
