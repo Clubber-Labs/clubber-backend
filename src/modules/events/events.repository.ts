@@ -137,7 +137,6 @@ export async function findPublicEvents(
   >,
   limit: number,
   cursor?: string,
-  viewerId?: string,
   now: Date = new Date(),
 ): Promise<SharedEvent[]> {
   const KNN_OVERFETCH = 20
@@ -154,7 +153,6 @@ export async function findPublicEvents(
       { latitude: filters.nearLat, longitude: filters.nearLng },
       Math.min(limit * KNN_OVERFETCH, KNN_OVERFETCH_CAP),
       filters.radiusKm,
-      viewerId,
     )
     if (spatialIdFilter.length === 0) return []
   } else if (
@@ -165,7 +163,6 @@ export async function findPublicEvents(
     spatialIdFilter = await findEventIdsWithinRadius(
       { latitude: filters.nearLat, longitude: filters.nearLng },
       filters.radiusKm,
-      viewerId,
     )
     if (spatialIdFilter.length === 0) return []
   }
@@ -174,7 +171,6 @@ export async function findPublicEvents(
     where: {
       AND: [
         { isPublic: true },
-        authorVisibleWhere(viewerId),
         buildLifecycleWhere({
           includePast: filters.includePast ?? false,
           status: filters.status,
@@ -395,7 +391,6 @@ function friendsOnlyWhere(followingIds: string[]): Prisma.EventWhereInput {
  */
 export async function findEventsForMap(
   query: MapEventsQuery,
-  viewerId: string | undefined,
   followingIds: string[],
   now: Date = new Date(),
 ): Promise<MapEventPoint[]> {
@@ -406,7 +401,7 @@ export async function findEventsForMap(
     west: query.bboxWest,
   }
 
-  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP, viewerId)
+  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return []
 
   const events = await prisma.event.findMany({
@@ -414,7 +409,6 @@ export async function findEventsForMap(
       AND: [
         { id: { in: idsInBbox } },
         { isPublic: true },
-        authorVisibleWhere(viewerId),
         buildMapLifecycleWhere({
           status: query.status,
           now,
@@ -550,7 +544,6 @@ export async function findTopAttendancesByEvent(
  */
 export async function findEventsInViewport(
   query: ViewportQuery,
-  viewerId: string | undefined,
   followingIds: string[],
   now: Date = new Date(),
 ): Promise<{ events: SharedEvent[]; truncated: boolean }> {
@@ -561,7 +554,7 @@ export async function findEventsInViewport(
     west: query.bboxWest,
   }
 
-  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP, viewerId)
+  const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return { events: [], truncated: false }
 
   const rows = (await prisma.event.findMany({
@@ -569,7 +562,6 @@ export async function findEventsInViewport(
       AND: [
         { id: { in: idsInBbox } },
         { isPublic: true },
-        authorVisibleWhere(viewerId),
         buildMapLifecycleWhere({
           status: query.status,
           now,
@@ -600,14 +592,12 @@ export async function searchEvents(
   q: string,
   limit: number,
   cursor: string | undefined,
-  viewerId: string | undefined,
   now: Date = new Date(),
 ): Promise<SharedEvent[]> {
   const events = (await prisma.event.findMany({
     where: {
       AND: [
         { isPublic: true },
-        authorVisibleWhere(viewerId),
         buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
         {
           OR: [

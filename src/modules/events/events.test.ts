@@ -311,7 +311,7 @@ describe('GET /events', () => {
     })
   })
 
-  it('NÃO retorna evento de autor privado para viewer não-follower', async () => {
+  it('retorna evento público de autor privado para viewer não-follower', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const stranger = await makeUser()
     const event = await makeEvent(privateAuthor.id, { isPublic: true })
@@ -324,7 +324,7 @@ describe('GET /events', () => {
 
     expect(res.statusCode).toBe(200)
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found).toBeUndefined()
+    expect(found).toBeDefined()
   })
 
   it('retorna evento de autor privado para follower aceito', async () => {
@@ -343,7 +343,7 @@ describe('GET /events', () => {
     expect(found).toBeDefined()
   })
 
-  it('NÃO retorna evento de autor privado quando follow é PENDING', async () => {
+  it('retorna evento público de autor privado mesmo com follow PENDING', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const requester = await makeUser()
     await makeFollow(requester.id, privateAuthor.id, 'PENDING')
@@ -356,7 +356,7 @@ describe('GET /events', () => {
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found).toBeUndefined()
+    expect(found).toBeDefined()
   })
 })
 
@@ -404,7 +404,7 @@ describe('cache de GET /events', () => {
     expect(afterKeys).toEqual(beforeKeys)
   })
 
-  it('viewer state diferencia per-user (cache key inclui viewerId pra privacidade no SQL)', async () => {
+  it('viewer state diferencia per-user via mergeViewerState (cache shared viewer-agnóstico)', async () => {
     const author = await makeUser()
     const viewerA = await makeUser()
     const viewerB = await makeUser()
@@ -436,11 +436,12 @@ describe('cache de GET /events', () => {
       .data.find((e: { id: string }) => e.id === event.id)
     expect(eventB.userLiked).toBe(false)
 
-    // findPublicEvents agora aplica authorVisibleWhere(viewerId) no SQL pra
-    // não vazar eventos de autores privados — então cada viewer tem sua
-    // própria entrada no cache. Trade-off conhecido vs cache cross-viewer.
+    // No modelo híbrido a lista pública é viewer-agnóstica (só isPublic +
+    // lifecycle + filtros, sem gate de autor por viewer), então os dois viewers
+    // compartilham a MESMA entrada de cache; userLiked é hidratado por viewer
+    // depois via mergeViewerState.
     const keys = await redis.keys('v1:events:public:*')
-    expect(keys).toHaveLength(2)
+    expect(keys).toHaveLength(1)
   })
 
   it('criar evento invalida o cache (lista muda)', async () => {
@@ -606,10 +607,10 @@ describe('GET /events/map', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('NÃO retorna ponto de autor privado para viewer não-follower', async () => {
+  it('retorna ponto de evento público de autor privado para viewer não-follower', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const stranger = await makeUser()
-    await makeEvent(privateAuthor.id, {
+    const event = await makeEvent(privateAuthor.id, {
       latitude: -25.4,
       longitude: -49.3,
       isPublic: true,
@@ -622,7 +623,8 @@ describe('GET /events/map', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toEqual([])
+    expect(res.json().length).toBe(1)
+    expect(res.json()[0].id).toBe(event.id)
   })
 
   it('retorna ponto de autor privado para follower aceito', async () => {
@@ -667,7 +669,7 @@ describe('GET /events/:id', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('retorna 403 ao acessar evento público de autor privado sem seguir', async () => {
+  it('retorna evento público de autor privado mesmo sem seguir', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const stranger = await makeUser()
     const event = await makeEvent(privateAuthor.id, { isPublic: true })
@@ -678,7 +680,7 @@ describe('GET /events/:id', () => {
       headers: { authorization: `Bearer ${token(app, stranger.id)}` },
     })
 
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(200)
   })
 
   it('retorna evento de autor privado para follower aceito', async () => {
@@ -742,7 +744,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     expect(res.json().data.length).toBe(1)
   })
 
-  it('convite NÃO bypassa privacidade do autor em evento público', async () => {
+  it('evento público de autor privado é acessível a qualquer um', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const invitee = await makeUser()
     const event = await makeEvent(privateAuthor.id, { isPublic: true })
@@ -754,7 +756,7 @@ describe('GET /users/:id/events — privacy gate', () => {
       headers: { authorization: `Bearer ${token(app, invitee.id)}` },
     })
 
-    expect(res.statusCode).toBe(403)
+    expect(res.statusCode).toBe(200)
   })
 
   it('convite em evento privado de autor privado SEM follow ACCEPTED → 403', async () => {
@@ -884,6 +886,49 @@ describe('POST /events', () => {
       title: 'Festa de verão',
       authorId: user.id,
     })
+  })
+
+  it('aceita descrição curta (sem limite mínimo de caracteres)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Evento',
+        description: 'Oi',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: -49.3,
+        category: 'PARTY',
+        isPublic: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ description: 'Oi' })
+  })
+
+  it('cria evento sem descrição (campo opcional)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Evento sem descrição',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: -49.3,
+        category: 'PARTY',
+        isPublic: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().description).toBeNull()
   })
 
   it('retorna 401 sem autenticação', async () => {
@@ -1402,7 +1447,7 @@ describe('GET /events/map/events (viewport)', () => {
     expect(res.statusCode).toBe(400)
   })
 
-  it('autor privado: some para quem não segue, aparece para follower', async () => {
+  it('evento público de autor privado aparece no viewport para qualquer um', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const stranger = await makeUser()
     const follower = await makeUser()
@@ -1416,7 +1461,7 @@ describe('GET /events/map/events (viewport)', () => {
     })
     expect(
       asStranger.json().data.some((e: { id: string }) => e.id === event.id),
-    ).toBe(false)
+    ).toBe(true)
 
     const asFollower = await app.inject({
       method: 'GET',
@@ -1533,7 +1578,7 @@ describe('GET /events/search', () => {
     expect(id2).not.toBe(id1)
   })
 
-  it('autor privado não seguido é excluído da busca', async () => {
+  it('evento público de autor privado aparece na busca para qualquer um', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const stranger = await makeUser()
     const event = await makeEvent(privateAuthor.id, {
@@ -1547,7 +1592,7 @@ describe('GET /events/search', () => {
       headers: { authorization: `Bearer ${token(app, stranger.id)}` },
     })
     expect(res.json().data.some((e: { id: string }) => e.id === event.id)).toBe(
-      false,
+      true,
     )
   })
 })

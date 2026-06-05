@@ -166,7 +166,7 @@ describe('GET /feed', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('NÃO mostra evento de autor privado quando amigo só interagiu', async () => {
+  it('mostra evento público de autor privado quando amigo interage', async () => {
     const viewer = await makeUser()
     const friend = await makeUser()
     const privateAuthor = await makeUser({ isPrivate: true })
@@ -181,7 +181,7 @@ describe('GET /feed', () => {
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found).toBeUndefined()
+    expect(found).toBeDefined()
   })
 
   it('mostra evento de autor privado quando viewer também segue o autor', async () => {
@@ -868,6 +868,26 @@ describe('GET /feed — descoberta', () => {
     expect(res.statusCode).toBe(200)
     const ids = res.json().data.map((e: { id: string }) => e.id)
     expect(ids).toContain(musicEvent.id)
+  })
+
+  it('evento público de autor privado aparece na descoberta por categoria', async () => {
+    const viewer = await makeUser()
+    await makeUserCategoryPreference(viewer.id, 'MUSIC')
+    const privateAuthor = await makeUser({ isPrivate: true })
+    const event = await makeEvent(privateAuthor.id, {
+      isPublic: true,
+      category: 'MUSIC',
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toContain(event.id)
   })
 
   it('evento de descoberta vem com reason discovery', async () => {

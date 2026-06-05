@@ -38,7 +38,7 @@ export const categoryFilter = z
 export const createEventSchema = z
   .object({
     title: z.string().min(3),
-    description: z.string().min(10),
+    description: z.string().optional(),
     date: z.coerce.date(),
     endDate: z.coerce.date().optional(),
     latitude: z.number().min(-90).max(90),
@@ -57,7 +57,7 @@ export const createEventSchema = z
 export const updateEventSchema = z
   .object({
     title: z.string().min(3).optional(),
-    description: z.string().min(10).optional(),
+    description: z.string().optional(),
     date: z.coerce.date().optional(),
     endDate: z.coerce.date().nullable().optional(),
     latitude: z.number().min(-90).max(90).optional(),

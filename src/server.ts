@@ -7,6 +7,7 @@ import { fastifySwagger } from '@fastify/swagger'
 import ScalarApiReference from '@scalar/fastify-api-reference'
 import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
 import {
+  hasZodFastifySchemaValidationErrors,
   jsonSchemaTransform,
   serializerCompiler,
   validatorCompiler,
@@ -83,6 +84,18 @@ app.setErrorHandler((error: Error, request, reply) => {
     return reply
       .status(uniqueErr.statusCode)
       .send({ message: uniqueErr.message })
+  }
+
+  if (hasZodFastifySchemaValidationErrors(error)) {
+    const issues = error.validation.map((v) => ({
+      path: v.instancePath || '/',
+      message: v.message,
+    }))
+    request.log.warn(
+      { issues, url: request.url, method: request.method },
+      'Validação de request falhou',
+    )
+    return reply.status(400).send({ message: 'Dados inválidos.', issues })
   }
 
   // Erros explícitos do service (throw { statusCode, message }) e validações
