@@ -1,17 +1,19 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { assertImageMimetype } from '../../lib/uploads'
-import type {
-  AddParticipantBody,
-  ChatPaginationQuery,
-  ConversationParam,
-  CreateConversationBody,
-  EditMessageBody,
-  MessageParam,
-  MessageReactionBody,
-  ParticipantParam,
-  RenameConversationBody,
-  SendMessageBody,
-  SetRoleBody,
+import { assertAudioMimetype, assertImageMimetype } from '../../lib/uploads'
+import {
+  type AddParticipantBody,
+  type AudioMessageMeta,
+  audioMessageMetaSchema,
+  type ChatPaginationQuery,
+  type ConversationParam,
+  type CreateConversationBody,
+  type EditMessageBody,
+  type MessageParam,
+  type MessageReactionBody,
+  type ParticipantParam,
+  type RenameConversationBody,
+  type SendMessageBody,
+  type SetRoleBody,
 } from './chat.schema'
 import {
   addGroupParticipant,
@@ -28,6 +30,7 @@ import {
   removeGroupParticipant,
   removeReaction,
   renameGroup,
+  sendAudioMessage,
   sendImageMessage,
   sendTextMessage,
   setParticipantRoleService,
@@ -100,6 +103,58 @@ export async function postMessageImage(
   assertImageMimetype(data.mimetype)
   const buffer = await data.toBuffer()
   const message = await sendImageMessage(request.user.sub, id, buffer)
+  return reply.status(201).send(message)
+}
+
+/** Lê o valor de um campo de texto do multipart (durationMs, waveform). */
+function multipartFieldValue(
+  fields: Record<string, unknown>,
+  name: string,
+): string | undefined {
+  const field = fields[name]
+  const one = Array.isArray(field) ? field[0] : field
+  const value = (one as { value?: unknown } | undefined)?.value
+  return typeof value === 'string' ? value : undefined
+}
+
+function parseAudioMeta(fields: Record<string, unknown>): AudioMessageMeta {
+  const durationMs = multipartFieldValue(fields, 'durationMs')
+  const waveformRaw = multipartFieldValue(fields, 'waveform')
+  let waveform: unknown
+  if (waveformRaw !== undefined) {
+    try {
+      waveform = JSON.parse(waveformRaw)
+    } catch {
+      throw { statusCode: 400, message: 'waveform inválido: JSON esperado' }
+    }
+  }
+  const parsed = audioMessageMetaSchema.safeParse({ durationMs, waveform })
+  if (!parsed.success) {
+    throw { statusCode: 400, message: 'Metadados de áudio inválidos' }
+  }
+  return parsed.data
+}
+
+export async function postMessageAudio(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ConversationParam
+  const data = await request.file()
+  if (!data) {
+    throw { statusCode: 400, message: 'Nenhum áudio foi enviado' }
+  }
+  assertAudioMimetype(data.mimetype)
+  // Campos de texto (enviados antes do arquivo) já estão em data.fields aqui.
+  const meta = parseAudioMeta(data.fields as Record<string, unknown>)
+  const buffer = await data.toBuffer()
+  const message = await sendAudioMessage(
+    request.user.sub,
+    id,
+    buffer,
+    data.mimetype,
+    meta,
+  )
   return reply.status(201).send(message)
 }
 

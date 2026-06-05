@@ -1,3 +1,4 @@
+import path from 'node:path'
 import type { FileData, IStorageService, UploadResult } from '../lib/storage'
 
 export class FakeStorageService implements IStorageService {
@@ -5,7 +6,9 @@ export class FakeStorageService implements IStorageService {
   deleted: string[] = []
 
   async upload(file: FileData, folderConfig: string): Promise<UploadResult> {
-    const key = `${folderConfig}/${this.uploads.length + 1}.webp`
+    // Espelha o storage real: extensão derivada do arquivo, não fixa em .webp.
+    const ext = path.extname(file.filename) || '.bin'
+    const key = `${folderConfig}/${this.uploads.length + 1}${ext}`
     const url = `https://fake.storage/${key}`
     this.uploads.push({ key, url, size: file.buffer.length })
     return { key, url }

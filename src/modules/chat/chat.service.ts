@@ -1,5 +1,5 @@
 import { realtime } from '../../lib/realtime'
-import { uploadMessageImage } from '../../lib/uploads'
+import { uploadMessageAudio, uploadMessageImage } from '../../lib/uploads'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   assertActiveParticipant,
@@ -9,9 +9,9 @@ import {
 import {
   addMessageReaction,
   clearConversationForParticipant,
+  createAttachmentMessage,
   createDirectConversation,
   createGroupConversation,
-  createImageMessage,
   createSystemMessage,
   createTextMessage,
   deactivateParticipant,
@@ -36,7 +36,7 @@ import {
   softDeleteMessage,
   unreadCounts,
 } from './chat.repository'
-import type { CreateConversationBody } from './chat.schema'
+import type { AudioMessageMeta, CreateConversationBody } from './chat.schema'
 
 type MessageRow = Awaited<ReturnType<typeof createTextMessage>>
 type ConversationRow = NonNullable<
@@ -334,11 +334,34 @@ export async function sendImageMessage(
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
   const uploaded = await uploadMessageImage(buffer, conversationId)
-  const message = await createImageMessage(conversationId, userId, null, {
+  const message = await createAttachmentMessage(conversationId, userId, null, {
+    kind: 'IMAGE',
     url: uploaded.url,
     key: uploaded.key,
     format: uploaded.format,
     size: uploaded.size,
+  })
+  await publishMessage(conversationId, participantIds, message)
+  return shapeMessage(message)
+}
+
+export async function sendAudioMessage(
+  userId: string,
+  conversationId: string,
+  buffer: Buffer,
+  mimetype: string,
+  meta: AudioMessageMeta,
+) {
+  const participantIds = await authorizeSend(conversationId, userId)
+  const uploaded = await uploadMessageAudio(buffer, conversationId, mimetype)
+  const message = await createAttachmentMessage(conversationId, userId, null, {
+    kind: 'AUDIO',
+    url: uploaded.url,
+    key: uploaded.key,
+    format: uploaded.format,
+    size: uploaded.size,
+    durationMs: meta.durationMs,
+    waveform: meta.waveform ?? [],
   })
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)

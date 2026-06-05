@@ -191,16 +191,26 @@ model MessageReaction {
   @@map("message_reactions")
 }
 
+enum AttachmentKind {
+  IMAGE
+  AUDIO
+}
+
 model MessageAttachment {
-  id        String   @id @default(uuid())
+  id        String         @id @default(uuid())
   messageId String
-  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  message   Message        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  kind      AttachmentKind @default(IMAGE)
   url       String
   key       String
   format    String
   size      Int
-  order     Int      @default(0)
-  createdAt DateTime @default(now())
+  // Áudio: duração da nota de voz e amplitudes pré-calculadas pelo cliente para
+  // desenhar a waveform sem baixar o arquivo. Ambos null/vazio em imagem.
+  durationMs Int?
+  waveform   Int[]
+  order      Int            @default(0)
+  createdAt  DateTime       @default(now())
 
   @@index([messageId, order])
   @@map("message_attachments")

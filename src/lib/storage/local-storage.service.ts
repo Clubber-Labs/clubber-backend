@@ -13,7 +13,9 @@ export class LocalStorageService implements IStorageService {
 
   async upload(file: FileData, folderConfig: string): Promise<UploadResult> {
     const fileId = randomUUID()
-    const newFilename = `${fileId}.webp`
+    // Extensão vem do arquivo enviado (imagem .webp, áudio .m4a…), não fixa.
+    const ext = path.extname(file.filename) || '.bin'
+    const newFilename = `${fileId}${ext}`
     const key = `${folderConfig}/${newFilename}`
     const targetDir = path.join(this.uploadDir, folderConfig)
 

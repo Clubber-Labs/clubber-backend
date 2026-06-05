@@ -18,19 +18,39 @@ export async function tinyPngBuffer(): Promise<Buffer> {
   return cached
 }
 
+/** Buffer simulando um áudio — o storage de teste só mede o tamanho, então
+ *  não precisa ser um m4a válido (a allowlist valida o mimetype, não os bytes). */
+export function tinyM4aBuffer(): Buffer {
+  return Buffer.from('fake-m4a-audio-bytes-for-testing')
+}
+
 export function multipartFormData(
   buffer: Buffer,
   field: string,
   filename: string,
   mimetype: string,
+  fields?: Record<string, string>,
 ) {
   const boundary = `----TestBoundary${Math.random().toString(36).slice(2)}`
-  const head = Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${filename}"\r\nContent-Type: ${mimetype}\r\n\r\n`,
+  const parts: Buffer[] = []
+  // Campos de texto vêm ANTES do arquivo: garante que estejam em data.fields
+  // assim que request.file() resolve no handler.
+  for (const [name, value] of Object.entries(fields ?? {})) {
+    parts.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ),
+    )
+  }
+  parts.push(
+    Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="${field}"; filename="${filename}"\r\nContent-Type: ${mimetype}\r\n\r\n`,
+    ),
   )
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`)
+  parts.push(buffer)
+  parts.push(Buffer.from(`\r\n--${boundary}--\r\n`))
   return {
-    body: Buffer.concat([head, buffer, tail]),
+    body: Buffer.concat(parts),
     contentType: `multipart/form-data; boundary=${boundary}`,
   }
 }

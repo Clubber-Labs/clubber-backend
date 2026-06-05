@@ -19,6 +19,7 @@ import {
   postDelivered,
   postLeave,
   postMessage,
+  postMessageAudio,
   postMessageImage,
   postMessageReaction,
   postParticipant,
@@ -118,11 +119,51 @@ export async function chatRoutes(app: FastifyInstance) {
   api.post(
     '/conversations/:id/messages/images',
     {
-      schema: { params: conversationParamSchema },
+      schema: {
+        params: conversationParamSchema,
+        tags: ['chat'],
+        summary: 'Enviar mensagem de imagem',
+        description: [
+          'Cria uma mensagem de imagem na conversa via `multipart/form-data`.',
+          '',
+          '**Campo do form:**',
+          '- `image` (arquivo, obrigatório): JPEG, PNG, WebP ou GIF. Máx. 5 MB.',
+          '',
+          "**Resposta 201:** a mensagem criada, com `content: null` e `attachments[0]` = `{ kind: 'IMAGE', url, format, size, durationMs: null, waveform: [], order }`.",
+          '',
+          '**Erros:** `400` (sem arquivo / mimetype inválido), `401`, `403` (não participa da conversa / bloqueado), `404`.',
+        ].join('\n'),
+      },
       onRequest: [app.authenticate],
       config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     },
     postMessageImage,
+  )
+
+  api.post(
+    '/conversations/:id/messages/audio',
+    {
+      schema: {
+        params: conversationParamSchema,
+        tags: ['chat'],
+        summary: 'Enviar mensagem de áudio (nota de voz)',
+        description: [
+          'Cria uma mensagem de áudio na conversa via `multipart/form-data`.',
+          '',
+          '**Campos do form (os de texto ANTES do arquivo):**',
+          '- `durationMs` (texto, obrigatório): duração em ms, inteiro `1..600000`.',
+          '- `waveform` (texto, opcional): array JSON de inteiros `0..255` (máx. 512). Ex.: `[3,7,12,9,4]`.',
+          '- `audio` (arquivo, obrigatório): container m4a/AAC. Mimetypes aceitos: `audio/mp4`, `audio/m4a`, `audio/x-m4a`, `audio/aac`. Máx. 5 MB.',
+          '',
+          "**Resposta 201:** a mensagem criada, com `content: null` e `attachments[0]` = `{ kind: 'AUDIO', url, format, size, durationMs, waveform, order }`.",
+          '',
+          '**Erros:** `400` (sem arquivo / mimetype inválido / sem `durationMs` / `waveform` JSON inválido), `401`, `403` (não participa da conversa / bloqueado), `404`.',
+        ].join('\n'),
+      },
+      onRequest: [app.authenticate],
+      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+    },
+    postMessageAudio,
   )
 
   api.post(
