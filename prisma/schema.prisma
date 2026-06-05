@@ -262,7 +262,7 @@ model Follow {
 model Event {
   id          String   @id @default(uuid())
   title       String
-  description String
+  description String?
   date        DateTime
   endDate     DateTime?
   latitude    Float

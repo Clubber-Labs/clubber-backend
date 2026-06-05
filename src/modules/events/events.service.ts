@@ -50,24 +50,19 @@ type NormalizedListResult = {
  */
 export async function listEvents(query: ListEventsQuery, viewerId?: string) {
   if (query.orderBy === 'distance') {
-    const events = await findPublicEvents(
-      query,
-      query.limit,
-      query.cursor,
-      viewerId,
-    )
+    const events = await findPublicEvents(query, query.limit, query.cursor)
     const nextCursor = null // ordenação por distância não usa cursor pagination
     const shared = { data: events, nextCursor }
     return mergeViewerState(shared, viewerId)
   }
 
-  // viewerId entra na chave de cache porque findPublicEvents agora filtra
-  // por visibilidade do autor no SQL (authorVisibleWhere) — eventos de
-  // perfis privados só aparecem pra followers. Sem viewerId na chave o
-  // cache vazaria eventos privados entre usuários diferentes.
+  // Chave viewer-agnóstica: no modelo híbrido a lista pública é idêntica para
+  // todos (só `isPublic` + lifecycle + filtros, sem gate de autor por viewer),
+  // então o cache shared é compartilhado entre viewers. O estado do viewer
+  // (userLiked, userAttendance) é hidratado depois em mergeViewerState —
+  // restaura o hit-rate alto do RNF05.2 sem vazar nada entre usuários.
   const cacheKey = cache.key(
     'events:public',
-    viewerId ?? 'anon',
     query.category ? [...query.category].sort().join(',') : '',
     query.status ? [...query.status].sort().join(',') : '',
     query.includePast ? '1' : '0',
@@ -79,12 +74,7 @@ export async function listEvents(query: ListEventsQuery, viewerId?: string) {
 
   let shared = await cache.get<SharedListResult>(cacheKey)
   if (!shared) {
-    const events = await findPublicEvents(
-      query,
-      query.limit,
-      query.cursor,
-      viewerId,
-    )
+    const events = await findPublicEvents(query, query.limit, query.cursor)
     const nextCursor =
       events.length === query.limit ? events[events.length - 1].id : null
     shared = { data: events, nextCursor }
@@ -164,7 +154,7 @@ export async function listEventsForMap(
     query.friendsOnly && viewerId
       ? await findAcceptedFollowingIds(viewerId)
       : []
-  return findEventsForMap(query, viewerId, followingIds)
+  return findEventsForMap(query, followingIds)
 }
 
 /**
@@ -178,11 +168,7 @@ export async function listEventsForViewport(
 ) {
   assertCanFilterByFriends(query.friendsOnly, viewerId)
   const followingIds = viewerId ? await findAcceptedFollowingIds(viewerId) : []
-  const { events, truncated } = await findEventsInViewport(
-    query,
-    viewerId,
-    followingIds,
-  )
+  const { events, truncated } = await findEventsInViewport(query, followingIds)
   if (events.length === 0) return { data: [], truncated }
 
   const eventIds = events.map((e) => e.id)
@@ -223,7 +209,7 @@ export async function searchEventsService(
   cursor: string | undefined,
   viewerId?: string,
 ) {
-  const events = await searchEvents(q, limit, cursor, viewerId)
+  const events = await searchEvents(q, limit, cursor)
   const nextCursor =
     events.length === limit ? events[events.length - 1].id : null
   const shared: SharedListResult = { data: events, nextCursor }

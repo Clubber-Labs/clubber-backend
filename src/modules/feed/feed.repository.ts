@@ -3,7 +3,6 @@ import type { EventCategory } from '../../lib/event-categories'
 import { buildLifecycleWhere } from '../../lib/event-filters'
 import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
-import { authorVisibleWhere } from '../../lib/profile-visibility'
 import { findEventIdsByDistance, type LatLng } from '../../lib/spatial'
 import { buildCommentInclude } from '../comments/comments.repository'
 import type { FeedQuery } from './feed.schema'
@@ -87,18 +86,13 @@ function resolveReason(
 }
 
 /** Condições WHERE compartilhadas pelas pools social e de descoberta. */
-function buildBaseWhere(
-  query: FeedQuery,
-  viewerId: string,
-  now: Date,
-): Prisma.EventWhereInput[] {
+function buildBaseWhere(query: FeedQuery, now: Date): Prisma.EventWhereInput[] {
   const conditions: Prisma.EventWhereInput[] = [
     buildLifecycleWhere({
       includePast: query.includePast,
       status: query.status,
       now,
     }),
-    authorVisibleWhere(viewerId),
   ]
 
   if (query.category && query.category.length > 0) {
@@ -165,7 +159,7 @@ export async function findSocialCandidateIds(
   const rows = await prisma.event.findMany({
     where: {
       AND: [
-        ...buildBaseWhere(query, viewerId, now),
+        ...buildBaseWhere(query, now),
         socialOrWhere(followingIds, viewerId),
         privacyOrWhere(viewerId),
       ],
@@ -183,7 +177,6 @@ export async function findSocialCandidateIds(
  * sinal de perfil (categorias preferidas ou localização); senão retorna [].
  */
 export async function findDiscoveryCandidateIds(
-  viewerId: string,
   preferredCategories: EventCategory[],
   center: LatLng | null,
   query: FeedQuery,
@@ -191,7 +184,7 @@ export async function findDiscoveryCandidateIds(
   now: Date,
 ): Promise<string[]> {
   const nearIds = center
-    ? await findEventIdsByDistance(center, take, query.radiusKm, viewerId)
+    ? await findEventIdsByDistance(center, take, query.radiusKm)
     : []
 
   const discoveryOr: Prisma.EventWhereInput[] = []
@@ -206,7 +199,7 @@ export async function findDiscoveryCandidateIds(
   const rows = await prisma.event.findMany({
     where: {
       AND: [
-        ...buildBaseWhere(query, viewerId, now),
+        ...buildBaseWhere(query, now),
         { isPublic: true },
         { OR: discoveryOr },
       ],

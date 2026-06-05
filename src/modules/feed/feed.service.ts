@@ -111,7 +111,6 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
   const [socialIds, discoveryIds] = await Promise.all([
     findSocialCandidateIds(userId, followingIds, query, poolSize, now),
     findDiscoveryCandidateIds(
-      userId,
       preferredCategories,
       center,
       query,

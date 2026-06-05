@@ -166,7 +166,7 @@ describe('GET /feed', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('NÃO mostra evento de autor privado quando amigo só interagiu', async () => {
+  it('mostra evento público de autor privado quando amigo interage', async () => {
     const viewer = await makeUser()
     const friend = await makeUser()
     const privateAuthor = await makeUser({ isPrivate: true })
@@ -181,7 +181,7 @@ describe('GET /feed', () => {
     })
 
     const found = res.json().data.find((e: { id: string }) => e.id === event.id)
-    expect(found).toBeUndefined()
+    expect(found).toBeDefined()
   })
 
   it('mostra evento de autor privado quando viewer também segue o autor', async () => {
