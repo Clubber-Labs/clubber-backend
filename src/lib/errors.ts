@@ -7,6 +7,8 @@ const UNIQUE_FIELD_MESSAGES: Record<string, string> = {
 }
 
 const DEFAULT_UNIQUE_MESSAGE = 'Este dado já está em uso em outra conta.'
+const DUPLICATE_REPORT_MESSAGE =
+  'Você já possui uma denúncia ativa para este item.'
 
 export type FriendlyError = { statusCode: number; message: string }
 
@@ -20,6 +22,16 @@ export function handlePrismaUniqueError(error: unknown): FriendlyError | null {
     : typeof target === 'string'
       ? [target]
       : []
+
+  if (
+    fields.includes('reporterId') &&
+    fields.includes('status') &&
+    fields.some((field) =>
+      ['eventId', 'commentId', 'messageId', 'targetUserId'].includes(field),
+    )
+  ) {
+    return { statusCode: 409, message: DUPLICATE_REPORT_MESSAGE }
+  }
 
   const field = fields.find((f) => f in UNIQUE_FIELD_MESSAGES) ?? fields[0]
   const message =

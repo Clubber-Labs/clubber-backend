@@ -39,6 +39,7 @@ describe('GET /users/me', () => {
       id: user.id,
       email: user.email,
       eventsCount: 2,
+      role: 'USER',
     })
   })
 
@@ -129,6 +130,18 @@ describe('GET /users/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().eventsCount).toBe(3)
+  })
+
+  it('não expõe dados privados nem role no perfil público', async () => {
+    const target = await makeUser({ role: 'ADMIN' })
+
+    const res = await app.inject({ method: 'GET', url: `/users/${target.id}` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).not.toHaveProperty('role')
+    expect(res.json()).not.toHaveProperty('email')
+    expect(res.json()).not.toHaveProperty('phone')
+    expect(res.json()).not.toHaveProperty('birthdate')
   })
 })
 

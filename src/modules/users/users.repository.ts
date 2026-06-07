@@ -16,12 +16,17 @@ const userPublicListSelect = {
   createdAt: true,
 } as const
 
-const userProfileSelect = {
+const userPublicProfileSelect = {
   ...userPublicListSelect,
+  categoryPreferences: { select: { category: true } },
+} as const
+
+const userPrivateProfileSelect = {
+  ...userPublicProfileSelect,
   email: true,
   phone: true,
   birthdate: true,
-  categoryPreferences: { select: { category: true } },
+  role: true,
 } as const
 
 export async function findAllUsers(limit: number, cursor?: string) {
@@ -53,7 +58,17 @@ export async function findUserById(id: string) {
   return prisma.user.findUnique({
     where: { id },
     select: {
-      ...userProfileSelect,
+      ...userPublicProfileSelect,
+      _count: { select: { events: true } },
+    },
+  })
+}
+
+export async function findOwnUserById(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    select: {
+      ...userPrivateProfileSelect,
       _count: { select: { events: true } },
     },
   })
@@ -89,12 +104,16 @@ export async function createUser(
           }
         : {}),
     },
-    select: userProfileSelect,
+    select: userPrivateProfileSelect,
   })
 }
 
 export async function updateUser(id: string, data: Prisma.UserUpdateInput) {
-  return prisma.user.update({ where: { id }, data, select: userProfileSelect })
+  return prisma.user.update({
+    where: { id },
+    data,
+    select: userPrivateProfileSelect,
+  })
 }
 
 /**
@@ -112,7 +131,11 @@ export async function updateUserWithPreferences(
       data: categories.map((category) => ({ userId: id, category })),
       skipDuplicates: true,
     }),
-    prisma.user.update({ where: { id }, data, select: userProfileSelect }),
+    prisma.user.update({
+      where: { id },
+      data,
+      select: userPrivateProfileSelect,
+    }),
   ])
   return user
 }

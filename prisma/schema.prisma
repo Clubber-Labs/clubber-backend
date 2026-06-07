@@ -12,6 +12,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 model User {
   id             String   @id @default(uuid())
   name           String
@@ -25,6 +30,7 @@ model User {
   avatarKey      String?
   isPrivate      Boolean  @default(false)
   isPremium      Boolean  @default(false)
+  role           UserRole @default(USER)
   followersCount Int      @default(0)
   followingCount Int      @default(0)
   createdAt      DateTime @default(now())
@@ -46,6 +52,8 @@ model User {
   followers Follow[] @relation("following")
 
   reports Report[] @relation("reporterReports")
+  reportsReceived Report[] @relation("targetUserReports")
+  reviewedReports Report[] @relation("reportReviewer")
 
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
 
@@ -440,9 +448,13 @@ model Report {
   status     ReportStatus @default(PENDING)
   createdAt  DateTime     @default(now())
   resolvedAt DateTime?
+  resolutionNote String?
 
   reporterId String
   reporter   User   @relation("reporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  targetUserId String?
+  targetUser   User?   @relation("targetUserReports", fields: [targetUserId], references: [id], onDelete: SetNull)
 
   eventId   String?
   event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
@@ -453,13 +465,19 @@ model Report {
   messageId String?
   message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
+  reviewerId String?
+  reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
   @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
+  @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
+  @@index([reviewerId], map: "reports_reviewer_idx")
+  @@index([status, createdAt, id], map: "reports_status_created_at_id_idx")
   @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
   @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
   @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
-
+  @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@map("reports")
 }
 

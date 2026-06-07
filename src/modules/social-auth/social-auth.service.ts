@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type SocialProvider } from '@prisma/client'
 import {
+  findOwnUserById,
   findUserByEmail,
-  findUserById,
   findUserByUsername,
 } from '../users/users.repository'
 import { verifyFacebookToken, verifyGoogleToken } from './social-auth.providers'
@@ -55,7 +55,7 @@ async function generateUniqueUsername(email: string) {
 }
 
 async function loadUserAndDecorate(userId: string) {
-  const user = await findUserById(userId)
+  const user = await findOwnUserById(userId)
   if (!user) {
     throw {
       statusCode: 500,

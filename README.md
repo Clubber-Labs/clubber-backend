@@ -79,6 +79,69 @@ NODE_ENV=test
 | `pnpm db:studio` | Abre Prisma Studio |
 | `pnpm db:seed` | Popula banco de dev com dados fictícios |
 
+## Denúncias e moderação
+
+A API permite criar denúncias para eventos, comentários, mensagens e usuários. A listagem,
+detalhamento, resolução e remoção de denúncias são ações administrativas e
+exigem usuário com `role = ADMIN`.
+
+### Criar denúncias
+
+| Método | Rota | Descrição |
+|---|---|---|
+| `POST` | `/events/:eventId/report` | Denuncia um evento |
+| `POST` | `/events/:eventId/reports` | Alias plural para denunciar evento |
+| `POST` | `/comments/:commentId/report` | Denuncia um comentário |
+| `POST` | `/comments/:commentId/reports` | Alias plural para denunciar comentário |
+| `POST` | `/messages/:messageId/report` | Denuncia uma mensagem |
+| `POST` | `/messages/:messageId/reports` | Alias plural para denunciar mensagem |
+| `POST` | `/users/:userId/report` | Denuncia um usuário |
+| `POST` | `/users/:userId/reports` | Alias plural para denunciar usuário |
+
+Body:
+
+```json
+{
+  "reason": "SPAM_OR_FRAUD",
+  "details": "Descrição opcional da denúncia"
+}
+```
+
+`reason` aceita: `HATE_SPEECH`, `SPAM_OR_FRAUD`, `HARASSMENT`,
+`INAPPROPRIATE_CONTENT` e `OTHER`.
+
+### Administrar denúncias
+
+| Método | Rota | Descrição |
+|---|---|---|
+| `GET` | `/reports` | Lista denúncias com paginação e filtros |
+| `GET` | `/reports/:id` | Detalha uma denúncia |
+| `PATCH` | `/reports/:id` | Marca denúncia como revisada/resolvida |
+| `DELETE` | `/reports/:id` | Remove uma denúncia |
+
+Filtros de `GET /reports`: `limit`, `cursor`, `status`, `reason`,
+`targetType`, `reporterId`, `eventId`, `commentId`, `messageId` e
+`targetUserId`.
+
+Body de resolução:
+
+```json
+{
+  "status": "RESOLVED_REMOVED",
+  "resolutionNote": "Conteúdo removido pela moderação"
+}
+```
+
+`status` no `PATCH /reports/:id` aceita: `REVIEWED`, `RESOLVED_INVALID` e
+`RESOLVED_REMOVED`.
+
+O seed cria um admin fixo para testes locais:
+
+```text
+admin@conectai.dev
+senha123
+```
+
 ## Colaboração
 
 Veja o [CLAUDE.md](CLAUDE.md) para guia completo de padrões de código, estrutura de módulos, commits e abertura de PRs.

@@ -9,6 +9,7 @@ import {
   createUser,
   deleteUser,
   findAllUsers,
+  findOwnUserById,
   findUserAvatarKey,
   findUserByEmail,
   findUserById,
@@ -101,7 +102,7 @@ export async function getUserById(id: string, viewerId?: string) {
 }
 
 export async function getMe(userId: string) {
-  const user = await findUserById(userId)
+  const user = await findOwnUserById(userId)
   // Token válido cujo usuário não existe mais (ex.: conta deletada) = sessão
   // inválida → 401, sinal inequívoco para o cliente deslogar (não 404, que
   // confundiria com "recurso ausente").
