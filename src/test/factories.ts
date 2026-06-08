@@ -17,6 +17,10 @@ export async function makeUser(
     birthdate?: Date | null
     isPremium?: boolean
     role?: 'USER' | 'ADMIN'
+    accountStatus?: 'ACTIVE' | 'DEACTIVATED' | 'PENDING_DELETION' | 'ANONYMIZED'
+    deactivatedAt?: Date | null
+    scheduledDeletionAt?: Date | null
+    anonymizedAt?: Date | null
   } = {},
 ) {
   const id = uid()
@@ -41,6 +45,10 @@ export async function makeUser(
       isPrivate: overrides.isPrivate ?? false,
       isPremium: overrides.isPremium ?? false,
       role: overrides.role ?? 'USER',
+      accountStatus: overrides.accountStatus ?? 'ACTIVE',
+      deactivatedAt: overrides.deactivatedAt ?? null,
+      scheduledDeletionAt: overrides.scheduledDeletionAt ?? null,
+      anonymizedAt: overrides.anonymizedAt ?? null,
     },
   })
 }

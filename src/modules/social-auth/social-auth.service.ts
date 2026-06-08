@@ -4,6 +4,7 @@ import {
   findOwnUserById,
   findUserByEmail,
   findUserByUsername,
+  reactivateOnLogin,
 } from '../users/users.repository'
 import { verifyFacebookToken, verifyGoogleToken } from './social-auth.providers'
 import {
@@ -91,6 +92,8 @@ export async function socialLogin(body: SocialLoginBody) {
     profile.providerUserId,
   )
   if (existing) {
+    // Login social dentro da janela de carência reativa a conta.
+    await reactivateOnLogin(existing.userId)
     return loadUserAndDecorate(existing.userId)
   }
 
@@ -115,6 +118,8 @@ export async function socialLogin(body: SocialLoginBody) {
       providerUserId: profile.providerUserId,
       email: profile.email,
     })
+    // Auto-link via Google em conta na janela de carência também reativa.
+    await reactivateOnLogin(linkable.id)
     return loadUserAndDecorate(linkable.id)
   }
 

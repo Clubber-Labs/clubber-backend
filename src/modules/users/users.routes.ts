@@ -7,17 +7,20 @@ import {
 import { getUserEvents } from '../events/events.controller'
 import { userEventsQuerySchema } from '../events/events.schema'
 import {
+  deactivateAccountHandler,
   deleteUserHandler,
   getMe,
   getUser,
   getUsers,
   postUser,
   putUser,
+  reactivateAccountHandler,
   searchUsersHandler,
   uploadUserAvatar,
 } from './users.controller'
 import {
   createUserSchema,
+  deleteAccountBodySchema,
   listUsersQuerySchema,
   searchUsersQuerySchema,
   updateUserSchema,
@@ -33,6 +36,18 @@ export async function usersRoutes(app: FastifyInstance) {
   api.get('/users', { schema: { querystring: listUsersQuerySchema } }, getUsers)
 
   api.get('/users/me', { onRequest: [app.authenticate] }, getMe)
+
+  api.post(
+    '/users/me/deactivate',
+    { onRequest: [app.authenticate] },
+    deactivateAccountHandler,
+  )
+
+  api.post(
+    '/users/me/reactivate',
+    { onRequest: [app.authenticate] },
+    reactivateAccountHandler,
+  )
 
   // Rota estática precisa ficar antes de /users/:id pra clareza de leitura.
   // (Fastify resolve estática > paramétrica, mas a ordem documenta a intenção.)
@@ -109,7 +124,7 @@ export async function usersRoutes(app: FastifyInstance) {
   api.delete(
     '/users/:id',
     {
-      schema: { params: userIdParamSchema },
+      schema: { params: userIdParamSchema, body: deleteAccountBodySchema },
       onRequest: [app.authenticate],
     },
     deleteUserHandler,

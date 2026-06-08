@@ -1,4 +1,5 @@
-import { hash } from 'bcryptjs'
+import { compare, hash } from 'bcryptjs'
+import { env } from '../../lib/env'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import { getConsentSummary } from '../consent/consent.service'
 import {
@@ -7,7 +8,7 @@ import {
 } from '../follows/follows.repository'
 import {
   createUser,
-  deleteUser,
+  findAccountState,
   findAllUsers,
   findOwnUserById,
   findUserAvatarKey,
@@ -15,6 +16,9 @@ import {
   findUserById,
   findUserByUsername,
   searchUsers as searchUsersRepo,
+  setAccountActive,
+  setAccountDeactivated,
+  setAccountPendingDeletion,
   updateUser,
   updateUserWithPreferences,
 } from './users.repository'
@@ -103,10 +107,14 @@ export async function getUserById(id: string, viewerId?: string) {
 
 export async function getMe(userId: string) {
   const user = await findOwnUserById(userId)
-  // Token válido cujo usuário não existe mais (ex.: conta deletada) = sessão
-  // inválida → 401, sinal inequívoco para o cliente deslogar (não 404, que
-  // confundiria com "recurso ausente").
-  if (!user) throw { statusCode: 401, message: 'Sessão inválida' }
+  // Token válido cujo usuário não existe mais (ex.: conta deletada) ou já
+  // anonimizada = sessão inválida → 401, sinal inequívoco para o cliente
+  // deslogar (não 404, que confundiria com "recurso ausente"). Conta
+  // DEACTIVATED/PENDING_DELETION ainda responde: o app mostra o aviso de
+  // exclusão agendada / opção de reativar.
+  if (!user || user.accountStatus === 'ANONYMIZED') {
+    throw { statusCode: 401, message: 'Sessão inválida' }
+  }
   const { _count, ...rest } = user
   // Paralelo: evita round-trip sequencial ao banco
   const [preferredUser, consent] = await Promise.all([
@@ -160,15 +168,92 @@ export async function editUser(id: string, data: UpdateUserBody) {
   return withPreferredCategories(updated)
 }
 
-export async function removeUser(id: string, logger: Logger) {
-  const current = await findUserAvatarKey(id)
-  if (!current) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+/**
+ * Desativa a conta (estado temporário, reversível no login). Converte ACTIVE
+ * ou PENDING_DELETION em DEACTIVATED (cancelando exclusão agendada). Idempotente.
+ */
+export async function deactivateAccount(userId: string) {
+  const state = await findAccountState(userId)
+  if (!state || state.accountStatus === 'ANONYMIZED') {
+    throw { statusCode: 401, message: 'Sessão inválida' }
   }
-  await deleteUser(id)
-  if (current.avatarKey) {
-    await deleteUploaded(current.avatarKey, logger)
+  if (state.accountStatus === 'DEACTIVATED') {
+    return {
+      accountStatus: state.accountStatus,
+      deactivatedAt: state.deactivatedAt,
+      scheduledDeletionAt: state.scheduledDeletionAt,
+    }
   }
+  return setAccountDeactivated(userId)
+}
+
+/**
+ * Agenda a exclusão da conta (carência de ACCOUNT_DELETION_GRACE_DAYS dias).
+ * Exige reconfirmação de senha quando a conta tem senha (contas social-only
+ * dispensam — o JWT já autentica). Idempotente: chamar de novo mantém o
+ * scheduledDeletionAt existente.
+ */
+export async function scheduleAccountDeletion(
+  userId: string,
+  password?: string,
+) {
+  const state = await findAccountState(userId)
+  if (!state || state.accountStatus === 'ANONYMIZED') {
+    throw { statusCode: 401, message: 'Sessão inválida' }
+  }
+
+  // Reautenticação para ação destrutiva (só se a conta tem senha).
+  if (state.password) {
+    if (!password) {
+      throw {
+        statusCode: 400,
+        message: 'Senha é obrigatória para excluir a conta',
+      }
+    }
+    const valid = await compare(password, state.password)
+    if (!valid) {
+      throw { statusCode: 401, message: 'Senha incorreta' }
+    }
+  }
+
+  if (state.accountStatus === 'PENDING_DELETION') {
+    return {
+      accountStatus: state.accountStatus,
+      deactivatedAt: state.deactivatedAt,
+      scheduledDeletionAt: state.scheduledDeletionAt,
+    }
+  }
+
+  const scheduledDeletionAt = new Date(
+    Date.now() + env.ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000,
+  )
+  return setAccountPendingDeletion(userId, scheduledDeletionAt)
+}
+
+/**
+ * Reativa a conta explicitamente (DEACTIVATED/PENDING_DELETION → ACTIVE).
+ * Idempotente para ACTIVE; conta ANONYMIZED é terminal e não pode ser reativada.
+ */
+export async function reactivateAccount(userId: string) {
+  const state = await findAccountState(userId)
+  if (!state) {
+    throw { statusCode: 401, message: 'Sessão inválida' }
+  }
+  if (state.accountStatus === 'ANONYMIZED') {
+    throw {
+      statusCode: 409,
+      message:
+        'Esta conta foi excluída permanentemente e não pode ser reativada',
+    }
+  }
+  if (state.accountStatus === 'ACTIVE') {
+    return {
+      accountStatus: state.accountStatus,
+      deactivatedAt: state.deactivatedAt,
+      scheduledDeletionAt: state.scheduledDeletionAt,
+    }
+  }
+  return setAccountActive(userId)
 }
 
 export async function changeUserAvatar(

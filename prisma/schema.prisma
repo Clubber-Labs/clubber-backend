@@ -17,6 +17,16 @@ enum UserRole {
   ADMIN
 }
 
+// Ciclo de vida da conta (soft-delete estilo Instagram):
+// ACTIVE -> DEACTIVATED (desativar) / PENDING_DELETION (excluir, com carência)
+// -> ACTIVE (reativar no login) ou ANONYMIZED (job após a carência, terminal).
+enum AccountStatus {
+  ACTIVE
+  DEACTIVATED
+  PENDING_DELETION
+  ANONYMIZED
+}
+
 model User {
   id             String   @id @default(uuid())
   name           String
@@ -37,6 +47,12 @@ model User {
   updatedAt      DateTime @updatedAt
   birthdate      DateTime?
   lastSeenAt     DateTime?
+
+  // Ciclo de vida da conta
+  accountStatus       AccountStatus @default(ACTIVE)
+  deactivatedAt       DateTime?
+  scheduledDeletionAt DateTime?
+  anonymizedAt        DateTime?
   events           Event[]
   attendances      EventAttendance[]
   posts            Post[]
@@ -71,6 +87,8 @@ model User {
   consent        UserConsent?
   consentLogs    ConsentAuditLog[]
 
+  // Predicado do reconciler: PENDING_DELETION com scheduledDeletionAt vencido.
+  @@index([accountStatus, scheduledDeletionAt])
   @@map("users")
 }
 

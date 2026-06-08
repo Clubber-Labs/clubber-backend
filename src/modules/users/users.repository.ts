@@ -27,6 +27,17 @@ const userPrivateProfileSelect = {
   phone: true,
   birthdate: true,
   role: true,
+  accountStatus: true,
+  deactivatedAt: true,
+  scheduledDeletionAt: true,
+} as const
+
+// Campos do estado de conta usados internamente pelas transições de ciclo de
+// vida (inclui `password` para reautenticação na exclusão — nunca serializado).
+const accountStateSelect = {
+  accountStatus: true,
+  deactivatedAt: true,
+  scheduledDeletionAt: true,
 } as const
 
 export async function findAllUsers(limit: number, cursor?: string) {
@@ -142,4 +153,74 @@ export async function updateUserWithPreferences(
 
 export async function deleteUser(id: string) {
   return prisma.user.delete({ where: { id } })
+}
+
+/**
+ * Estado de conta para as transições de ciclo de vida. Inclui `password` para
+ * reautenticação na exclusão — usado só internamente no service, nunca exposto.
+ */
+export async function findAccountState(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    select: { ...accountStateSelect, password: true },
+  })
+}
+
+export async function setAccountDeactivated(id: string) {
+  return prisma.user.update({
+    where: { id },
+    data: {
+      accountStatus: 'DEACTIVATED',
+      deactivatedAt: new Date(),
+      scheduledDeletionAt: null,
+    },
+    select: accountStateSelect,
+  })
+}
+
+export async function setAccountPendingDeletion(
+  id: string,
+  scheduledDeletionAt: Date,
+) {
+  return prisma.user.update({
+    where: { id },
+    data: {
+      accountStatus: 'PENDING_DELETION',
+      deactivatedAt: new Date(),
+      scheduledDeletionAt,
+    },
+    select: accountStateSelect,
+  })
+}
+
+export async function setAccountActive(id: string) {
+  return prisma.user.update({
+    where: { id },
+    data: {
+      accountStatus: 'ACTIVE',
+      deactivatedAt: null,
+      scheduledDeletionAt: null,
+    },
+    select: accountStateSelect,
+  })
+}
+
+/**
+ * Reativa a conta no login (email/senha ou social) se ela estiver
+ * DEACTIVATED/PENDING_DELETION. Update condicional ao status atual (updateMany)
+ * para o login vencer a corrida com o reconciler de anonimização e ser idempotente
+ * para contas ACTIVE/ANONYMIZED (que não casam o WHERE).
+ */
+export async function reactivateOnLogin(id: string) {
+  return prisma.user.updateMany({
+    where: {
+      id,
+      accountStatus: { in: ['DEACTIVATED', 'PENDING_DELETION'] },
+    },
+    data: {
+      accountStatus: 'ACTIVE',
+      deactivatedAt: null,
+      scheduledDeletionAt: null,
+    },
+  })
 }

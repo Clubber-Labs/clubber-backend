@@ -328,3 +328,91 @@ describe('POST /auth/social — username único', () => {
     expect(res.json().user.username).toMatch(/^alice_/)
   })
 })
+
+describe('POST /auth/social — reativação de conta', () => {
+  it('reativa conta DEACTIVATED via conta social existente', async () => {
+    const user = await makeUser({
+      accountStatus: 'DEACTIVATED',
+      deactivatedAt: new Date(),
+    })
+    await makeSocialAccount(user.id, 'GOOGLE', {
+      providerUserId: 'google_reativa_1',
+    })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({ providerUserId: 'google_reativa_1' }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true, deactivatedAt: true },
+    })
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.deactivatedAt).toBeNull()
+  })
+
+  it('reativa conta PENDING_DELETION via auto-link do Google', async () => {
+    const user = await makeUser({
+      email: 'linkpending@exemplo.com',
+      accountStatus: 'PENDING_DELETION',
+      deactivatedAt: new Date(),
+      scheduledDeletionAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        email: 'linkpending@exemplo.com',
+        providerUserId: 'google_link_pending',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true, scheduledDeletionAt: true },
+    })
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.scheduledDeletionAt).toBeNull()
+  })
+
+  it('cria conta nova quando o email pertencia a uma conta anonimizada', async () => {
+    // Conta anonimizada tem email placeholder e sem conta social: o email real
+    // foi liberado, então um login social com ele começa do zero.
+    const anonimizada = await makeUser({
+      email: 'deleted+abc@deleted.invalid',
+      accountStatus: 'ANONYMIZED',
+      password: null,
+      anonymizedAt: new Date(),
+    })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        email: 'pessoa-real@exemplo.com',
+        providerUserId: 'google_apos_anon',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().user.id).not.toBe(anonimizada.id)
+    expect(res.json().user.email).toBe('pessoa-real@exemplo.com')
+  })
+})

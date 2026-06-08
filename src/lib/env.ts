@@ -58,6 +58,18 @@ const baseSchema = z.object({
     .int()
     .positive()
     .default(1024 * 1024 * 1024),
+  // Exclusão de conta (soft-delete): carência antes da anonimização, intervalo
+  // do reconciler que processa as exclusões agendadas, e flag liga/desliga.
+  ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(30),
+  ACCOUNT_DELETION_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  ACCOUNT_DELETION_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
 })
 
 const cloudinarySchema = z.object({
@@ -131,4 +143,7 @@ export const env = {
   METRICS_TOKEN: parsed.METRICS_TOKEN,
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
   CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
+  ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
+  ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
+  ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
 } as const

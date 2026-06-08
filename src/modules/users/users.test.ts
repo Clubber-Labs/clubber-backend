@@ -757,3 +757,202 @@ describe('rate limit em POST /users', () => {
     expect(blocked.statusCode).toBe(429)
   })
 })
+
+describe('ciclo de vida da conta', () => {
+  it('POST /users/me/deactivate desativa a conta', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users/me/deactivate',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ accountStatus: 'DEACTIVATED' })
+
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true, deactivatedAt: true },
+    })
+    expect(reloaded?.accountStatus).toBe('DEACTIVATED')
+    expect(reloaded?.deactivatedAt).not.toBeNull()
+  })
+
+  it('POST /users/me/deactivate é idempotente', async () => {
+    const user = await makeUser()
+    const headers = { authorization: `Bearer ${token(app, user.id)}` }
+
+    await app.inject({ method: 'POST', url: '/users/me/deactivate', headers })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users/me/deactivate',
+      headers,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ accountStatus: 'DEACTIVATED' })
+  })
+
+  it('DELETE /users/:id agenda exclusão com senha correta', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.accountStatus).toBe('PENDING_DELETION')
+    expect(new Date(body.scheduledDeletionAt).getTime()).toBeGreaterThan(
+      Date.now(),
+    )
+
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true },
+    })
+    expect(reloaded?.accountStatus).toBe('PENDING_DELETION')
+  })
+
+  it('DELETE /users/:id retorna 400 sem senha quando a conta tem senha', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {},
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('DELETE /users/:id retorna 401 com senha incorreta', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { password: 'errada' },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('DELETE /users/:id dispensa senha para conta social-only', async () => {
+    const user = await makeUser({ password: null })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {},
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().accountStatus).toBe('PENDING_DELETION')
+  })
+
+  it('DELETE /users/:id de outro usuário retorna 403', async () => {
+    const owner = await makeUser()
+    const other = await makeUser()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/users/${owner.id}`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      body: { password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('DELETE /users/:id é idempotente mantendo o scheduledDeletionAt', async () => {
+    const user = await makeUser()
+    const headers = { authorization: `Bearer ${token(app, user.id)}` }
+
+    const first = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers,
+      body: { password: 'senha123' },
+    })
+    const second = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers,
+      body: { password: 'senha123' },
+    })
+
+    expect(second.statusCode).toBe(200)
+    expect(second.json().scheduledDeletionAt).toBe(
+      first.json().scheduledDeletionAt,
+    )
+  })
+
+  it('POST /users/me/reactivate reativa conta DEACTIVATED', async () => {
+    const user = await makeUser({
+      accountStatus: 'DEACTIVATED',
+      deactivatedAt: new Date(),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users/me/reactivate',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().accountStatus).toBe('ACTIVE')
+  })
+
+  it('POST /users/me/reactivate é idempotente para conta ACTIVE', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users/me/reactivate',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().accountStatus).toBe('ACTIVE')
+  })
+
+  it('POST /users/me/reactivate retorna 409 para conta ANONYMIZED', async () => {
+    const user = await makeUser({
+      accountStatus: 'ANONYMIZED',
+      anonymizedAt: new Date(),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users/me/reactivate',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('GET /users/me expõe accountStatus e scheduledDeletionAt', async () => {
+    const user = await makeUser()
+    const headers = { authorization: `Bearer ${token(app, user.id)}` }
+
+    await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers,
+      body: { password: 'senha123' },
+    })
+
+    const res = await app.inject({ method: 'GET', url: '/users/me', headers })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().accountStatus).toBe('PENDING_DELETION')
+    expect(res.json().scheduledDeletionAt).not.toBeNull()
+  })
+})

@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import { assertImageMimetype } from '../../lib/uploads'
 import type {
   CreateUserBody,
+  DeleteAccountBody,
   ListUsersQuery,
   SearchUsersQuery,
   UpdateUserBody,
@@ -9,12 +10,14 @@ import type {
 } from './users.schema'
 import {
   changeUserAvatar,
+  deactivateAccount,
   editUser,
   getMe as getMeService,
   getUserById,
   listUsers,
+  reactivateAccount,
   registerUser,
-  removeUser,
+  scheduleAccountDeletion,
   searchUsers,
 } from './users.service'
 
@@ -97,12 +100,37 @@ export async function deleteUserHandler(
       statusCode: 403,
       message: 'Você não tem permissão para deletar este usuário',
     }
-  await removeUser(id, request.log)
+  const body = (request.body ?? {}) as NonNullable<DeleteAccountBody>
+  const result = await scheduleAccountDeletion(id, body?.password)
   request.log.info(
     { userId: request.user.sub },
-    'User deleted their own account',
+    'User scheduled their own account for deletion',
   )
-  return reply.status(204).send()
+  return reply.send(result)
+}
+
+export async function deactivateAccountHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const result = await deactivateAccount(request.user.sub)
+  request.log.info(
+    { userId: request.user.sub },
+    'User deactivated their account',
+  )
+  return reply.send(result)
+}
+
+export async function reactivateAccountHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const result = await reactivateAccount(request.user.sub)
+  request.log.info(
+    { userId: request.user.sub },
+    'User reactivated their account',
+  )
+  return reply.send(result)
 }
 
 export async function uploadUserAvatar(
