@@ -23,7 +23,8 @@ function isMetricsRoute(request: FastifyRequest): boolean {
 }
 
 // Compara o header com `Bearer <token>` em tempo constante (evita timing attack).
-function isAuthorized(
+// Exportada para teste unitário (é pura — não depende do env).
+export function isAuthorized(
   authorization: string | undefined,
   token: string,
 ): boolean {
