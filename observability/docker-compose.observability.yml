@@ -1,0 +1,168 @@
+# Stack de observabilidade local (separada do docker-compose.yml de Postgres+Redis).
+# O backend roda no HOST (pnpm dev). Prometheus faz scrape em host.docker.internal:3333,
+# o backend envia traces (OTLP) para localhost:4318 e logs para localhost:3100.
+#
+#   docker compose -f observability/docker-compose.observability.yml up -d
+#
+# Grafana: http://localhost:3000  (anônimo como Admin, ou admin/admin)
+name: connectai-observability
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: connectai-prometheus
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+    ports:
+      - '9090:9090'
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - connectai_prometheus_data:/prometheus
+    # Permite o scrape do backend rodando no host (Linux precisa do host-gateway).
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  tempo:
+    image: grafana/tempo:2.6.1
+    container_name: connectai-tempo
+    restart: unless-stopped
+    command: ['-config.file=/etc/tempo/tempo.yml']
+    ports:
+      - '3200:3200' # API de query do Tempo
+      - '4317:4317' # OTLP gRPC
+      - '4318:4318' # OTLP HTTP (usado pelo backend)
+    volumes:
+      - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - connectai_tempo_data:/var/tempo
+
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: connectai-loki
+    restart: unless-stopped
+    command: ['-config.file=/etc/loki/loki-config.yml']
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - connectai_loki_data:/loki
+
+  grafana:
+    image: grafana/grafana:11.3.1
+    container_name: connectai-grafana
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - connectai_grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+      - tempo
+      - loki
+
+  # ─── GlitchTip (rastreio de erros) — Sentry-compatível, self-hosted ──────────
+  # Postgres + Redis PRÓPRIOS (não os da app, que estão em outro compose).
+  # O backend roda no host e envia eventos para http://localhost:8000.
+  glitchtip-postgres:
+    image: postgres:18
+    container_name: connectai-glitchtip-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: 'trust'
+    volumes:
+      - connectai_glitchtip_pg_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  glitchtip-redis:
+    image: valkey/valkey:9
+    container_name: connectai-glitchtip-redis
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'valkey-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Roda as migrations uma vez e sai; web/worker esperam ele concluir.
+  # A âncora &glitchtip-env é declarada aqui e reaproveitada por web/worker —
+  # SECRET_KEY/DATABASE_URL/VALKEY_URL precisam ser idênticos nos três.
+  glitchtip-migrate:
+    image: glitchtip/glitchtip:6.1.8
+    container_name: connectai-glitchtip-migrate
+    command: ['./bin/run-migrate.sh']
+    environment: &glitchtip-env
+      DATABASE_URL: postgres://postgres:postgres@glitchtip-postgres:5432/postgres
+      VALKEY_URL: redis://glitchtip-redis:6379
+      # SECRET_KEY assina sessões/CSRF da instância LOCAL. O default abaixo é de
+      # baixa entropia de propósito (não é segredo real, não vai pro gitleaks).
+      # Em produção/staging, defina GLITCHTIP_SECRET_KEY no ambiente.
+      SECRET_KEY: '${GLITCHTIP_SECRET_KEY:-dev-secret-not-for-production}'
+      GLITCHTIP_DOMAIN: http://localhost:8000
+      DEFAULT_FROM_EMAIL: glitchtip@connectai.local
+      EMAIL_URL: consolemail://
+      ENABLE_USER_REGISTRATION: 'True'
+      ENABLE_ORGANIZATION_CREATION: 'True'
+      ENABLE_ADMIN: 'False'
+      ENABLE_OPENAPI: 'False'
+    depends_on:
+      glitchtip-postgres:
+        condition: service_healthy
+      glitchtip-redis:
+        condition: service_healthy
+
+  glitchtip-web:
+    image: glitchtip/glitchtip:6.1.8
+    container_name: connectai-glitchtip-web
+    restart: unless-stopped
+    command: ['./bin/run-granian.sh']
+    environment:
+      <<: *glitchtip-env
+      SERVER_ROLE: web
+      GLITCHTIP_EMBED_WORKER: 'false'
+    ports:
+      - '8000:8000'
+    volumes:
+      - connectai_glitchtip_uploads:/code/uploads
+    depends_on:
+      glitchtip-migrate:
+        condition: service_completed_successfully
+      glitchtip-postgres:
+        condition: service_healthy
+      glitchtip-redis:
+        condition: service_healthy
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip:6.1.8
+    container_name: connectai-glitchtip-worker
+    restart: unless-stopped
+    command: ['./bin/run-worker.sh']
+    environment:
+      <<: *glitchtip-env
+      SERVER_ROLE: worker
+    depends_on:
+      glitchtip-migrate:
+        condition: service_completed_successfully
+      glitchtip-postgres:
+        condition: service_healthy
+      glitchtip-redis:
+        condition: service_healthy
+
+volumes:
+  connectai_prometheus_data:
+  connectai_tempo_data:
+  connectai_loki_data:
+  connectai_grafana_data:
+  connectai_glitchtip_pg_data:
+  connectai_glitchtip_uploads:

@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { hasZodFastifySchemaValidationErrors } from 'fastify-type-provider-zod'
 import { env } from './env'
@@ -52,6 +53,15 @@ export function errorHandler(
   // 500: log completo no servidor, body genérico em produção pra não vazar
   // stack/paths. Em dev/test mantém a mensagem original pra debugging.
   request.log.error({ err: error }, 'Unhandled error')
+  // Rastreio no Sentry — no-op quando SENTRY_DSN não está configurado (inclusive
+  // em testes). Só erros 500 genuínos; 4xx/409/413/400 não são reportados.
+  Sentry.captureException(error, {
+    tags: {
+      route: request.routeOptions?.url ?? request.url,
+      method: request.method,
+    },
+    extra: { reqId: request.id },
+  })
   return reply.status(500).send({
     message:
       env.NODE_ENV === 'production'

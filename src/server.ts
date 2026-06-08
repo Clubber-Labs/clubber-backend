@@ -1,3 +1,8 @@
+// Observabilidade: DEVE ser o primeiro import (instrumenta http/pg/Prisma/etc.
+// antes deles serem carregados). A linha em branco abaixo mantém este import
+// no próprio grupo, fora do alcance do organizeImports do Biome.
+import './instrumentation'
+
 import { fastifyCors } from '@fastify/cors'
 import fastifyJwt from '@fastify/jwt'
 import fastifyMultipart from '@fastify/multipart'
@@ -12,10 +17,12 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { shutdownInstrumentation } from './instrumentation'
 import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
-import { sanitizeLogUrl } from './lib/logger'
+import { buildLoggerOptions } from './lib/logger'
 import { redis } from './lib/redis'
+import { genReqId } from './lib/request-id'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
 import { blocksRoutes } from './modules/blocks/blocks.routes'
@@ -36,48 +43,27 @@ import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { usersRoutes } from './modules/users/users.routes'
-
-const isDev = env.NODE_ENV === 'development'
+import { metricsPlugin } from './plugins/metrics'
+import { requestIdPlugin } from './plugins/request-id'
 
 const app = fastify({
-  logger: {
-    level: env.LOG_LEVEL,
-    serializers: {
-      err: (err: Error) => ({
-        type: err.constructor.name,
-        message: err.message,
-        stack: err.stack ?? '',
-        ...((err as { code?: string }).code && {
-          code: (err as { code?: string }).code,
-        }),
-      }),
-      req: (req) => ({
-        method: req.method,
-        url: sanitizeLogUrl(req.url),
-      }),
-      res: (res) => ({
-        statusCode: res.statusCode,
-      }),
-    },
-    ...(isDev && {
-      transport: {
-        target: 'pino-pretty',
-        options: {
-          colorize: true,
-          translateTime: 'SYS:HH:MM:ss',
-          ignore: 'pid,hostname,reqId,module',
-          messageFormat: '{if module}[{module}] {end}{msg}',
-          singleLine: false,
-        },
-      },
-    }),
-  },
+  // genReqId valida/reaproveita o x-request-id de entrada (ver lib/request-id).
+  // requestIdHeader: false desliga a leitura automática do Fastify para que toda
+  // a validação fique centralizada no genReqId.
+  genReqId,
+  requestIdHeader: false,
+  // Opções compartilhadas com o logger standalone (lib/logger) — redaction,
+  // serializers e destino (stdout/pretty/Loki) num único lugar, sem drift.
+  logger: buildLoggerOptions(),
 }).withTypeProvider<ZodTypeProvider>()
 
 app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
 app.setErrorHandler(errorHandler)
+
+app.register(requestIdPlugin)
+app.register(metricsPlugin)
 
 app.register(fastifyCors, {
   origin: true,
@@ -170,6 +156,7 @@ async function shutdown(signal: NodeJS.Signals) {
   shuttingDown = true
   try {
     await app.close()
+    await shutdownInstrumentation()
     process.exit(0)
   } catch (err) {
     app.log.error({ err, signal }, 'erro durante shutdown')
