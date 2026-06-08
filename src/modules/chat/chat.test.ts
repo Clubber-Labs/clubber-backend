@@ -2587,3 +2587,19 @@ describe('cota de armazenamento por usuário (Fase 2 #6)', () => {
     )
   })
 })
+
+describe('visibilidade de contas inativas no chat', () => {
+  it('não permite iniciar DM com usuário inativo (404)', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ accountStatus: 'DEACTIVATED' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/conversations',
+      headers: auth(viewer.id),
+      body: { type: 'DIRECT', targetUserId: target.id },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+})

@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeEvent, makeFollow, makeUser } from '../../test/factories'
+import {
+  makeEvent,
+  makeFollow,
+  makeInvite,
+  makeUser,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -146,5 +151,26 @@ describe('GET /events/:eventId/invites', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+})
+
+describe('visibilidade de contas inativas em convites', () => {
+  it('GET /events/:eventId/invites não inclui convidados inativos', async () => {
+    const author = await makeUser()
+    const activeGuest = await makeUser()
+    const inactiveGuest = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeInvite(event.id, author.id, activeGuest.id)
+    await makeInvite(event.id, author.id, inactiveGuest.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().map((i: { invitedId: string }) => i.invitedId)
+    expect(ids).toEqual([activeGuest.id])
   })
 })

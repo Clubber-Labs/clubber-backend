@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { activeUserWhere } from '../../lib/account-visibility'
 import type { EventCategory } from '../../lib/event-categories'
 import { prisma } from '../../lib/prisma'
 import type { CreateUserBody } from './users.schema'
@@ -42,6 +43,7 @@ const accountStateSelect = {
 
 export async function findAllUsers(limit: number, cursor?: string) {
   return prisma.user.findMany({
+    where: activeUserWhere(),
     select: userPublicListSelect,
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
@@ -52,6 +54,7 @@ export async function findAllUsers(limit: number, cursor?: string) {
 export async function searchUsers(q: string, limit: number, cursor?: string) {
   return prisma.user.findMany({
     where: {
+      ...activeUserWhere(),
       OR: [
         { username: { contains: q, mode: 'insensitive' } },
         { name: { contains: q, mode: 'insensitive' } },
@@ -65,9 +68,11 @@ export async function searchUsers(q: string, limit: number, cursor?: string) {
   })
 }
 
+// findFirst (não findUnique) para combinar o id com o filtro de status: conta
+// não-ACTIVE retorna null → o service responde 404 (perfil de terceiro some).
 export async function findUserById(id: string) {
-  return prisma.user.findUnique({
-    where: { id },
+  return prisma.user.findFirst({
+    where: { id, ...activeUserWhere() },
     select: {
       ...userPublicProfileSelect,
       _count: { select: { events: true } },

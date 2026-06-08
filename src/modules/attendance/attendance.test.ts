@@ -150,3 +150,24 @@ describe('DELETE /events/:eventId/attendances', () => {
     expect(res.statusCode).toBe(404)
   })
 })
+
+describe('visibilidade de contas inativas em presenças', () => {
+  it('GET /events/:eventId/attendances não inclui usuários inativos', async () => {
+    const author = await makeUser()
+    const activeUser = await makeUser()
+    const inactiveUser = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const event = await makeEvent(author.id)
+    await makeAttendance(activeUser.id, event.id)
+    await makeAttendance(inactiveUser.id, event.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/attendances`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().map((a: { userId: string }) => a.userId)
+    expect(ids).toEqual([activeUser.id])
+  })
+})

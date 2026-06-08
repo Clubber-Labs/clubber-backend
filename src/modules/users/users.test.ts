@@ -956,3 +956,49 @@ describe('ciclo de vida da conta', () => {
     expect(res.json().scheduledDeletionAt).not.toBeNull()
   })
 })
+
+describe('visibilidade de contas inativas', () => {
+  it('GET /users/:id de conta DEACTIVATED retorna 404', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ accountStatus: 'DEACTIVATED' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('GET /users não lista contas inativas', async () => {
+    const active = await makeUser()
+    await makeUser({ accountStatus: 'DEACTIVATED' })
+    await makeUser({ accountStatus: 'PENDING_DELETION' })
+    await makeUser({ accountStatus: 'ANONYMIZED' })
+
+    const res = await app.inject({ method: 'GET', url: '/users' })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((u: { id: string }) => u.id)
+    expect(ids).toContain(active.id)
+    expect(ids).toHaveLength(1)
+  })
+
+  it('GET /users/search não retorna contas inativas', async () => {
+    const viewer = await makeUser()
+    const active = await makeUser({ username: 'visivel_busca' })
+    await makeUser({ username: 'oculto_busca', accountStatus: 'DEACTIVATED' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=_busca',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((u: { id: string }) => u.id)
+    expect(ids).toContain(active.id)
+    expect(ids).toHaveLength(1)
+  })
+})

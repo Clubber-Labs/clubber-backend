@@ -1,3 +1,4 @@
+import { visibleAuthorWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 const blockedUserSelect = {
@@ -56,7 +57,10 @@ export async function listBlocks(
   cursor?: string,
 ) {
   return prisma.block.findMany({
-    where: { blockerId },
+    // Esconde bloqueio de conta apenas desativada/pendente (some temporariamente),
+    // mas mantém o de conta anonimizada — o bloqueador ainda gerencia o bloqueio,
+    // exibido como "Usuário Excluído".
+    where: { blockerId, blocked: visibleAuthorWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'desc' },

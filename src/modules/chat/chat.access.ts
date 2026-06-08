@@ -16,7 +16,9 @@ export async function assertReachable(viewerId: string, targetId: string) {
     throw { statusCode: 400, message: 'Conversa inválida' }
   }
   const target = await findUserBrief(targetId)
-  if (!target) {
+  // Conta inativa (desativada/pendente/anonimizada) é tratada como inexistente:
+  // não dá para iniciar conversa nem adicionar a grupo.
+  if (!target || target.accountStatus !== 'ACTIVE') {
     throw { statusCode: 404, message: 'Usuário não encontrado' }
   }
   if (await isBlockedEitherWay(viewerId, targetId)) {

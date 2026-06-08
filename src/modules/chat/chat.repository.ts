@@ -48,7 +48,12 @@ export function directKeyFor(a: string, b: string) {
 }
 
 export async function findUserBrief(id: string) {
-  return prisma.user.findUnique({ where: { id }, select: userSelect })
+  // accountStatus só aqui (não no userSelect compartilhado) para a checagem de
+  // alcançabilidade barrar contas inativas, sem alterar o shape de mensagens.
+  return prisma.user.findUnique({
+    where: { id },
+    select: { ...userSelect, accountStatus: true },
+  })
 }
 
 export async function findDirectByKey(directKey: string) {

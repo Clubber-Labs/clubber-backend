@@ -128,3 +128,34 @@ describe('GET /blocks', () => {
     ).toBe(true)
   })
 })
+
+describe('visibilidade de contas inativas em blocks', () => {
+  it('GET /blocks oculta bloqueado desativado mas mantém anonimizado', async () => {
+    const blocker = await makeUser()
+    const active = await makeUser()
+    const deactivated = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const anonymized = await makeUser({
+      name: 'Usuário',
+      lastname: 'Excluído',
+      accountStatus: 'ANONYMIZED',
+      anonymizedAt: new Date(),
+    })
+    await makeBlock(blocker.id, active.id)
+    await makeBlock(blocker.id, deactivated.id)
+    await makeBlock(blocker.id, anonymized.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/blocks',
+      headers: auth(blocker.id),
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res
+      .json()
+      .data.map((b: { blocked: { id: string } }) => b.blocked.id)
+    expect(ids).toContain(active.id)
+    expect(ids).toContain(anonymized.id)
+    expect(ids).not.toContain(deactivated.id)
+  })
+})

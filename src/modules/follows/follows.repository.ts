@@ -1,4 +1,5 @@
 import type { FollowStatus } from '@prisma/client'
+import { activeUserWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 const followerSelect = {
@@ -110,7 +111,11 @@ export async function findFollowers(
   cursor?: string,
 ) {
   return prisma.follow.findMany({
-    where: { followingId: userId, status: 'ACCEPTED' },
+    where: {
+      followingId: userId,
+      status: 'ACCEPTED',
+      follower: activeUserWhere(),
+    },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { id: 'desc' },
@@ -124,7 +129,11 @@ export async function findFollowing(
   cursor?: string,
 ) {
   return prisma.follow.findMany({
-    where: { followerId: userId, status: 'ACCEPTED' },
+    where: {
+      followerId: userId,
+      status: 'ACCEPTED',
+      following: activeUserWhere(),
+    },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { id: 'desc' },
@@ -138,7 +147,11 @@ export async function findPendingRequests(
   cursor?: string,
 ) {
   return prisma.follow.findMany({
-    where: { followingId: userId, status: 'PENDING' },
+    where: {
+      followingId: userId,
+      status: 'PENDING',
+      follower: activeUserWhere(),
+    },
     orderBy: { createdAt: 'desc' },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
