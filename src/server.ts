@@ -42,6 +42,7 @@ import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
+import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
 import { metricsPlugin } from './plugins/metrics'
 import { requestIdPlugin } from './plugins/request-id'
@@ -171,5 +172,8 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   app.log.info(`Server is running on http://localhost:${env.PORT}`)
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.ACCOUNT_DELETION_ENABLED) {
+    startAccountDeletionReconciler(env.ACCOUNT_DELETION_INTERVAL_MS)
   }
 })

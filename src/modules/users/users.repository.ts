@@ -1,5 +1,9 @@
 import type { Prisma } from '@prisma/client'
-import { activeUserWhere } from '../../lib/account-visibility'
+import {
+  activeUserWhere,
+  DELETED_DISPLAY_LASTNAME,
+  DELETED_DISPLAY_NAME,
+} from '../../lib/account-visibility'
 import type { EventCategory } from '../../lib/event-categories'
 import { prisma } from '../../lib/prisma'
 import type { CreateUserBody } from './users.schema'
@@ -156,10 +160,6 @@ export async function updateUserWithPreferences(
   return user
 }
 
-export async function deleteUser(id: string) {
-  return prisma.user.delete({ where: { id } })
-}
-
 /**
  * Estado de conta para as transições de ciclo de vida. Inclui `password` para
  * reautenticação na exclusão — usado só internamente no service, nunca exposto.
@@ -227,5 +227,120 @@ export async function reactivateOnLogin(id: string) {
       deactivatedAt: null,
       scheduledDeletionAt: null,
     },
+  })
+}
+
+/** IDs de contas PENDING_DELETION cuja carência venceu (alvo do reconciler). */
+export async function findAccountsDueForAnonymization(now: Date) {
+  return prisma.user.findMany({
+    where: {
+      accountStatus: 'PENDING_DELETION',
+      scheduledDeletionAt: { lte: now },
+    },
+    select: { id: true },
+  })
+}
+
+/**
+ * Dados coletados ANTES da anonimização: chaves de storage a limpar (avatar +
+ * imagens dos eventos do usuário) e os lados de follow ACCEPTED cujos contadores
+ * de terceiros precisam ser decrementados.
+ */
+export async function findAnonymizationData(userId: string) {
+  const [user, eventImages, following, followers] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { avatarKey: true },
+    }),
+    prisma.eventImage.findMany({
+      where: { event: { authorId: userId } },
+      select: { key: true },
+    }),
+    prisma.follow.findMany({
+      where: { followerId: userId, status: 'ACCEPTED' },
+      select: { followingId: true },
+    }),
+    prisma.follow.findMany({
+      where: { followingId: userId, status: 'ACCEPTED' },
+      select: { followerId: true },
+    }),
+  ])
+  return {
+    avatarKey: user?.avatarKey ?? null,
+    eventImageKeys: eventImages.map((i) => i.key),
+    followingIds: following.map((f) => f.followingId),
+    followerIds: followers.map((f) => f.followerId),
+  }
+}
+
+/**
+ * Anonimiza a conta numa transação (LGPD): sobrescreve PII com placeholders
+ * únicos pelo id, remove conteúdo próprio standalone (eventos/posts e respectivos
+ * cascades) e interações (reações/presenças/follows/social/consent), mantendo o
+ * que vive em espaço alheio (comentários/mensagens) — que passa a exibir
+ * "Usuário Excluído" pelo próprio registro. Decrementa os contadores de follow
+ * dos terceiros afetados.
+ *
+ * Guard condicional ao status PENDING_DELETION: se um login reativou a conta na
+ * corrida, o updateMany não casa (count 0) e nada é apagado — o login vence.
+ * Retorna true se anonimizou, false se foi pulada.
+ */
+export async function anonymizeUserTx(
+  userId: string,
+  followingIds: string[],
+  followerIds: string[],
+  now: Date = new Date(),
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const flagged = await tx.user.updateMany({
+      where: { id: userId, accountStatus: 'PENDING_DELETION' },
+      data: {
+        name: DELETED_DISPLAY_NAME,
+        lastname: DELETED_DISPLAY_LASTNAME,
+        username: `deleted_${userId}`,
+        email: `deleted+${userId}@deleted.invalid`,
+        phone: null,
+        password: null,
+        bio: null,
+        avatarUrl: null,
+        avatarKey: null,
+        birthdate: null,
+        lastSeenAt: null,
+        isPrivate: true,
+        accountStatus: 'ANONYMIZED',
+        anonymizedAt: now,
+        deactivatedAt: null,
+        scheduledDeletionAt: null,
+      },
+    })
+    if (flagged.count === 0) return false
+
+    // Conteúdo próprio standalone (cascateia filhos pelo evento/post).
+    await tx.event.deleteMany({ where: { authorId: userId } })
+    await tx.post.deleteMany({ where: { authorId: userId } })
+    // Interações do usuário (não-conteúdo) em espaços alheios.
+    await tx.reaction.deleteMany({ where: { userId } })
+    await tx.commentReaction.deleteMany({ where: { userId } })
+    await tx.eventAttendance.deleteMany({ where: { userId } })
+    // Vínculos sociais e consentimento.
+    await tx.socialAccount.deleteMany({ where: { userId } })
+    await tx.userConsent.deleteMany({ where: { userId } })
+    await tx.follow.deleteMany({
+      where: { OR: [{ followerId: userId }, { followingId: userId }] },
+    })
+    // Decrementa contadores de terceiros (só follows ACCEPTED contavam).
+    if (followingIds.length > 0) {
+      await tx.user.updateMany({
+        where: { id: { in: followingIds } },
+        data: { followersCount: { decrement: 1 } },
+      })
+    }
+    if (followerIds.length > 0) {
+      await tx.user.updateMany({
+        where: { id: { in: followerIds } },
+        data: { followingCount: { decrement: 1 } },
+      })
+    }
+    return true
   })
 }

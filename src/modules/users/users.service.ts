@@ -7,9 +7,11 @@ import {
   findFollowStatusesByFollower,
 } from '../follows/follows.repository'
 import {
+  anonymizeUserTx,
   createUser,
   findAccountState,
   findAllUsers,
+  findAnonymizationData,
   findOwnUserById,
   findUserAvatarKey,
   findUserByEmail,
@@ -254,6 +256,36 @@ export async function reactivateAccount(userId: string) {
     }
   }
   return setAccountActive(userId)
+}
+
+/**
+ * Anonimiza definitivamente a conta (chamado pelo reconciler após a carência).
+ * Coleta as chaves de storage antes de mutar, executa a transação de
+ * anonimização e, se de fato anonimizou (não foi reativada na corrida), limpa
+ * avatar e imagens dos eventos no storage (best-effort, fora da transação).
+ * Retorna true se anonimizou.
+ */
+export async function anonymizeAccount(
+  userId: string,
+  logger: Logger,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const data = await findAnonymizationData(userId)
+  const anonymized = await anonymizeUserTx(
+    userId,
+    data.followingIds,
+    data.followerIds,
+    now,
+  )
+  if (!anonymized) return false
+
+  const keys = [data.avatarKey, ...data.eventImageKeys].filter(
+    (k): k is string => Boolean(k),
+  )
+  for (const key of keys) {
+    await deleteUploaded(key, logger)
+  }
+  return true
 }
 
 export async function changeUserAvatar(
