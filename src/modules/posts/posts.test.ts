@@ -161,3 +161,39 @@ describe('DELETE /events/:eventId/posts/:postId', () => {
     expect(res.statusCode).toBe(404)
   })
 })
+
+describe('visibilidade de posts por status do autor', () => {
+  it('esconde posts de autor desativado em GET /events/:eventId/posts', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id)
+    const activeAuthor = await makeUser()
+    const deactivatedAuthor = await makeUser({ accountStatus: 'DEACTIVATED' })
+    await testPrisma.post.create({
+      data: {
+        authorId: activeAuthor.id,
+        eventId: event.id,
+        content: 'visível',
+      },
+    })
+    await testPrisma.post.create({
+      data: {
+        authorId: deactivatedAuthor.id,
+        eventId: event.id,
+        content: 'oculto',
+      },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/posts`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const authorIds = res
+      .json()
+      .data.map((p: { authorId: string }) => p.authorId)
+    expect(authorIds).toContain(activeAuthor.id)
+    expect(authorIds).not.toContain(deactivatedAuthor.id)
+  })
+})

@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeAttendance, makeEvent, makeUser } from '../../test/factories'
+import {
+  makeAttendance,
+  makeComment,
+  makeEvent,
+  makeUser,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -312,5 +317,44 @@ describe('GET /posts/:postId/comments', () => {
       .data.find((c: { id: string }) => c.id === commentId)
     expect(comment.userLiked).toBe(true)
     expect(comment.reactionsCount).toBe(1)
+  })
+})
+
+describe('visibilidade de comentários por status do autor', () => {
+  it('esconde comentário de autor desativado e mantém o de anonimizado como "Usuário Excluído"', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id)
+    const activeAuthor = await makeUser()
+    const deactivatedAuthor = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const anonymizedAuthor = await makeUser({
+      name: 'Usuário',
+      lastname: 'Excluído',
+      accountStatus: 'ANONYMIZED',
+      anonymizedAt: new Date(),
+    })
+    await makeComment(activeAuthor.id, event.id, 'comentário ativo')
+    await makeComment(deactivatedAuthor.id, event.id, 'comentário oculto')
+    await makeComment(anonymizedAuthor.id, event.id, 'comentário anonimizado')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const authorIds = res
+      .json()
+      .data.map((c: { authorId: string }) => c.authorId)
+    expect(authorIds).toContain(activeAuthor.id)
+    expect(authorIds).toContain(anonymizedAuthor.id)
+    expect(authorIds).not.toContain(deactivatedAuthor.id)
+
+    const anon = res
+      .json()
+      .data.find(
+        (c: { authorId: string }) => c.authorId === anonymizedAuthor.id,
+      )
+    expect(anon.author).toMatchObject({ name: 'Usuário', lastname: 'Excluído' })
   })
 })

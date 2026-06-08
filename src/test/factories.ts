@@ -9,6 +9,8 @@ function uid() {
 
 export async function makeUser(
   overrides: {
+    name?: string
+    lastname?: string
     isPrivate?: boolean
     username?: string
     email?: string
@@ -26,8 +28,8 @@ export async function makeUser(
   const id = uid()
   return testPrisma.user.create({
     data: {
-      name: `User${id}`,
-      lastname: `Last${id}`,
+      name: overrides.name ?? `User${id}`,
+      lastname: overrides.lastname ?? `Last${id}`,
       username: overrides.username ?? `user_${id}`,
       email: overrides.email ?? `user_${id}@test.com`,
       password:

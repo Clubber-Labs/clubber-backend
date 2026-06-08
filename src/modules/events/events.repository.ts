@@ -1,4 +1,5 @@
 import { type AttendanceType, Prisma } from '@prisma/client'
+import { visibleAuthorWhere } from '../../lib/account-visibility'
 import {
   buildLifecycleWhere,
   buildMapLifecycleWhere,
@@ -56,6 +57,7 @@ function buildSharedIncludes(): Prisma.EventInclude {
       select: { attendances: true, reactions: true, comments: true },
     },
     comments: {
+      where: { author: visibleAuthorWhere() },
       orderBy: { createdAt: 'desc' },
       take: 2,
       include: buildCommentInclude(),
@@ -171,6 +173,7 @@ export async function findPublicEvents(
     where: {
       AND: [
         { isPublic: true },
+        { author: visibleAuthorWhere() },
         buildLifecycleWhere({
           includePast: filters.includePast ?? false,
           status: filters.status,
@@ -220,6 +223,7 @@ export async function findEventsByAuthor(
   const where: Prisma.EventWhereInput = {
     AND: [
       { authorId },
+      { author: visibleAuthorWhere() },
       authorVisibleWhere(viewerId),
       ...(viewerId !== authorId ? [{ isPublic: true }] : []),
     ],
@@ -252,8 +256,10 @@ export async function findEventById(
   id: string,
   now: Date = new Date(),
 ): Promise<SharedEvent | null> {
-  const event = (await prisma.event.findUnique({
-    where: { id },
+  // findFirst (não findUnique) para combinar id + autor visível: evento de autor
+  // desativado/pendente retorna null → o caller responde 404.
+  const event = (await prisma.event.findFirst({
+    where: { id, author: visibleAuthorWhere() },
     include: buildSharedIncludes(),
   })) as unknown as PrismaSharedEvent | null
 
@@ -409,6 +415,7 @@ export async function findEventsForMap(
       AND: [
         { id: { in: idsInBbox } },
         { isPublic: true },
+        { author: visibleAuthorWhere() },
         buildMapLifecycleWhere({
           status: query.status,
           now,
@@ -513,6 +520,11 @@ export async function findTopAttendancesByEvent(
       FROM event_attendances a
       WHERE a."eventId" IN (${Prisma.join(eventIds)})
         AND a.type IN ('CONFIRMED', 'INTERESTED')
+        -- Só participantes ativos entram no ranking (top-5 sem buracos).
+        AND EXISTS (
+          SELECT 1 FROM users uu
+          WHERE uu.id = a."userId" AND uu."accountStatus" = 'ACTIVE'
+        )
     ) ranked
     JOIN users u ON u.id = ranked."userId"
     WHERE ranked.rn <= ${TOP_ATTENDANCES_LIMIT}
@@ -562,6 +574,7 @@ export async function findEventsInViewport(
       AND: [
         { id: { in: idsInBbox } },
         { isPublic: true },
+        { author: visibleAuthorWhere() },
         buildMapLifecycleWhere({
           status: query.status,
           now,
@@ -598,6 +611,7 @@ export async function searchEvents(
     where: {
       AND: [
         { isPublic: true },
+        { author: visibleAuthorWhere() },
         buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
         {
           OR: [

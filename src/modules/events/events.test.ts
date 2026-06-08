@@ -1671,3 +1671,27 @@ describe('friendsOnly exige autenticação', () => {
     expect(res.json().data).toEqual([])
   })
 })
+
+describe('visibilidade de eventos por status do autor', () => {
+  it('não lista eventos de autor desativado em GET /events', async () => {
+    const active = await makeUser()
+    const deactivated = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const visible = await makeEvent(active.id)
+    await makeEvent(deactivated.id)
+
+    const res = await app.inject({ method: 'GET', url: '/events' })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).toEqual([visible.id])
+  })
+
+  it('GET /events/:id de evento com autor desativado retorna 404', async () => {
+    const deactivated = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const event = await makeEvent(deactivated.id)
+
+    const res = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+
+    expect(res.statusCode).toBe(404)
+  })
+})

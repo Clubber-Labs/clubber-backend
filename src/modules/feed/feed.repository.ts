@@ -1,4 +1,8 @@
 import { type AttendanceType, Prisma } from '@prisma/client'
+import {
+  activeUserWhere,
+  visibleAuthorWhere,
+} from '../../lib/account-visibility'
 import type { EventCategory } from '../../lib/event-categories'
 import { buildLifecycleWhere } from '../../lib/event-filters'
 import { computeEventStatus } from '../../lib/event-lifecycle'
@@ -160,6 +164,7 @@ export async function findSocialCandidateIds(
     where: {
       AND: [
         ...buildBaseWhere(query, now),
+        { author: visibleAuthorWhere() },
         socialOrWhere(followingIds, viewerId),
         privacyOrWhere(viewerId),
       ],
@@ -201,6 +206,7 @@ export async function findDiscoveryCandidateIds(
       AND: [
         ...buildBaseWhere(query, now),
         { isPublic: true },
+        { author: visibleAuthorWhere() },
         { OR: discoveryOr },
       ],
     },
@@ -269,6 +275,7 @@ export async function hydrateEvents(
         where: {
           userId: { in: followingIds },
           type: { in: POSITIVE_ATTENDANCE },
+          user: activeUserWhere(),
         },
         include: { user: { select: authorSelect } },
         orderBy: { createdAt: 'desc' as const },
@@ -280,6 +287,7 @@ export async function hydrateEvents(
         take: 1,
       },
       comments: {
+        where: { author: visibleAuthorWhere() },
         orderBy: { createdAt: 'desc' as const },
         take: 2,
         include: buildCommentInclude(viewerId),
@@ -314,7 +322,11 @@ export async function hydrateEvents(
       }),
       followingIds.length > 0
         ? prisma.reaction.findMany({
-            where: { eventId: { in: eventIds }, userId: { in: followingIds } },
+            where: {
+              eventId: { in: eventIds },
+              userId: { in: followingIds },
+              user: activeUserWhere(),
+            },
             select: {
               eventId: true,
               userId: true,
@@ -332,6 +344,7 @@ export async function hydrateEvents(
             where: {
               eventId: { in: eventIds },
               authorId: { in: followingIds },
+              author: activeUserWhere(),
             },
             select: {
               eventId: true,

@@ -1209,3 +1209,27 @@ describe('GET /feed — engajamento de amigos', () => {
     expect(ids).toEqual([friendEvent.id, strangerEvent.id])
   })
 })
+
+describe('visibilidade no feed por status do autor', () => {
+  it('não inclui evento de autor desativado', async () => {
+    const viewer = await makeUser()
+    const author = await makeUser()
+    await makeFollow(viewer.id, author.id)
+    const event = await makeEvent(author.id)
+
+    await testPrisma.user.update({
+      where: { id: author.id },
+      data: { accountStatus: 'DEACTIVATED' },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((e: { id: string }) => e.id)
+    expect(ids).not.toContain(event.id)
+  })
+})
