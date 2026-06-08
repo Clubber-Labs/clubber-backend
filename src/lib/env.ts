@@ -32,6 +32,18 @@ const baseSchema = z.object({
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
+  // Observabilidade — todas OFF por padrão quando não configuradas.
+  // NOTA: SENTRY_DSN e OTEL_* também são lidas CRUAS em src/instrumentation.ts
+  // (que não pode importar este arquivo por ordem de carga). Manter em sincronia.
+  SENTRY_DSN: z.url().optional(),
+  OTEL_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+  OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
+  OTEL_SERVICE_NAME: z.string().default('connectai-backend'),
+  // URL do Loki para envio dos logs (via pino-loki). Sem ela, logs só no stdout.
+  LOKI_URL: z.url().optional(),
   // Cota de armazenamento de mídia por usuário (anti-abuso/custo). Default 1 GB.
   CHAT_USER_STORAGE_QUOTA_BYTES: z.coerce
     .number()
@@ -102,6 +114,11 @@ export const env = {
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
+  SENTRY_DSN: parsed.SENTRY_DSN,
+  OTEL_ENABLED: parsed.OTEL_ENABLED,
+  OTEL_EXPORTER_OTLP_ENDPOINT: parsed.OTEL_EXPORTER_OTLP_ENDPOINT,
+  OTEL_SERVICE_NAME: parsed.OTEL_SERVICE_NAME,
+  LOKI_URL: parsed.LOKI_URL,
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
   CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
 } as const

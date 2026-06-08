@@ -26,3 +26,24 @@ describe('GET /health', () => {
     })
   })
 })
+
+describe('GET /health/live', () => {
+  it('retorna 200 sem checar dependências', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health/live' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ status: 'ok' })
+  })
+})
+
+describe('GET /health/ready', () => {
+  it('retorna 200 com banco e cache prontos', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health/ready' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      status: 'ready',
+      dependencies: { database: 'up', cache: 'up' },
+    })
+  })
+})

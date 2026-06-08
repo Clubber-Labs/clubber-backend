@@ -9,6 +9,7 @@ import {
 } from 'fastify-type-provider-zod'
 import { errorHandler } from '../lib/error-handler'
 import { redis } from '../lib/redis'
+import { genReqId } from '../lib/request-id'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
 import { authRoutes } from '../modules/auth/auth.routes'
 import { blocksRoutes } from '../modules/blocks/blocks.routes'
@@ -27,14 +28,20 @@ import { reactionsRoutes } from '../modules/reactions/reactions.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { usersRoutes } from '../modules/users/users.routes'
+import { metricsPlugin } from '../plugins/metrics'
+import { requestIdPlugin } from '../plugins/request-id'
 
 export function buildApp() {
-  const app = fastify().withTypeProvider<ZodTypeProvider>()
+  const app = fastify({
+    genReqId,
+    requestIdHeader: false,
+  }).withTypeProvider<ZodTypeProvider>()
 
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
-
   app.setErrorHandler(errorHandler)
+  app.register(requestIdPlugin)
+  app.register(metricsPlugin)
 
   app.register(fastifyRateLimit, {
     global: false,
