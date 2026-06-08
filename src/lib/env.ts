@@ -44,6 +44,14 @@ const baseSchema = z.object({
   OTEL_SERVICE_NAME: z.string().default('connectai-backend'),
   // URL do Loki para envio dos logs (via pino-loki). Sem ela, logs só no stdout.
   LOKI_URL: z.url().optional(),
+  // Métricas Prometheus em /metrics. Default ligado (o scraper precisa delas).
+  METRICS_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Se definido, /metrics exige `Authorization: Bearer <token>`. Sem ele, o
+  // endpoint é aberto (modelo pull) — proteja na borda de rede ou defina o token.
+  METRICS_TOKEN: z.string().min(1).optional(),
   // Cota de armazenamento de mídia por usuário (anti-abuso/custo). Default 1 GB.
   CHAT_USER_STORAGE_QUOTA_BYTES: z.coerce
     .number()
@@ -119,6 +127,8 @@ export const env = {
   OTEL_EXPORTER_OTLP_ENDPOINT: parsed.OTEL_EXPORTER_OTLP_ENDPOINT,
   OTEL_SERVICE_NAME: parsed.OTEL_SERVICE_NAME,
   LOKI_URL: parsed.LOKI_URL,
+  METRICS_ENABLED: parsed.METRICS_ENABLED,
+  METRICS_TOKEN: parsed.METRICS_TOKEN,
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
   CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
 } as const

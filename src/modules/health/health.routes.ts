@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify'
-import { checkDatabase, checkRedis } from './health.checks'
+import { checkDatabase, checkRedis, isHealthy } from './health.checks'
 
 export async function healthRoutes(app: FastifyInstance) {
   // Healthcheck agregado (mantido por compatibilidade).
   app.get('/health', async (_request, reply) => {
     const [database, cache] = await Promise.all([checkDatabase(), checkRedis()])
-    const ok = database === 'up' && cache !== 'down'
+    const ok = isHealthy(database, cache)
     return reply.status(ok ? 200 : 503).send({
       status: ok ? 'ok' : 'degraded',
       dependencies: { database, cache },
@@ -21,7 +21,7 @@ export async function healthRoutes(app: FastifyInstance) {
   // Readiness: o processo consegue atender tráfego (dependências prontas).
   app.get('/health/ready', async (_request, reply) => {
     const [database, cache] = await Promise.all([checkDatabase(), checkRedis()])
-    const ready = database === 'up' && cache !== 'down'
+    const ready = isHealthy(database, cache)
     return reply.status(ready ? 200 : 503).send({
       status: ready ? 'ready' : 'not-ready',
       dependencies: { database, cache },

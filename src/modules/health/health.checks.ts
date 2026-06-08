@@ -21,3 +21,15 @@ export async function checkRedis(): Promise<DependencyStatus> {
     return 'down'
   }
 }
+
+/**
+ * Decisão de saúde/prontidão (pura, para ser testável sem mocks): pronto quando
+ * o banco está up e o cache não está down. `cache: 'disabled'` é aceitável —
+ * o Redis é opcional e sua ausência não impede o serviço de atender.
+ */
+export function isHealthy(
+  database: DependencyStatus,
+  cache: DependencyStatus,
+): boolean {
+  return database === 'up' && cache !== 'down'
+}

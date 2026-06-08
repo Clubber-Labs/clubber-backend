@@ -1,5 +1,7 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { timingSafeEqual } from 'node:crypto'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import fp from 'fastify-plugin'
+import { env } from '../lib/env'
 import {
   httpRequestDuration,
   httpRequestsInFlight,
@@ -20,7 +22,24 @@ function isMetricsRoute(request: FastifyRequest): boolean {
   return request.routeOptions?.url === METRICS_ROUTE
 }
 
+// Compara o header com `Bearer <token>` em tempo constante (evita timing attack).
+function isAuthorized(
+  authorization: string | undefined,
+  token: string,
+): boolean {
+  if (!authorization) return false
+  const provided = Buffer.from(authorization)
+  const expected = Buffer.from(`Bearer ${token}`)
+  return (
+    provided.length === expected.length && timingSafeEqual(provided, expected)
+  )
+}
+
 async function metricsPluginFn(app: FastifyInstance) {
+  // Permite desligar a coleta/exposição inteira (ex.: ambiente onde /metrics não
+  // deve subir). Sem isso ligado, nenhum hook nem a rota são registrados.
+  if (!env.METRICS_ENABLED) return
+
   app.addHook('onRequest', async (request) => {
     if (isMetricsRoute(request)) return
     httpRequestsInFlight.inc({ method: request.method })
@@ -39,10 +58,23 @@ async function metricsPluginFn(app: FastifyInstance) {
     httpRequestDuration.observe(labels, reply.elapsedTime / 1000)
   })
 
-  app.get(METRICS_ROUTE, async (_request, reply) => {
-    reply.header('Content-Type', registry.contentType)
-    return registry.metrics()
-  })
+  // Quando METRICS_TOKEN está definido, /metrics exige Bearer auth. Sem token,
+  // o endpoint é aberto (modelo pull padrão; restrinja na borda de rede).
+  const token = env.METRICS_TOKEN
+  const requireAuth = async (request: FastifyRequest, reply: FastifyReply) => {
+    if (!isAuthorized(request.headers.authorization, token as string)) {
+      return reply.status(401).send({ message: 'Unauthorized' })
+    }
+  }
+
+  app.get(
+    METRICS_ROUTE,
+    token ? { onRequest: requireAuth } : {},
+    async (_request, reply) => {
+      reply.header('Content-Type', registry.contentType)
+      return registry.metrics()
+    },
+  )
 }
 
 // fp() expõe os hooks no escopo raiz da app (sem encapsulamento), aplicando-os
