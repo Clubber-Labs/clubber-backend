@@ -1,4 +1,5 @@
 import { findEventById } from '../events/events.repository'
+import { notifyFromActor } from '../notifications/notifications.service'
 import {
   createInvites,
   findEventInvites,
@@ -35,7 +36,20 @@ export async function inviteToEvent(
     throw { statusCode: 400, message: 'Nenhum usuário para convidar' }
   }
 
-  return createInvites(eventId, inviterId, targetIds)
+  const invites = await createInvites(eventId, inviterId, targetIds)
+  // Fan-out 1→N. notifyFromActor é best-effort (nunca lança) e o self-guard
+  // cobre o caso de o autor estar entre os convidados.
+  await Promise.all(
+    targetIds.map((invitedId) =>
+      notifyFromActor({
+        recipientId: invitedId,
+        actorId: inviterId,
+        type: 'EVENT_INVITE',
+        eventId,
+      }),
+    ),
+  )
+  return invites
 }
 
 export async function listEventInvites(eventId: string, requesterId: string) {

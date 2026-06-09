@@ -11,12 +11,18 @@ import {
 import {
   countUnreadNotifications,
   createNotificationIfNew,
+  deleteFollowNotifications,
+  findActorSummary,
   listNotifications,
   markAllNotificationsRead,
   markNotificationRead,
   type NotificationCursor,
   notificationExists,
 } from './notification.repository'
+import {
+  type SocialNotificationKind,
+  socialNotificationContent,
+} from './notification-content'
 import type { ListNotificationsQuery } from './notifications.schema'
 
 export type SocialNotificationInput = {
@@ -36,6 +42,11 @@ export type SocialNotificationInput = {
  * Chave de dedupe determinística por (tipo + alvos). Dois gatilhos idênticos
  * (retry, duplo clique) colapsam na mesma notificação; gatilhos distintos (outro
  * comentário, outro evento) geram chaves diferentes.
+ *
+ * Tipos SEM alvo distinto (NEW_FOLLOWER / FOLLOW_REQUEST / FOLLOW_ACCEPTED) têm
+ * chave só (tipo, actor, recipient). Para um refollow voltar a notificar, os
+ * fluxos de unfollow/rejeição/remoção chamam clearFollowNotifications, que apaga
+ * a notificação obsoleta e libera a chave (ver follows.service).
  */
 function buildDedupeKey(input: SocialNotificationInput): string {
   return [
@@ -108,6 +119,81 @@ export async function dispatchSocial(
     logger.warn(
       { err, type: input.type, recipientId: input.recipientId },
       'dispatch de notificação falhou',
+    )
+  }
+}
+
+export type ActorNotificationInput = {
+  recipientId: string
+  actorId: string
+  // Só tipos sociais (com autor); EVENT_NEARBY (proximidade) não passa por aqui.
+  type: SocialNotificationKind
+  eventId?: string | null
+  postId?: string | null
+  commentId?: string | null
+}
+
+/**
+ * Atalho dos gatilhos sociais (entrega 3): resolve o autor, monta a copy e
+ * delega ao dispatchSocial. Os serviços de origem (follow, comentário, reação,
+ * presença, convite) só passam o tipo + ids — sem texto, sem boilerplate.
+ * Best-effort: nunca quebra a ação principal. O self-guard adiantado evita o
+ * fetch do autor quando autor == destinatário (caso comum: comentar no próprio
+ * conteúdo). O block-guard fica no dispatchSocial.
+ */
+export async function notifyFromActor(
+  input: ActorNotificationInput,
+): Promise<void> {
+  try {
+    if (!env.NOTIFICATIONS_ENABLED) return
+    if (input.actorId === input.recipientId) return
+
+    const actor = await findActorSummary(input.actorId)
+    if (!actor) return
+
+    const { title, body } = socialNotificationContent(input.type, actor)
+    await dispatchSocial({
+      recipientId: input.recipientId,
+      actorId: input.actorId,
+      type: input.type,
+      eventId: input.eventId,
+      postId: input.postId,
+      commentId: input.commentId,
+      title,
+      body,
+      data: {
+        actor: {
+          id: actor.id,
+          name: actor.name,
+          lastname: actor.lastname,
+          username: actor.username,
+          avatarUrl: actor.avatarUrl,
+        },
+      },
+    })
+  } catch (err) {
+    logger.warn(
+      { err, type: input.type, recipientId: input.recipientId },
+      'notifyFromActor falhou',
+    )
+  }
+}
+
+/**
+ * Limpa as notificações de um follow desfeito (chamado pelos fluxos de
+ * unfollow / rejeição / remoção). Best-effort: nunca quebra a ação principal.
+ * Remove a notificação obsoleta e libera o dedupe para um refollow re-notificar.
+ */
+export async function clearFollowNotifications(
+  followerId: string,
+  followingId: string,
+): Promise<void> {
+  try {
+    await deleteFollowNotifications(followerId, followingId)
+  } catch (err) {
+    logger.warn(
+      { err, followerId, followingId },
+      'clearFollowNotifications falhou',
     )
   }
 }

@@ -96,6 +96,50 @@ export async function notificationExists(userId: string, id: string) {
   return found !== null
 }
 
+/** Resumo do autor para montar a copy + payload da notificação (sem refetch no cliente). */
+export async function findActorSummary(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      name: true,
+      lastname: true,
+      username: true,
+      avatarUrl: true,
+    },
+  })
+}
+
+/**
+ * Limpa as notificações de um relacionamento de follow quando ele é desfeito
+ * (unfollow / rejeição / remoção de seguidor). Remove a notificação que virou
+ * obsoleta E libera o dedupeKey, de modo que um refollow volte a notificar.
+ * Cobre os dois sentidos: a notificação ao seguido (NEW_FOLLOWER/FOLLOW_REQUEST)
+ * e a de aceite ao seguidor (FOLLOW_ACCEPTED).
+ */
+export async function deleteFollowNotifications(
+  followerId: string,
+  followingId: string,
+) {
+  const result = await prisma.notification.deleteMany({
+    where: {
+      OR: [
+        {
+          userId: followingId,
+          actorId: followerId,
+          type: { in: ['NEW_FOLLOWER', 'FOLLOW_REQUEST'] },
+        },
+        {
+          userId: followerId,
+          actorId: followingId,
+          type: 'FOLLOW_ACCEPTED',
+        },
+      ],
+    },
+  })
+  return result.count
+}
+
 /** Expurgo de retenção (LGPD): remove notificações criadas antes do corte. */
 export async function deleteNotificationsOlderThan(cutoff: Date) {
   const result = await prisma.notification.deleteMany({

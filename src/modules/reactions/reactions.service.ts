@@ -1,6 +1,7 @@
 import { findCommentById } from '../comments/comments.repository'
 import { resolveCommentEventId } from '../comments/comments.service'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
+import { notifyFromActor } from '../notifications/notifications.service'
 import { findPostById } from '../posts/posts.repository'
 import {
   createCommentReaction,
@@ -15,15 +16,29 @@ import {
 } from './reactions.repository'
 
 export async function likeEvent(userId: string, eventId: string) {
-  await ensureEventAccess(eventId, userId)
-  return createEventReaction(userId, eventId)
+  const event = await ensureEventAccess(eventId, userId)
+  const reaction = await createEventReaction(userId, eventId)
+  await notifyFromActor({
+    recipientId: event.authorId,
+    actorId: userId,
+    type: 'EVENT_REACTION',
+    eventId,
+  })
+  return reaction
 }
 
 export async function likePost(userId: string, postId: string) {
   const post = await findPostById(postId)
   if (!post) throw { statusCode: 404, message: 'Post não encontrado' }
   await ensureEventAccess(post.eventId, userId)
-  return createPostReaction(userId, postId)
+  const reaction = await createPostReaction(userId, postId)
+  await notifyFromActor({
+    recipientId: post.authorId,
+    actorId: userId,
+    type: 'POST_REACTION',
+    postId,
+  })
+  return reaction
 }
 
 export async function likeComment(userId: string, commentId: string) {
@@ -31,7 +46,14 @@ export async function likeComment(userId: string, commentId: string) {
   if (!comment) throw { statusCode: 404, message: 'Comentário não encontrado' }
   const eventId = await resolveCommentEventId(comment)
   await ensureEventAccess(eventId, userId)
-  return createCommentReaction(userId, commentId)
+  const reaction = await createCommentReaction(userId, commentId)
+  await notifyFromActor({
+    recipientId: comment.authorId,
+    actorId: userId,
+    type: 'COMMENT_REACTION',
+    commentId,
+  })
+  return reaction
 }
 
 export async function unlikeEvent(userId: string, eventId: string) {

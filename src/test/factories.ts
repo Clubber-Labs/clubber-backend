@@ -200,6 +200,16 @@ export async function makeComment(
   })
 }
 
+export async function makePost(
+  authorId: string,
+  eventId: string,
+  overrides: { content?: string } = {},
+) {
+  return testPrisma.post.create({
+    data: { authorId, eventId, content: overrides.content ?? 'Post de teste' },
+  })
+}
+
 export async function makeUserCategoryPreference(
   userId: string,
   category: EventCategory,
