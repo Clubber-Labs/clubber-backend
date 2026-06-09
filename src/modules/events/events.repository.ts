@@ -13,9 +13,9 @@ import { authorVisibleWhere } from '../../lib/profile-visibility'
 import {
   type Bbox,
   type DistanceCursor,
-  type EventDistanceRow,
   decodeDistanceCursor,
   decodePopularityCursor,
+  type EventDistanceRow,
   encodeDistanceCursor,
   encodePopularityCursor,
   findEventIdsAtExactDistance,
