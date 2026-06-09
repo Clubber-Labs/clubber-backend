@@ -1,8 +1,13 @@
 import { type AttendanceType, Prisma } from '@prisma/client'
+import {
+  activeUserWhere,
+  visibleAuthorWhere,
+} from '../../lib/account-visibility'
+import type { EventCategory } from '../../lib/event-categories'
 import { buildLifecycleWhere } from '../../lib/event-filters'
 import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
-import { authorVisibleWhere } from '../../lib/profile-visibility'
+import { findEventIdsByDistance, type LatLng } from '../../lib/spatial'
 import { buildCommentInclude } from '../comments/comments.repository'
 import type { FeedQuery } from './feed.schema'
 
@@ -27,6 +32,7 @@ export type FeedReason =
   | { kind: 'friend_reacted'; user: FeedUser }
   | { kind: 'friend_commented'; user: FeedUser; preview: string }
   | { kind: 'self_interaction' }
+  | { kind: 'discovery' }
 
 type FriendReactionRow = {
   eventId: string | null
@@ -79,79 +85,197 @@ function resolveReason(
       preview: comment.content.slice(0, 80),
     }
 
-  return { kind: 'self_interaction' }
+  // Sem laço social: evento veio da pool de descoberta (categoria/proximidade).
+  return { kind: 'discovery' }
 }
 
-export async function findFeedCandidates(
+/** Condições WHERE compartilhadas pelas pools social e de descoberta. */
+function buildBaseWhere(query: FeedQuery, now: Date): Prisma.EventWhereInput[] {
+  const conditions: Prisma.EventWhereInput[] = [
+    buildLifecycleWhere({
+      includePast: query.includePast,
+      status: query.status,
+      now,
+    }),
+  ]
+
+  if (query.category && query.category.length > 0) {
+    conditions.push({ category: { in: query.category } })
+  }
+
+  if (query.dateFrom || query.dateTo) {
+    conditions.push({
+      date: {
+        ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+        ...(query.dateTo && { lte: new Date(query.dateTo) }),
+      },
+    })
+  }
+
+  return conditions
+}
+
+/** OR social: evento criado/atendido/reagido/comentado por você ou quem você segue. */
+function socialOrWhere(
+  followingIds: string[],
+  viewerId: string,
+): Prisma.EventWhereInput {
+  return {
+    OR: [
+      { authorId: { in: [...followingIds, viewerId] } },
+      {
+        attendances: {
+          some: {
+            userId: { in: followingIds },
+            type: { in: POSITIVE_ATTENDANCE },
+          },
+        },
+      },
+      { reactions: { some: { userId: { in: followingIds } } } },
+      { comments: { some: { authorId: { in: followingIds } } } },
+    ],
+  }
+}
+
+/** Privacidade do evento: público, do próprio viewer, ou convidado. */
+function privacyOrWhere(viewerId: string): Prisma.EventWhereInput {
+  return {
+    OR: [
+      { isPublic: true },
+      { authorId: viewerId },
+      { invites: { some: { invitedId: viewerId } } },
+    ],
+  }
+}
+
+/**
+ * IDs da pool social — eventos ligados à rede do viewer, IGNORANDO distância
+ * (amigos distantes aparecem). Aplica lifecycle, visibilidade do autor,
+ * filtros da query e privacidade do evento.
+ */
+export async function findSocialCandidateIds(
   viewerId: string,
   followingIds: string[],
   query: FeedQuery,
   take: number,
-  cursor?: string,
-) {
-  const now = new Date()
-
-  const lifecycleWhere = buildLifecycleWhere({
-    includePast: query.includePast,
-    status: query.status,
-    now,
-  })
-
-  const dateRange =
-    query.dateFrom || query.dateTo
-      ? {
-          date: {
-            ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
-            ...(query.dateTo && { lte: new Date(query.dateTo) }),
-          },
-        }
-      : null
-
-  const categoryWhere =
-    query.category && query.category.length > 0
-      ? { category: { in: query.category } }
-      : null
-
-  const events = await prisma.event.findMany({
+  now: Date,
+): Promise<string[]> {
+  const rows = await prisma.event.findMany({
     where: {
       AND: [
-        lifecycleWhere,
-        authorVisibleWhere(viewerId),
-        ...(categoryWhere ? [categoryWhere] : []),
-        ...(dateRange ? [dateRange] : []),
-        {
-          OR: [
-            { authorId: { in: [...followingIds, viewerId] } },
-            {
-              attendances: {
-                some: {
-                  userId: { in: followingIds },
-                  type: { in: POSITIVE_ATTENDANCE },
-                },
-              },
-            },
-            { reactions: { some: { userId: { in: followingIds } } } },
-            { comments: { some: { authorId: { in: followingIds } } } },
-          ],
-        },
-        {
-          OR: [
-            { isPublic: true },
-            { authorId: viewerId },
-            { invites: { some: { invitedId: viewerId } } },
-          ],
-        },
+        ...buildBaseWhere(query, now),
+        { author: visibleAuthorWhere() },
+        socialOrWhere(followingIds, viewerId),
+        privacyOrWhere(viewerId),
       ],
     },
     take,
-    ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true },
+  })
+  return rows.map((r) => r.id)
+}
+
+/**
+ * IDs da pool de descoberta — eventos públicos que combinam com o perfil:
+ * categorias preferidas e/ou proximidade (KNN PostGIS). Só roda quando há
+ * sinal de perfil (categorias preferidas ou localização); senão retorna [].
+ */
+export async function findDiscoveryCandidateIds(
+  preferredCategories: EventCategory[],
+  center: LatLng | null,
+  query: FeedQuery,
+  take: number,
+  now: Date,
+): Promise<string[]> {
+  const nearIds = center
+    ? await findEventIdsByDistance(center, take, query.radiusKm)
+    : []
+
+  const discoveryOr: Prisma.EventWhereInput[] = []
+  if (preferredCategories.length > 0) {
+    discoveryOr.push({ category: { in: preferredCategories } })
+  }
+  if (nearIds.length > 0) {
+    discoveryOr.push({ id: { in: nearIds } })
+  }
+  if (discoveryOr.length === 0) return []
+
+  const rows = await prisma.event.findMany({
+    where: {
+      AND: [
+        ...buildBaseWhere(query, now),
+        { isPublic: true },
+        { author: visibleAuthorWhere() },
+        { OR: discoveryOr },
+      ],
+    },
+    take,
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { id: true },
+  })
+  return rows.map((r) => r.id)
+}
+
+/**
+ * Conta amigos DISTINTOS que interagiram (presença positiva, reação ou
+ * comentário) por evento. O UNION deduplica o mesmo amigo em tipos diferentes.
+ * Fonte do friendEngagementSignal — cada amigo a mais sobe o evento.
+ */
+export async function findFriendInteractionCounts(
+  eventIds: string[],
+  followingIds: string[],
+): Promise<Map<string, number>> {
+  if (eventIds.length === 0 || followingIds.length === 0) return new Map()
+
+  const ids = Prisma.join(eventIds)
+  const friends = Prisma.join(followingIds)
+  const rows = await prisma.$queryRaw<{ eventid: string; friends: number }[]>(
+    Prisma.sql`
+      SELECT eventid, COUNT(DISTINCT userid)::int AS friends
+      FROM (
+        SELECT "eventId" AS eventid, "userId" AS userid
+          FROM event_attendances
+          WHERE "eventId" IN (${ids})
+            AND "userId" IN (${friends})
+            AND type IN ('CONFIRMED', 'INTERESTED')
+        UNION
+        SELECT "eventId" AS eventid, "userId" AS userid
+          FROM reactions
+          WHERE "eventId" IN (${ids}) AND "userId" IN (${friends})
+        UNION
+        SELECT "eventId" AS eventid, "authorId" AS userid
+          FROM comments
+          WHERE "eventId" IN (${ids}) AND "authorId" IN (${friends})
+      ) interactions
+      GROUP BY eventid
+    `,
+  )
+  return new Map(rows.map((r) => [r.eventid, Number(r.friends)]))
+}
+
+/**
+ * Hidrata os eventos (por id) com author, contadores, comentários recentes,
+ * presenças de amigos, estado do viewer, razão social e status. A ordenação
+ * final por score fica a cargo do service.
+ */
+export async function hydrateEvents(
+  eventIds: string[],
+  viewerId: string,
+  followingIds: string[],
+  now: Date,
+) {
+  if (eventIds.length === 0) return []
+
+  const events = await prisma.event.findMany({
+    where: { id: { in: eventIds } },
     include: {
       author: { select: authorSelect },
       attendances: {
         where: {
           userId: { in: followingIds },
           type: { in: POSITIVE_ATTENDANCE },
+          user: activeUserWhere(),
         },
         include: { user: { select: authorSelect } },
         orderBy: { createdAt: 'desc' as const },
@@ -163,6 +287,7 @@ export async function findFeedCandidates(
         take: 1,
       },
       comments: {
+        where: { author: visibleAuthorWhere() },
         orderBy: { createdAt: 'desc' as const },
         take: 2,
         include: buildCommentInclude(viewerId),
@@ -189,8 +314,6 @@ export async function findFeedCandidates(
 
   if (events.length === 0) return []
 
-  const eventIds = events.map((e) => e.id)
-
   const [viewerAttendances, friendReactions, friendComments] =
     await Promise.all([
       prisma.eventAttendance.findMany({
@@ -199,7 +322,11 @@ export async function findFeedCandidates(
       }),
       followingIds.length > 0
         ? prisma.reaction.findMany({
-            where: { eventId: { in: eventIds }, userId: { in: followingIds } },
+            where: {
+              eventId: { in: eventIds },
+              userId: { in: followingIds },
+              user: activeUserWhere(),
+            },
             select: {
               eventId: true,
               userId: true,
@@ -217,6 +344,7 @@ export async function findFeedCandidates(
             where: {
               eventId: { in: eventIds },
               authorId: { in: followingIds },
+              author: activeUserWhere(),
             },
             select: {
               eventId: true,
@@ -283,22 +411,28 @@ export async function findFeedCandidates(
   })
 }
 
-export async function findFollowingIds(userId: string) {
-  const follows = await prisma.follow.findMany({
-    where: { followerId: userId, status: 'ACCEPTED' },
-    select: { followingId: true },
-  })
-  return follows.map((f) => f.followingId)
-}
+// Fonte única da definição de "amigo" (following aceito), em follows.repository.
+export { findAcceptedFollowingIds as findFollowingIds } from '../follows/follows.repository'
 
 /**
- * Top categorias do histórico do usuário (eventos criados ou com presença).
- * Retorna até PREFERRED_CATEGORIES_LIMIT, em ordem de frequência decrescente.
+ * Categorias preferidas do usuário: as EXPLÍCITAS (escolhidas no perfil) têm
+ * prioridade; quando há menos que o limite, completa com as inferidas do
+ * histórico (eventos criados ou com presença), sem repetir.
  */
 export async function findUserPreferredCategories(
   userId: string,
-): Promise<string[]> {
-  const rows = await prisma.$queryRaw<{ category: string }[]>(
+): Promise<EventCategory[]> {
+  const explicit = await prisma.userCategoryPreference.findMany({
+    where: { userId },
+    select: { category: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  const result: EventCategory[] = explicit.map((p) => p.category)
+  if (result.length >= PREFERRED_CATEGORIES_LIMIT) {
+    return result.slice(0, PREFERRED_CATEGORIES_LIMIT)
+  }
+
+  const rows = await prisma.$queryRaw<{ category: EventCategory }[]>(
     Prisma.sql`
       SELECT e.category
       FROM events e
@@ -309,8 +443,13 @@ export async function findUserPreferredCategories(
       WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
       GROUP BY e.category
       ORDER BY COUNT(*) DESC, e.category ASC
-      LIMIT ${PREFERRED_CATEGORIES_LIMIT}
     `,
   )
-  return rows.map((r) => r.category)
+
+  for (const row of rows) {
+    if (result.length >= PREFERRED_CATEGORIES_LIMIT) break
+    if (!result.includes(row.category)) result.push(row.category)
+  }
+
+  return result
 }

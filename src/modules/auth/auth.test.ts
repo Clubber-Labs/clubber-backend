@@ -65,6 +65,69 @@ describe('POST /auth/login', () => {
   })
 })
 
+describe('POST /auth/login — reativação de conta', () => {
+  it('reativa conta DEACTIVATED ao logar', async () => {
+    const user = await makeUser({
+      accountStatus: 'DEACTIVATED',
+      deactivatedAt: new Date(),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
+
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true, deactivatedAt: true },
+    })
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.deactivatedAt).toBeNull()
+  })
+
+  it('reativa conta PENDING_DELETION e cancela exclusão agendada', async () => {
+    const user = await makeUser({
+      accountStatus: 'PENDING_DELETION',
+      deactivatedAt: new Date(),
+      scheduledDeletionAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true, scheduledDeletionAt: true },
+    })
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.scheduledDeletionAt).toBeNull()
+  })
+
+  it('nega login de conta ANONYMIZED', async () => {
+    const user = await makeUser({
+      accountStatus: 'ANONYMIZED',
+      password: null,
+      anonymizedAt: new Date(),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+})
+
 describe('rate limit em POST /auth/login', () => {
   it('retorna 429 após 10 tentativas no mesmo minuto', async () => {
     const body = { email: 'naoexiste@test.com', password: 'qualquer' }

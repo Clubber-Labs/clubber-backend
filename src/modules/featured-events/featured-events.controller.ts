@@ -16,6 +16,10 @@ export async function postFeaturedEvent(
   const { id } = request.params as FeaturedEventParams
   const body = request.body as CreateFeaturedEventBody
   const feature = await addFeaturedEvent(id, body, request.user.sub)
+  request.log.info(
+    { userId: request.user.sub, eventId: id, featureId: feature.id },
+    'User added event to featured events',
+  )
   return reply.status(201).send(feature)
 }
 
@@ -25,5 +29,9 @@ export async function deleteFeaturedEvent(
 ) {
   const { id, featureId } = request.params as FeaturedEventFeatureParams
   await cancelFeaturedEvent(id, featureId, request.user.sub)
+  request.log.info(
+    { userId: request.user.sub, eventId: id, featureId },
+    'User removed event from featured events',
+  )
   return reply.status(204).send()
 }

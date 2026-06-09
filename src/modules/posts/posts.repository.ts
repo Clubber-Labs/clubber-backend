@@ -1,3 +1,4 @@
+import { visibleAuthorWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 const authorSelect = {
@@ -31,7 +32,7 @@ export async function findPostsByEvent(
   cursor?: string,
 ) {
   return prisma.post.findMany({
-    where: { eventId },
+    where: { eventId, author: visibleAuthorWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'desc' },

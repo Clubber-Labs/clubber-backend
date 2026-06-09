@@ -25,6 +25,10 @@ export async function postEventComment(
     eventId,
     request.body as CreateCommentBody,
   )
+  request.log.info(
+    { userId: request.user.sub, eventId, commentId: comment.id },
+    'User added a comment to event',
+  )
   return reply.status(201).send(comment)
 }
 
@@ -40,6 +44,10 @@ export async function getEventComments(
     limit,
     cursor,
   )
+  request.log.info(
+    { userId: request.user.sub, eventId, limit, cursor },
+    'User requested comments for event',
+  )
   return reply.send(result)
 }
 
@@ -49,6 +57,10 @@ export async function deleteEventComment(
 ) {
   const { eventId, commentId } = request.params as EventCommentIdParam
   await removeComment(commentId, request.user.sub, eventId)
+  request.log.info(
+    { userId: request.user.sub, eventId, commentId },
+    'User deleted comment from event',
+  )
   return reply.status(204).send()
 }
 
@@ -62,6 +74,10 @@ export async function postPostComment(
     postId,
     request.body as CreateCommentBody,
   )
+  request.log.info(
+    { userId: request.user.sub, postId, commentId: comment.id },
+    'User added a comment to post',
+  )
   return reply.status(201).send(comment)
 }
 
@@ -72,6 +88,10 @@ export async function getPostComments(
   const { postId } = request.params as PostCommentParam
   const { limit, cursor } = request.query as PaginationQuery
   const result = await listPostComments(postId, request.user.sub, limit, cursor)
+  request.log.info(
+    { userId: request.user.sub, postId, limit, cursor },
+    'User requested comments for post',
+  )
   return reply.send(result)
 }
 
@@ -81,5 +101,9 @@ export async function deletePostComment(
 ) {
   const { postId, commentId } = request.params as PostCommentIdParam
   await removeComment(commentId, request.user.sub, postId)
+  request.log.info(
+    { userId: request.user.sub, postId, commentId },
+    'User deleted comment from post',
+  )
   return reply.status(204).send()
 }

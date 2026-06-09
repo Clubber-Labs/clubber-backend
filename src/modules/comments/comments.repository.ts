@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { visibleAuthorWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 export const commentAuthorSelect = {
@@ -74,7 +75,7 @@ export async function findCommentsByEvent(
   viewerId?: string,
 ): Promise<NormalizedComment[]> {
   const comments = (await prisma.comment.findMany({
-    where: { eventId },
+    where: { eventId, author: visibleAuthorWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'asc' },
@@ -90,7 +91,7 @@ export async function findCommentsByPost(
   viewerId?: string,
 ): Promise<NormalizedComment[]> {
   const comments = (await prisma.comment.findMany({
-    where: { postId },
+    where: { postId, author: visibleAuthorWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'asc' },

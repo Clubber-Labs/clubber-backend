@@ -169,3 +169,41 @@ describe('POST /users/me/follow-requests/:followerId/accept', () => {
     expect(res.statusCode).toBe(204)
   })
 })
+
+describe('visibilidade de contas inativas em follows', () => {
+  it('GET followers não inclui seguidores inativos', async () => {
+    const owner = await makeUser()
+    const activeFollower = await makeUser()
+    const inactiveFollower = await makeUser({ accountStatus: 'DEACTIVATED' })
+    await makeFollow(activeFollower.id, owner.id)
+    await makeFollow(inactiveFollower.id, owner.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/followers`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((u: { id: string }) => u.id)
+    expect(ids).toEqual([activeFollower.id])
+  })
+
+  it('GET following não inclui seguidos inativos', async () => {
+    const owner = await makeUser()
+    const activeTarget = await makeUser()
+    const inactiveTarget = await makeUser({ accountStatus: 'PENDING_DELETION' })
+    await makeFollow(owner.id, activeTarget.id)
+    await makeFollow(owner.id, inactiveTarget.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/following`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().data.map((u: { id: string }) => u.id)
+    expect(ids).toEqual([activeTarget.id])
+  })
+})

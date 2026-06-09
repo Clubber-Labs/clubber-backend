@@ -1,9 +1,10 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type SocialProvider } from '@prisma/client'
 import {
+  findOwnUserById,
   findUserByEmail,
-  findUserById,
   findUserByUsername,
+  reactivateOnLogin,
 } from '../users/users.repository'
 import { verifyFacebookToken, verifyGoogleToken } from './social-auth.providers'
 import {
@@ -55,19 +56,29 @@ async function generateUniqueUsername(email: string) {
 }
 
 async function loadUserAndDecorate(userId: string) {
-  const user = await findUserById(userId)
+  const user = await findOwnUserById(userId)
   if (!user) {
     throw {
       statusCode: 500,
       message: 'Usuário não encontrado após autenticação social',
     }
   }
-  // Espelha o shape de getMe/getUserById: achata _count em eventsCount
-  // pra não vazar nome interno do Prisma na resposta pública.
-  const { _count, ...rest } = user
+  // Defesa em profundidade (simétrico ao getMe): conta anonimizada não loga.
+  // Inatingível na prática — a anonimização apaga as social accounts e troca o
+  // email por placeholder, então nem `existing` nem `linkable` resolvem aqui.
+  if (user.accountStatus === 'ANONYMIZED') {
+    throw { statusCode: 401, message: 'Sessão inválida' }
+  }
+  // Espelha o shape de getMe: achata _count em eventsCount e expõe hasPassword
+  // (derivado, sem vazar o hash) pra o cliente decidir o fluxo de exclusão.
+  const { _count, password, ...rest } = user
   const profileIncomplete = !user.phone || !user.birthdate
   return {
-    user: { ...rest, eventsCount: _count.events },
+    user: {
+      ...rest,
+      eventsCount: _count.events,
+      hasPassword: password !== null,
+    },
     profileIncomplete,
   }
 }
@@ -91,6 +102,8 @@ export async function socialLogin(body: SocialLoginBody) {
     profile.providerUserId,
   )
   if (existing) {
+    // Login social dentro da janela de carência reativa a conta.
+    await reactivateOnLogin(existing.userId)
     return loadUserAndDecorate(existing.userId)
   }
 
@@ -115,6 +128,8 @@ export async function socialLogin(body: SocialLoginBody) {
       providerUserId: profile.providerUserId,
       email: profile.email,
     })
+    // Auto-link via Google em conta na janela de carência também reativa.
+    await reactivateOnLogin(linkable.id)
     return loadUserAndDecorate(linkable.id)
   }
 

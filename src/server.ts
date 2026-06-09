@@ -1,3 +1,8 @@
+// Observabilidade: DEVE ser o primeiro import (instrumenta http/pg/Prisma/etc.
+// antes deles serem carregados). A linha em branco abaixo mantém este import
+// no próprio grupo, fora do alcance do organizeImports do Biome.
+import './instrumentation'
+
 import { fastifyCors } from '@fastify/cors'
 import fastifyJwt from '@fastify/jwt'
 import fastifyMultipart from '@fastify/multipart'
@@ -12,16 +17,24 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { shutdownInstrumentation } from './instrumentation'
 import { env } from './lib/env'
-import { handlePrismaUniqueError } from './lib/errors'
+import { errorHandler } from './lib/error-handler'
+import { buildLoggerOptions } from './lib/logger'
 import { redis } from './lib/redis'
+import { genReqId } from './lib/request-id'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
 import {
   billingRoutes,
   billingWebhookRoutes,
 } from './modules/billing/billing.routes'
+import { blocksRoutes } from './modules/blocks/blocks.routes'
+import { categoriesRoutes } from './modules/categories/categories.routes'
+import { chatGateway } from './modules/chat/chat.gateway'
+import { chatRoutes } from './modules/chat/chat.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
+import { consentRoutes } from './modules/consent/consent.routes'
 import { eventInvitesRoutes } from './modules/event-invites/event-invites.routes'
 import { eventsRoutes } from './modules/events/events.routes'
 import { startFeaturedEventsReconciler } from './modules/featured-events/featured-events.reconciler'
@@ -29,45 +42,38 @@ import { featuredEventsRoutes } from './modules/featured-events/featured-events.
 import { feedRoutes } from './modules/feed/feed.routes'
 import { followsRoutes } from './modules/follows/follows.routes'
 import { healthRoutes } from './modules/health/health.routes'
+import { startNotificationRetentionReconciler } from './modules/notifications/notification-retention.reconciler'
+import { notificationsGateway } from './modules/notifications/notifications.gateway'
+import { notificationsRoutes } from './modules/notifications/notifications.routes'
+import { startPasswordResetCleanupReconciler } from './modules/password-reset/password-reset.reconciler'
+import { passwordResetRoutes } from './modules/password-reset/password-reset.routes'
 import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
+import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
+import { metricsPlugin } from './plugins/metrics'
+import { requestIdPlugin } from './plugins/request-id'
 
-const app = fastify().withTypeProvider<ZodTypeProvider>()
+const app = fastify({
+  // genReqId valida/reaproveita o x-request-id de entrada (ver lib/request-id).
+  // requestIdHeader: false desliga a leitura automática do Fastify para que toda
+  // a validação fique centralizada no genReqId.
+  genReqId,
+  requestIdHeader: false,
+  // Opções compartilhadas com o logger standalone (lib/logger) — redaction,
+  // serializers e destino (stdout/pretty/Loki) num único lugar, sem drift.
+  logger: buildLoggerOptions(),
+}).withTypeProvider<ZodTypeProvider>()
 
 app.setValidatorCompiler(validatorCompiler)
 app.setSerializerCompiler(serializerCompiler)
 
-app.setErrorHandler((error: Error, request, reply) => {
-  // Constraint unique do Prisma → 409 com mensagem amigável (não vaza path/SQL).
-  const uniqueErr = handlePrismaUniqueError(error)
-  if (uniqueErr) {
-    return reply
-      .status(uniqueErr.statusCode)
-      .send({ message: uniqueErr.message })
-  }
+app.setErrorHandler(errorHandler)
 
-  // Erros explícitos do service (throw { statusCode, message }) e validações
-  // do Fastify (4xx) passam adiante com a própria mensagem.
-  const explicit = error as { statusCode?: number; message?: string }
-  if (explicit.statusCode && explicit.statusCode < 500) {
-    return reply
-      .status(explicit.statusCode)
-      .send({ message: explicit.message ?? 'Erro' })
-  }
-
-  // 500: log completo no servidor, body genérico em produção pra não vazar
-  // stack/paths. Em dev/test mantém a mensagem original pra debugging.
-  request.log.error({ err: error }, 'Unhandled error')
-  return reply.status(500).send({
-    message:
-      env.NODE_ENV === 'production'
-        ? 'Erro interno do servidor.'
-        : (error.message ?? 'Internal Server Error'),
-  })
-})
+app.register(requestIdPlugin)
+app.register(metricsPlugin)
 
 app.register(fastifyCors, {
   origin: true,
@@ -133,9 +139,12 @@ app.register(ScalarApiReference, {
 app.register(healthRoutes)
 app.register(authRoutes)
 app.register(socialAuthRoutes)
+app.register(passwordResetRoutes)
+app.register(categoriesRoutes)
 app.register(eventsRoutes)
 app.register(featuredEventsRoutes)
 app.register(usersRoutes)
+app.register(consentRoutes)
 app.register(followsRoutes)
 app.register(attendanceRoutes)
 app.register(postsRoutes)
@@ -147,6 +156,11 @@ app.register(reportsRoutes)
 app.register(billingRoutes)
 // Webhook em plugin separado pra raw body ser ativado apenas nele.
 app.register(billingWebhookRoutes)
+app.register(blocksRoutes)
+app.register(chatRoutes)
+app.register(notificationsRoutes)
+app.register(chatGateway)
+app.register(notificationsGateway)
 
 app.addHook('onClose', async () => {
   if (redis) await redis.quit()
@@ -158,6 +172,7 @@ async function shutdown(signal: NodeJS.Signals) {
   shuttingDown = true
   try {
     await app.close()
+    await shutdownInstrumentation()
     process.exit(0)
   } catch (err) {
     app.log.error({ err, signal }, 'erro durante shutdown')
@@ -169,8 +184,20 @@ process.once('SIGINT', shutdown)
 process.once('SIGTERM', shutdown)
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
-  console.log(`🔥 Server is running on http://localhost:${env.PORT}`)
+  app.log.info(`Server is running on http://localhost:${env.PORT}`)
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.ACCOUNT_DELETION_ENABLED) {
+    startAccountDeletionReconciler(env.ACCOUNT_DELETION_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.PASSWORD_RESET_CLEANUP_ENABLED) {
+    startPasswordResetCleanupReconciler(env.PASSWORD_RESET_CLEANUP_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.NOTIFY_RETENTION_CLEANUP_ENABLED) {
+    startNotificationRetentionReconciler(
+      env.NOTIFY_RETENTION_CLEANUP_INTERVAL_MS,
+      env.NOTIFY_RETENTION_DAYS,
+    )
   }
 })

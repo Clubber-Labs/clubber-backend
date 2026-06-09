@@ -1,4 +1,5 @@
 import { ensureEventAccess } from '../event-invites/event-invites.access'
+import { notifyFromActor } from '../notifications/notifications.service'
 import {
   deleteAttendance,
   findAttendanceByUserAndEvent,
@@ -11,8 +12,18 @@ export async function confirmAttendance(
   eventId: string,
   type: 'INTERESTED' | 'CONFIRMED' | 'NOT_INTERESTED',
 ) {
-  await ensureEventAccess(eventId, userId)
-  return upsertAttendance(userId, eventId, type)
+  const event = await ensureEventAccess(eventId, userId)
+  const attendance = await upsertAttendance(userId, eventId, type)
+  // Só presenças positivas notificam o autor (NOT_INTERESTED não é evento social).
+  if (type !== 'NOT_INTERESTED') {
+    await notifyFromActor({
+      recipientId: event.authorId,
+      actorId: userId,
+      type: 'EVENT_ATTENDANCE',
+      eventId,
+    })
+  }
+  return attendance
 }
 
 export async function cancelAttendance(userId: string, eventId: string) {

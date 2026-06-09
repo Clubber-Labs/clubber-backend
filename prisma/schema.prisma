@@ -12,44 +12,289 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
+// Ciclo de vida da conta (soft-delete estilo Instagram):
+// ACTIVE -> DEACTIVATED (desativar) / PENDING_DELETION (excluir, com carência)
+// -> ACTIVE (reativar no login) ou ANONYMIZED (job após a carência, terminal).
+enum AccountStatus {
+  ACTIVE
+  DEACTIVATED
+  PENDING_DELETION
+  ANONYMIZED
+}
+
 model User {
-  id               String    @id @default(uuid())
-  name             String
-  lastname         String
-  username         String    @unique
-  email            String    @unique
-  password         String?
-  phone            String?   @unique
-  bio              String?
-  avatarUrl        String?
-  avatarKey        String?
-  isPrivate        Boolean   @default(false)
-  isPremium        Boolean   @default(false)
-  stripeCustomerId String?   @unique
-  followersCount   Int       @default(0)
-  followingCount   Int       @default(0)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  birthdate        DateTime?
-  events           Event[]
-  attendances      EventAttendance[]
-  posts            Post[]
-  comments         Comment[]
-  reactions        Reaction[]
-  commentReactions CommentReaction[]
-  eventInvitesSent EventInvite[]     @relation("inviter")
-  eventInvitesReceived EventInvite[] @relation("invited")
-  socialAccounts   SocialAccount[]
+  id             String   @id @default(uuid())
+  name           String
+  lastname       String
+  username       String   @unique
+  email          String   @unique
+  password       String?
+  phone          String?  @unique
+  bio            String?
+  avatarUrl      String?
+  avatarKey      String?
+  isPrivate      Boolean  @default(false)
+  isPremium      Boolean  @default(false)
+  stripeCustomerId String? @unique
+  role           UserRole @default(USER)
+  followersCount Int      @default(0)
+  followingCount Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  birthdate      DateTime?
+  lastSeenAt     DateTime?
+
+  // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
+  // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
+  // saiu de ACTIVE (vale tanto para desativação quanto para exclusão agendada).
+  // scheduledDeletionAt só existe em PENDING_DELETION. anonymizedAt em ANONYMIZED.
+  accountStatus         AccountStatus     @default(ACTIVE)
+  deactivatedAt         DateTime?
+  scheduledDeletionAt   DateTime?
+  anonymizedAt          DateTime?
+  events                Event[]
+  attendances           EventAttendance[]
+  posts                 Post[]
+  comments              Comment[]
+  reactions             Reaction[]
+  commentReactions      CommentReaction[]
+  eventInvitesSent      EventInvite[]     @relation("inviter")
+  eventInvitesReceived  EventInvite[]     @relation("invited")
+  socialAccounts        SocialAccount[]
+  passwordResetCodes    PasswordResetCode[]
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
   followers Follow[] @relation("following")
 
   reports Report[] @relation("reporterReports")
+  reportsReceived Report[] @relation("targetUserReports")
+  reviewedReports Report[] @relation("reportReviewer")
 
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
-  subscriptions        Subscription[]
+  subscriptions         Subscription[]
+
+  categoryPreferences UserCategoryPreference[]
+
+  // Chat
+  conversationsCreated       Conversation[]            @relation("conversationsCreated")
+  conversationParticipations ConversationParticipant[] @relation("conversationParticipations")
+  messagesSent               Message[]                 @relation("messagesSent")
+  blocksMade                 Block[]                   @relation("blocksMade")
+  blocksReceived             Block[]                   @relation("blocksReceived")
+  messageReactions           MessageReaction[]         @relation("messageReactions")
+
+  // LGPD
+  consent        UserConsent?
+  consentLogs    ConsentAuditLog[]
+
+  // Ciclo de vida da conta (motivo de saída / churn)
+  accountLifecycleLogs AccountLifecycleLog[]
+
+  // Notificações (push + in-app)
+  deviceTokens  DeviceToken[]
+  notifications Notification[]
+
+  // Predicado do reconciler: PENDING_DELETION com scheduledDeletionAt vencido.
+  @@index([accountStatus, scheduledDeletionAt])
   @@map("users")
+}
+
+// Código OTP de recuperação de senha. Guardamos o HASH do código (nunca em
+// claro): um vazamento do banco não revela o código enviado por e-mail.
+// `attempts` limita o brute-force no espaço de 6 dígitos; `usedAt` garante uso
+// único. Só um código ativo por usuário (os anteriores são apagados no request).
+model PasswordResetCode {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String
+  expiresAt DateTime
+  usedAt    DateTime?
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now())
+
+  // Busca o código vigente de um usuário (não usado e não expirado).
+  @@index([userId, usedAt, expiresAt], map: "password_reset_codes_user_active_idx")
+  @@map("password_reset_codes")
+}
+
+enum EventCategory {
+  MUSIC
+  SPORTS
+  TECH
+  GASTRONOMY
+  ART
+  EDUCATION
+  NIGHTLIFE
+  BUSINESS
+  HEALTH_WELLNESS
+  OUTDOORS
+  GAMING
+  FILM_THEATER
+  FASHION
+  RELIGION
+  FAMILY
+  PETS
+  VOLUNTEERING
+  PARTY
+  OTHER
+}
+
+model UserCategoryPreference {
+  id        String        @id @default(uuid())
+  userId    String
+  category  EventCategory
+  createdAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+  @@map("user_category_preferences")
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ParticipantRole {
+  MEMBER
+  ADMIN
+}
+
+model Conversation {
+  id            String           @id @default(uuid())
+  type          ConversationType
+  title         String?
+  createdById   String
+  createdBy     User             @relation("conversationsCreated", fields: [createdById], references: [id])
+  lastMessageAt DateTime?
+  directKey     String?          @unique
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id              String          @id @default(uuid())
+  conversationId  String
+  conversation    Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId          String
+  user            User            @relation("conversationParticipations", fields: [userId], references: [id], onDelete: Cascade)
+  role            ParticipantRole @default(MEMBER)
+  lastReadAt      DateTime?
+  lastDeliveredAt DateTime?
+  clearedAt       DateTime?
+  joinedAt        DateTime        @default(now())
+  leftAt          DateTime?
+  createdAt       DateTime        @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId, leftAt])
+  @@index([conversationId, leftAt])
+  @@map("conversation_participants")
+}
+
+enum MessageType {
+  USER
+  SYSTEM
+}
+
+model Message {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User         @relation("messagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  type           MessageType  @default(USER)
+  content        String?
+  createdAt      DateTime     @default(now())
+  editedAt       DateTime?
+  deletedAt      DateTime?
+
+  // Resposta/citação a outra mensagem da mesma conversa.
+  replyToId String?
+  replyTo   Message?  @relation("messageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("messageReplies")
+
+  // Idempotência de envio: chave gerada pelo cliente (header Idempotency-Key).
+  // Retry com a mesma chave devolve a mensagem existente em vez de duplicar.
+  // Null = sem idempotência (Postgres trata nulls como distintos no unique).
+  idempotencyKey String?
+
+  attachments MessageAttachment[]
+  reactions   MessageReaction[]
+  reports     Report[]
+
+  @@unique([conversationId, senderId, idempotencyKey])
+  @@index([conversationId, createdAt])
+  @@map("messages")
+}
+
+model MessageReaction {
+  id        String   @id @default(uuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("messageReactions", fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("message_reactions")
+}
+
+enum AttachmentKind {
+  IMAGE
+  AUDIO
+  VIDEO
+}
+
+model MessageAttachment {
+  id        String         @id @default(uuid())
+  messageId String
+  message   Message        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  kind      AttachmentKind @default(IMAGE)
+  url       String
+  key       String
+  format    String
+  size      Int
+  durationMs Int?
+  waveform   Int[]
+  width      Int?
+  height     Int?
+  thumbnailUrl String?
+  order      Int            @default(0)
+  createdAt  DateTime       @default(now())
+
+  @@index([messageId, order])
+  @@map("message_attachments")
+}
+
+model Block {
+  id        String   @id @default(uuid())
+  blockerId String
+  blocker   User     @relation("blocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("blocksReceived", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocks")
 }
 
 enum SocialProvider {
@@ -95,13 +340,13 @@ model Follow {
 model Event {
   id          String   @id @default(uuid())
   title       String
-  description String
+  description String?
   date        DateTime
   endDate     DateTime?
   latitude    Float
   longitude   Float
   address     String?
-  category    String
+  category    EventCategory
   isPublic    Boolean  @default(true)
   isFeatured  Boolean  @default(false)
   maxCapacity Int?
@@ -149,15 +394,14 @@ model EventAttendance {
 }
 
 model Post {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   content   String
   authorId  String
   eventId   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   comments  Comment[]
   reactions Reaction[]
 
@@ -253,9 +497,13 @@ model Report {
   status     ReportStatus @default(PENDING)
   createdAt  DateTime     @default(now())
   resolvedAt DateTime?
+  resolutionNote String?
 
   reporterId String
   reporter   User   @relation("reporterReports", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  targetUserId String?
+  targetUser   User?   @relation("targetUserReports", fields: [targetUserId], references: [id], onDelete: SetNull)
 
   eventId   String?
   event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
@@ -263,11 +511,22 @@ model Report {
   commentId String?
   comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
 
+  messageId String?
+  message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  reviewerId String?
+  reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
+  @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
+  @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
+  @@index([reviewerId], map: "reports_reviewer_idx")
+  @@index([status, createdAt, id], map: "reports_status_created_at_id_idx")
   @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
   @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
-  
+  @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
+  @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@map("reports")
 }
 
@@ -345,4 +604,146 @@ model WebhookEvent {
   payload       Json
 
   @@map("webhook_events")
+}
+
+// ── LGPD ────────────────────────────────────────────────────
+
+model UserConsent {
+  id                 String    @id @default(uuid())
+  userId             String    @unique
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Essencial (sempre true, imutável)
+  essentialAccepted  Boolean   @default(true)
+
+  // Os 7 consentimentos granulares da Política de Privacidade v1.0
+  locationPrecise    Boolean   @default(false)  // GPS em tempo real
+  socialFeed         Boolean   @default(false)  // Feed personalizado por amigos
+  socialVisibility   Boolean   @default(false)  // Visibilidade de atividades
+  pushNotifications  Boolean   @default(false)  // Notificações push
+  marketing          Boolean   @default(false)  // Comunicações de marketing
+  analytics          Boolean   @default(false)  // Analytics e métricas de uso
+  surveys            Boolean   @default(false)  // Participação em pesquisas
+
+  consentVersion     String    @default("1.0")
+  ipAddress          String?
+  userAgent          String?
+  collectedAt        DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  revokedAt          DateTime?
+
+  // @@index([userId]) removido — userId @unique já cria índice implícito
+  @@map("user_consents")
+}
+
+enum ConsentAction {
+  GRANTED
+  UPDATED
+  REVOKED
+  EXPORTED
+}
+
+model ConsentAuditLog {
+  id             String   @id @default(uuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  action         ConsentAction
+  changedFields  Json     // { field: string, from: boolean|null, to: boolean }[]
+  ipAddress      String?
+  userAgent      String?
+  consentVersion String
+
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("consent_audit_logs")
+}
+
+enum AccountLifecycleAction {
+  DEACTIVATED
+  DELETION_SCHEDULED
+  REACTIVATED
+}
+
+// Log append-only do ciclo de vida da conta. Guarda o "motivo de saída"
+// (opcional) informado ao desativar/excluir — fonte de analytics de churn.
+// Sobrevive à anonimização (o usuário não é deletado, só anonimizado).
+model AccountLifecycleLog {
+  id        String                 @id @default(uuid())
+  userId    String
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  action    AccountLifecycleAction
+  reason    String?
+
+  createdAt DateTime               @default(now())
+
+  @@index([userId])
+  @@index([action, createdAt])
+  @@map("account_lifecycle_logs")
+}
+
+// ── Notificações ────────────────────────────────────────────
+
+enum NotificationType {
+  EVENT_NEARBY
+  FOLLOW_REQUEST
+  FOLLOW_ACCEPTED
+  NEW_FOLLOWER
+  EVENT_INVITE
+  EVENT_COMMENT
+  POST_COMMENT
+  EVENT_REACTION
+  POST_REACTION
+  COMMENT_REACTION
+  EVENT_ATTENDANCE
+}
+
+// Token de push (Expo) de um device do usuário. invalidatedAt marca soft-disable
+// (ex.: DeviceNotRegistered no envio) sem apagar — preserva auditoria e permite
+// reativar se o app re-registrar o mesmo token. O envio em si é da entrega 5.
+model DeviceToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token             String    @unique
+  platform          String?
+  invalidatedAt     DateTime?
+  invalidatedReason String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([userId])
+  @@map("device_tokens")
+}
+
+// Notificação in-app (central + base do push). `dedupeKey` torna o fan-out
+// idempotente (retry/duplo gatilho não duplica): a app monta a chave a partir do
+// tipo + alvos. Referências de alvo (actor/event/post/comment) são colunas soltas,
+// sem FK — a notificação é histórica/efêmera (expurgo por retenção) e tolera alvo
+// removido. Só userId (destinatário) é relação, com cascade.
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  actorId   String?
+  eventId   String?
+  postId    String?
+  commentId String?
+  title     String
+  body      String
+  data      Json?
+  dedupeKey String
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, readAt, createdAt])
+  // Cobre o keyset (userId, createdAt DESC, id DESC): o `id` no índice evita
+  // heap scan no desempate de createdAt igual. Btree serve via scan reverso.
+  @@index([userId, createdAt, id])
+  @@map("notifications")
 }

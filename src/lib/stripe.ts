@@ -7,7 +7,7 @@ import { env } from './env'
  * cobre falhas transientes 5xx com backoff exponencial (feito pelo SDK).
  */
 export const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
-  apiVersion: '2026-04-22.dahlia',
+  apiVersion: '2026-05-27.dahlia',
   timeout: 10_000,
   maxNetworkRetries: 2,
 })

@@ -1,5 +1,6 @@
 import { cache } from '../../lib/cache'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
+import { notifyFromActor } from '../notifications/notifications.service'
 import { findPostById } from '../posts/posts.repository'
 import {
   createComment,
@@ -43,6 +44,13 @@ export async function addCommentToEvent(
   if (event.isPublic) {
     await cache.invalidate('events:public:*')
   }
+  await notifyFromActor({
+    recipientId: event.authorId,
+    actorId: authorId,
+    type: 'EVENT_COMMENT',
+    eventId,
+    commentId: comment.id,
+  })
   return comment
 }
 
@@ -56,7 +64,15 @@ export async function addCommentToPost(
     throw { statusCode: 404, message: 'Post não encontrado' }
   }
   await ensureEventAccess(post.eventId, authorId)
-  return createComment(authorId, body.content, { postId })
+  const comment = await createComment(authorId, body.content, { postId })
+  await notifyFromActor({
+    recipientId: post.authorId,
+    actorId: authorId,
+    type: 'POST_COMMENT',
+    postId,
+    commentId: comment.id,
+  })
+  return comment
 }
 
 export async function listEventComments(
@@ -66,7 +82,7 @@ export async function listEventComments(
   cursor?: string,
 ) {
   await ensureEventAccess(eventId, requesterId)
-  const rows = await findCommentsByEvent(eventId, limit, cursor)
+  const rows = await findCommentsByEvent(eventId, limit, cursor, requesterId)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   return { data: rows, nextCursor }
 }
@@ -82,7 +98,7 @@ export async function listPostComments(
     throw { statusCode: 404, message: 'Post não encontrado' }
   }
   await ensureEventAccess(post.eventId, requesterId)
-  const rows = await findCommentsByPost(postId, limit, cursor)
+  const rows = await findCommentsByPost(postId, limit, cursor, requesterId)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   return { data: rows, nextCursor }
 }

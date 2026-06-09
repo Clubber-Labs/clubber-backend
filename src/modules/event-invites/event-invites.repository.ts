@@ -1,3 +1,4 @@
+import { activeUserWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 export async function createInvites(
@@ -27,7 +28,7 @@ export async function findFollowerIds(userId: string) {
 
 export async function findEventInvites(eventId: string) {
   return prisma.eventInvite.findMany({
-    where: { eventId },
+    where: { eventId, invited: activeUserWhere() },
     include: {
       invited: {
         select: {

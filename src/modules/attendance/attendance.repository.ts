@@ -1,4 +1,5 @@
 import type { AttendanceType } from '@prisma/client'
+import { activeUserWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 export async function findAttendanceByUserAndEvent(
@@ -34,7 +35,7 @@ export async function deleteAttendance(userId: string, eventId: string) {
 
 export async function findAttendancesByEvent(eventId: string) {
   return prisma.eventAttendance.findMany({
-    where: { eventId },
+    where: { eventId, user: activeUserWhere() },
     include: {
       user: {
         select: {

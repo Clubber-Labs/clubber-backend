@@ -1,11 +1,17 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
+import { setMailer } from '../lib/mailer'
+import { setPushService } from '../lib/push'
 import { redis } from '../lib/redis'
 import { setStorage } from '../lib/storage'
+import { fakeMailer } from './fake-mailer'
+import { fakePush } from './fake-push'
 import { fakeStorage } from './fake-storage'
 import { testPrisma } from './prisma'
 
 beforeAll(() => {
   setStorage(fakeStorage)
+  setMailer(fakeMailer)
+  setPushService(fakePush)
 })
 
 const dbUrl = process.env.DATABASE_URL ?? ''
@@ -34,6 +40,11 @@ afterEach(async () => {
   await testPrisma.$transaction([
     testPrisma.webhookEvent.deleteMany(),
     testPrisma.subscription.deleteMany(),
+    testPrisma.report.deleteMany(),
+    // Chat: conversation cascateia participants/messages/attachments;
+    // conversation antes de user (createdById é RESTRICT).
+    testPrisma.conversation.deleteMany(),
+    testPrisma.block.deleteMany(),
     testPrisma.reaction.deleteMany(),
     testPrisma.comment.deleteMany(),
     testPrisma.post.deleteMany(),
@@ -43,9 +54,12 @@ afterEach(async () => {
     testPrisma.event.deleteMany(),
     testPrisma.follow.deleteMany(),
     testPrisma.socialAccount.deleteMany(),
+    testPrisma.passwordResetCode.deleteMany(),
     testPrisma.user.deleteMany(),
   ])
   fakeStorage.reset()
+  fakeMailer.reset()
+  fakePush.reset()
   if (redis) await redis.flushdb()
 })
 

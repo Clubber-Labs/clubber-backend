@@ -7,54 +7,47 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { handlePrismaUniqueError } from '../lib/errors'
+import { errorHandler } from '../lib/error-handler'
 import { redis } from '../lib/redis'
+import { genReqId } from '../lib/request-id'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
 import { authRoutes } from '../modules/auth/auth.routes'
 import {
   billingRoutes,
   billingWebhookRoutes,
 } from '../modules/billing/billing.routes'
+import { blocksRoutes } from '../modules/blocks/blocks.routes'
+import { categoriesRoutes } from '../modules/categories/categories.routes'
+import { chatRoutes } from '../modules/chat/chat.routes'
 import { commentsRoutes } from '../modules/comments/comments.routes'
+import { consentRoutes } from '../modules/consent/consent.routes'
 import { eventInvitesRoutes } from '../modules/event-invites/event-invites.routes'
 import { eventsRoutes } from '../modules/events/events.routes'
 import { featuredEventsRoutes } from '../modules/featured-events/featured-events.routes'
 import { feedRoutes } from '../modules/feed/feed.routes'
 import { followsRoutes } from '../modules/follows/follows.routes'
 import { healthRoutes } from '../modules/health/health.routes'
+import { notificationsRoutes } from '../modules/notifications/notifications.routes'
+import { passwordResetRoutes } from '../modules/password-reset/password-reset.routes'
 import { postsRoutes } from '../modules/posts/posts.routes'
 import { reactionsRoutes } from '../modules/reactions/reactions.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { usersRoutes } from '../modules/users/users.routes'
+import { metricsPlugin } from '../plugins/metrics'
+import { requestIdPlugin } from '../plugins/request-id'
 
 export function buildApp() {
-  const app = fastify().withTypeProvider<ZodTypeProvider>()
+  const app = fastify({
+    genReqId,
+    requestIdHeader: false,
+  }).withTypeProvider<ZodTypeProvider>()
 
   app.setValidatorCompiler(validatorCompiler)
   app.setSerializerCompiler(serializerCompiler)
-
-  app.setErrorHandler((error: Error, request, reply) => {
-    const uniqueErr = handlePrismaUniqueError(error)
-    if (uniqueErr) {
-      return reply
-        .status(uniqueErr.statusCode)
-        .send({ message: uniqueErr.message })
-    }
-    const explicit = error as { statusCode?: number; message?: string }
-    if (explicit.statusCode && explicit.statusCode < 500) {
-      return reply
-        .status(explicit.statusCode)
-        .send({ message: explicit.message ?? 'Erro' })
-    }
-    request.log.error({ err: error }, 'Unhandled error')
-    return reply.status(500).send({
-      message:
-        process.env.NODE_ENV === 'production'
-          ? 'Erro interno do servidor.'
-          : (error.message ?? 'Internal Server Error'),
-    })
-  })
+  app.setErrorHandler(errorHandler)
+  app.register(requestIdPlugin)
+  app.register(metricsPlugin)
 
   app.register(fastifyRateLimit, {
     global: false,
@@ -88,6 +81,8 @@ export function buildApp() {
   app.register(healthRoutes)
   app.register(authRoutes)
   app.register(socialAuthRoutes)
+  app.register(passwordResetRoutes)
+  app.register(categoriesRoutes)
   app.register(eventsRoutes)
   app.register(featuredEventsRoutes)
   app.register(usersRoutes)
@@ -101,6 +96,10 @@ export function buildApp() {
   app.register(reportsRoutes)
   app.register(billingRoutes)
   app.register(billingWebhookRoutes)
+  app.register(blocksRoutes)
+  app.register(chatRoutes)
+  app.register(consentRoutes)
+  app.register(notificationsRoutes)
 
   return app
 }

@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs'
+import type { EventCategory } from '../lib/event-categories'
 import { testPrisma } from './prisma'
 
 let counter = 0
@@ -8,6 +9,8 @@ function uid() {
 
 export async function makeUser(
   overrides: {
+    name?: string
+    lastname?: string
     isPrivate?: boolean
     username?: string
     email?: string
@@ -15,13 +18,18 @@ export async function makeUser(
     phone?: string | null
     birthdate?: Date | null
     isPremium?: boolean
+    role?: 'USER' | 'ADMIN'
+    accountStatus?: 'ACTIVE' | 'DEACTIVATED' | 'PENDING_DELETION' | 'ANONYMIZED'
+    deactivatedAt?: Date | null
+    scheduledDeletionAt?: Date | null
+    anonymizedAt?: Date | null
   } = {},
 ) {
   const id = uid()
   return testPrisma.user.create({
     data: {
-      name: `User${id}`,
-      lastname: `Last${id}`,
+      name: overrides.name ?? `User${id}`,
+      lastname: overrides.lastname ?? `Last${id}`,
       username: overrides.username ?? `user_${id}`,
       email: overrides.email ?? `user_${id}@test.com`,
       password:
@@ -38,6 +46,11 @@ export async function makeUser(
           : (overrides.birthdate ?? new Date('2000-01-01')),
       isPrivate: overrides.isPrivate ?? false,
       isPremium: overrides.isPremium ?? false,
+      role: overrides.role ?? 'USER',
+      accountStatus: overrides.accountStatus ?? 'ACTIVE',
+      deactivatedAt: overrides.deactivatedAt ?? null,
+      scheduledDeletionAt: overrides.scheduledDeletionAt ?? null,
+      anonymizedAt: overrides.anonymizedAt ?? null,
     },
   })
 }
@@ -63,25 +76,29 @@ export async function makeEvent(
   authorId: string,
   overrides: {
     isPublic?: boolean
-    category?: string
+    category?: EventCategory
     date?: Date
     endDate?: Date | null
     canceledAt?: Date | null
     latitude?: number
     longitude?: number
     isFeatured?: boolean
+    title?: string
+    description?: string
+    address?: string | null
   } = {},
 ) {
   const id = uid()
   return testPrisma.event.create({
     data: {
-      title: `Event ${id}`,
-      description: `Description ${id}`,
+      title: overrides.title ?? `Event ${id}`,
+      description: overrides.description ?? `Description ${id}`,
+      address: overrides.address ?? null,
       date: overrides.date ?? new Date(Date.now() + 86400000),
       endDate: overrides.endDate ?? null,
       latitude: overrides.latitude ?? -25.4,
       longitude: overrides.longitude ?? -49.3,
-      category: overrides.category ?? 'Festa',
+      category: overrides.category ?? 'PARTY',
       isPublic: overrides.isPublic ?? true,
       isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
@@ -125,6 +142,8 @@ export async function makeReport(
   overrides: {
     eventId?: string
     commentId?: string
+    messageId?: string
+    targetUserId?: string
     reason?:
       | 'HATE_SPEECH'
       | 'SPAM_OR_FRAUD'
@@ -132,6 +151,9 @@ export async function makeReport(
       | 'INAPPROPRIATE_CONTENT'
       | 'OTHER'
     status?: 'PENDING' | 'REVIEWED' | 'RESOLVED_INVALID' | 'RESOLVED_REMOVED'
+    reviewerId?: string
+    resolutionNote?: string | null
+    resolvedAt?: Date | null
   } = {},
 ) {
   return testPrisma.report.create({
@@ -141,6 +163,11 @@ export async function makeReport(
       status: overrides.status ?? 'PENDING',
       eventId: overrides.eventId,
       commentId: overrides.commentId,
+      messageId: overrides.messageId,
+      targetUserId: overrides.targetUserId,
+      reviewerId: overrides.reviewerId,
+      resolutionNote: overrides.resolutionNote,
+      resolvedAt: overrides.resolvedAt,
     },
   })
 }
@@ -170,6 +197,25 @@ export async function makeComment(
 ) {
   return testPrisma.comment.create({
     data: { authorId, eventId, content },
+  })
+}
+
+export async function makePost(
+  authorId: string,
+  eventId: string,
+  overrides: { content?: string } = {},
+) {
+  return testPrisma.post.create({
+    data: { authorId, eventId, content: overrides.content ?? 'Post de teste' },
+  })
+}
+
+export async function makeUserCategoryPreference(
+  userId: string,
+  category: EventCategory,
+) {
+  return testPrisma.userCategoryPreference.create({
+    data: { userId, category },
   })
 }
 
@@ -235,5 +281,64 @@ export async function makeSubscription(
       canceledAt: overrides.canceledAt ?? null,
       lastSyncedAt: overrides.lastSyncedAt ?? now,
     },
+  })
+}
+
+/** Chave determinística do par DIRECT — deve casar com a do chat.repository. */
+export function directKeyFor(a: string, b: string) {
+  return [a, b].sort().join(':')
+}
+
+export async function makeDirectConversation(userAId: string, userBId: string) {
+  return testPrisma.conversation.create({
+    data: {
+      type: 'DIRECT',
+      createdById: userAId,
+      directKey: directKeyFor(userAId, userBId),
+      participants: {
+        create: [{ userId: userAId }, { userId: userBId }],
+      },
+    },
+  })
+}
+
+export async function makeGroupConversation(
+  createdById: string,
+  memberIds: string[] = [],
+  overrides: { title?: string } = {},
+) {
+  return testPrisma.conversation.create({
+    data: {
+      type: 'GROUP',
+      title: overrides.title ?? 'Grupo de teste',
+      createdById,
+      participants: {
+        create: [
+          { userId: createdById, role: 'ADMIN' },
+          ...memberIds.map((userId) => ({ userId })),
+        ],
+      },
+    },
+  })
+}
+
+export async function makeMessage(
+  conversationId: string,
+  senderId: string,
+  overrides: { content?: string | null; createdAt?: Date } = {},
+) {
+  return testPrisma.message.create({
+    data: {
+      conversationId,
+      senderId,
+      content: overrides.content === undefined ? 'Mensagem' : overrides.content,
+      ...(overrides.createdAt && { createdAt: overrides.createdAt }),
+    },
+  })
+}
+
+export async function makeBlock(blockerId: string, blockedId: string) {
+  return testPrisma.block.create({
+    data: { blockerId, blockedId },
   })
 }
