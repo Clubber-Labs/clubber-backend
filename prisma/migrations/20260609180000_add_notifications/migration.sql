@@ -44,7 +44,7 @@ CREATE INDEX "device_tokens_userId_idx" ON "device_tokens"("userId");
 CREATE INDEX "notifications_userId_readAt_createdAt_idx" ON "notifications"("userId", "readAt", "createdAt");
 
 -- CreateIndex
-CREATE INDEX "notifications_userId_createdAt_idx" ON "notifications"("userId", "createdAt");
+CREATE INDEX "notifications_userId_createdAt_id_idx" ON "notifications"("userId", "createdAt", "id");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "notifications_userId_dedupeKey_key" ON "notifications"("userId", "dedupeKey");

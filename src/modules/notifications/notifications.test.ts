@@ -291,6 +291,20 @@ describe('unread-count e read', () => {
 })
 
 describe('device tokens', () => {
+  it('retorna 401 sem autenticação', async () => {
+    const post = await app.inject({
+      method: 'POST',
+      url: '/devices',
+      body: { token: VALID_EXPO_TOKEN },
+    })
+    expect(post.statusCode).toBe(401)
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/devices/${encodeURIComponent(VALID_EXPO_TOKEN)}`,
+    })
+    expect(del.statusCode).toBe(401)
+  })
+
   it('registra um token Expo válido (201)', async () => {
     const user = await makeUser()
     const res = await app.inject({

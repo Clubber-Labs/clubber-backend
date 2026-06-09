@@ -129,6 +129,9 @@
 - [ ] **🟢 Upgrade do realtime do chat.** Pub/sub é fire-and-forget (sem replay, sem entrega offline garantida) e sem heartbeat/ping-pong no WebSocket. DB já é a fonte da verdade, então é refinamento.
   - Onde: [chat.gateway.ts](src/modules/chat/chat.gateway.ts), [lib/realtime.ts](src/lib/realtime.ts)
   - Ação (se necessário): Redis Streams + consumer groups; heartbeat no gateway.
+- [ ] **🟢 JWT fora da query string no WebSocket.** Os gateways autenticam via `?token=` na URL — o token vaza em access logs de proxy/nginx e no histórico do browser. Não é regressão (padrão herdado do chat), mas vale migrar.
+  - Onde: [chat.gateway.ts](src/modules/chat/chat.gateway.ts), [notifications.gateway.ts](src/modules/notifications/notifications.gateway.ts)
+  - Ação: autenticar via `Sec-WebSocket-Protocol` (subprotocolo) ou cookie HttpOnly, não na URL.
 - [ ] **🟢 Estratégia de soft-delete consistente.** Só `Message` tem `deletedAt`; o resto é hard-delete. Definir política (auditoria? recuperação?).
   - Onde: [prisma/schema.prisma](prisma/schema.prisma)
 - [ ] **🟢 Pre-commit hooks.** Sem husky/lint-staged → lint/format só pegam no CI.

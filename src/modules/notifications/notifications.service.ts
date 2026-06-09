@@ -1,5 +1,6 @@
 import type { Notification, NotificationType, Prisma } from '@prisma/client'
 import { Expo } from 'expo-server-sdk'
+import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
@@ -75,6 +76,9 @@ export function shapeNotification(n: Notification) {
 export async function dispatchSocial(
   input: SocialNotificationInput,
 ): Promise<void> {
+  // Master switch: feature desligada → nenhum despacho (in-app/foreground/push).
+  // Ponto único de controle — os gatilhos da entrega 3 não precisam checar o flag.
+  if (!env.NOTIFICATIONS_ENABLED) return
   try {
     const { recipientId, actorId } = input
     if (actorId && actorId === recipientId) return
@@ -184,5 +188,9 @@ export async function registerDevice(
 }
 
 export async function removeDevice(userId: string, token: string) {
+  // Idempotente por design: remover um token já ausente (ou de outro dono) é 204,
+  // não 404 — o objetivo do cliente é só garantir que o device pare de receber
+  // push. deleteDeviceToken filtra por (token, userId), então nunca apaga de
+  // terceiros (sem IDOR).
   await deleteDeviceToken(userId, token)
 }

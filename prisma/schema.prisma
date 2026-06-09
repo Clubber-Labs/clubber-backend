@@ -695,6 +695,8 @@ model Notification {
 
   @@unique([userId, dedupeKey])
   @@index([userId, readAt, createdAt])
-  @@index([userId, createdAt])
+  // Cobre o keyset (userId, createdAt DESC, id DESC): o `id` no índice evita
+  // heap scan no desempate de createdAt igual. Btree serve via scan reverso.
+  @@index([userId, createdAt, id])
   @@map("notifications")
 }
