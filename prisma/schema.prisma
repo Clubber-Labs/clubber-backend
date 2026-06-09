@@ -48,6 +48,13 @@ model User {
   birthdate      DateTime?
   lastSeenAt     DateTime?
 
+  // Localização grosseira (geohash) para notificações por proximidade. A coluna
+  // `location` geography é GERADA via SQL cru (ST_PointFromGeoHash), fora do
+  // schema — igual a events.location. notifyRadiusKm é o raio de interesse.
+  locationGeohash   String?
+  locationUpdatedAt DateTime?
+  notifyRadiusKm    Int       @default(10)
+
   // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
   // saiu de ACTIVE (vale tanto para desativação quanto para exclusão agendada).

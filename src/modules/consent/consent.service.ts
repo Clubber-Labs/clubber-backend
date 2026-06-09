@@ -1,3 +1,5 @@
+import { logger } from '../../lib/logger'
+import { clearUserLocation } from '../users/users.repository'
 import {
   createConsentWithAudit,
   createExportAuditLog,
@@ -37,6 +39,23 @@ function buildAuditEntries(
       from: prev ? ((prev[field] as boolean) ?? null) : null,
       to: to as boolean,
     }))
+}
+
+/**
+ * Revogar locationPrecise cessa o tratamento da localização. A query de
+ * proximidade já exclui quem não tem locationPrecise=true; aqui apagamos o dado
+ * armazenado (minimização). Best-effort: a falha não derruba o fluxo de consent
+ * (o reconciler de TTL é o backstop).
+ */
+async function clearLocationOnRevoke(userId: string) {
+  try {
+    await clearUserLocation(userId)
+  } catch (err) {
+    logger.warn(
+      { err, userId },
+      'falha ao limpar localização na revogação de consentimento',
+    )
+  }
 }
 
 export async function getConsent(userId: string) {
@@ -84,6 +103,12 @@ export async function updateConsent(
     }
   }
 
+  // Revogou localização precisa → limpa a localização (antes do early-return de
+  // "nada mudou", para cobrir estados inconsistentes).
+  if (body.locationPrecise === false) {
+    await clearLocationOnRevoke(userId)
+  }
+
   // #5: body vazio → busca atual e retorna pelo caminho normal (sem early return com objeto bruto)
   const changed = buildAuditEntries(existing as Record<string, unknown>, body)
   if (Object.keys(body).length === 0 || changed.length === 0) {
@@ -126,6 +151,7 @@ export async function revokeAllConsents(userId: string, meta: RequestMeta) {
     userAgent: meta.userAgent,
     consentVersion: existing.consentVersion,
   })
+  await clearLocationOnRevoke(userId)
 }
 
 export async function exportConsentData(userId: string, meta: RequestMeta) {

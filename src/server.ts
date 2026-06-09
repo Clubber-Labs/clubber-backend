@@ -38,6 +38,7 @@ import { featuredEventsRoutes } from './modules/featured-events/featured-events.
 import { feedRoutes } from './modules/feed/feed.routes'
 import { followsRoutes } from './modules/follows/follows.routes'
 import { healthRoutes } from './modules/health/health.routes'
+import { startLocationRetentionReconciler } from './modules/notifications/location-retention.reconciler'
 import { startNotificationRetentionReconciler } from './modules/notifications/notification-retention.reconciler'
 import { notificationsGateway } from './modules/notifications/notifications.gateway'
 import { notificationsRoutes } from './modules/notifications/notifications.routes'
@@ -191,6 +192,12 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
     startNotificationRetentionReconciler(
       env.NOTIFY_RETENTION_CLEANUP_INTERVAL_MS,
       env.NOTIFY_RETENTION_DAYS,
+    )
+  }
+  if (env.NODE_ENV !== 'test' && env.NOTIFY_LOCATION_CLEANUP_ENABLED) {
+    startLocationRetentionReconciler(
+      env.NOTIFY_LOCATION_CLEANUP_INTERVAL_MS,
+      env.NOTIFY_LOCATION_TTL_DAYS,
     )
   }
 })

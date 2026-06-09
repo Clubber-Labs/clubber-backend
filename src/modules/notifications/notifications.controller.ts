@@ -2,6 +2,8 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type {
   ListNotificationsQuery,
   RegisterDeviceBody,
+  UpdateLocationBody,
+  UpdateNotificationPrefsBody,
 } from './notifications.schema'
 import {
   getNotifications,
@@ -10,6 +12,8 @@ import {
   markRead,
   registerDevice,
   removeDevice,
+  setNotifyRadius,
+  setUserLocation,
 } from './notifications.service'
 
 export async function getNotificationsHandler(
@@ -66,4 +70,22 @@ export async function deleteDeviceHandler(
   const { token } = request.params as { token: string }
   await removeDevice(request.user.sub, token)
   return reply.status(204).send()
+}
+
+export async function updateLocationHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { geohash } = request.body as UpdateLocationBody
+  const result = await setUserLocation(request.user.sub, geohash)
+  return reply.send(result)
+}
+
+export async function updateNotificationPrefsHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { notifyRadiusKm } = request.body as UpdateNotificationPrefsBody
+  const result = await setNotifyRadius(request.user.sub, notifyRadiusKm)
+  return reply.send(result)
 }

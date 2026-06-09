@@ -4,6 +4,11 @@ import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
+import { hasConsent } from '../consent/consent.service'
+import {
+  updateNotifyRadius,
+  updateUserLocation,
+} from '../users/users.repository'
 import {
   deleteDeviceToken,
   registerDeviceToken,
@@ -279,4 +284,23 @@ export async function removeDevice(userId: string, token: string) {
   // push. deleteDeviceToken filtra por (token, userId), então nunca apaga de
   // terceiros (sem IDOR).
   await deleteDeviceToken(userId, token)
+}
+
+/**
+ * Grava a localização grosseira (geohash) do usuário. Gate de consentimento:
+ * exige locationPrecise — sem ele, 403 e nada é persistido (a coordenada nunca
+ * entra no banco). Reusa o hasConsent (que respeita revokedAt).
+ */
+export async function setUserLocation(userId: string, geohash: string) {
+  if (!(await hasConsent(userId, 'locationPrecise'))) {
+    throw {
+      statusCode: 403,
+      message: 'Consentimento de localização necessário',
+    }
+  }
+  return updateUserLocation(userId, geohash)
+}
+
+export async function setNotifyRadius(userId: string, radiusKm: number) {
+  return updateNotifyRadius(userId, radiusKm)
 }
