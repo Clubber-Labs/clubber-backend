@@ -16,18 +16,36 @@ export async function findActiveCodeByUser(userId: string) {
 }
 
 /**
- * Apaga os códigos não usados do usuário e cria o novo — atomicamente, para não
- * deixar o usuário sem código ativo se a criação falhar. Só um código ativo por vez.
+ * Cria um novo código para o usuário, a menos que já exista um código ativo
+ * criado há menos de `cooldownMs` — nesse caso retorna false (no-op). Apaga os
+ * códigos não usados antes de criar (só um código ativo por vez). Tudo dentro de
+ * um advisory lock por usuário (liberado no fim da transação), serializando
+ * requisições concorrentes do mesmo usuário: sem ele, dois requests poderiam
+ * passar a checagem de cooldown e criar dois códigos ativos. Mesmo padrão do
+ * lock de cota de mídia em chat.repository.
  */
-export async function replacePriorCodes(
+export async function createCodeIfNoneActive(
   userId: string,
   codeHash: string,
   expiresAt: Date,
-) {
-  return prisma.$transaction([
-    prisma.passwordResetCode.deleteMany({ where: { userId, usedAt: null } }),
-    prisma.passwordResetCode.create({ data: { userId, codeHash, expiresAt } }),
-  ])
+  cooldownMs: number,
+): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    // Chave de 64 bits do md5 do userId (hashtext seria int4 e colidiria à toa).
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(('x' || md5(${userId}))::bit(64)::bigint)`
+
+    const active = await tx.passwordResetCode.findFirst({
+      where: { userId, usedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (active && Date.now() - active.createdAt.getTime() < cooldownMs) {
+      return false
+    }
+
+    await tx.passwordResetCode.deleteMany({ where: { userId, usedAt: null } })
+    await tx.passwordResetCode.create({ data: { userId, codeHash, expiresAt } })
+    return true
+  })
 }
 
 export async function incrementAttempts(id: string) {

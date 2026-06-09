@@ -6,10 +6,10 @@ import { getMailer } from '../../lib/mailer'
 import { reactivateOnLogin } from '../users/users.repository'
 import {
   consumeCodeAndSetPassword,
+  createCodeIfNoneActive,
   findActiveCodeByUser,
   findUserByEmailForReset,
   incrementAttempts,
-  replacePriorCodes,
 } from './password-reset.repository'
 import type {
   ForgotPasswordBody,
@@ -44,23 +44,23 @@ export async function requestPasswordReset({ email }: ForgotPasswordBody) {
   // O controller responde 200 de qualquer forma.
   if (!user || user.accountStatus === 'ANONYMIZED') return
 
-  // Cooldown por conta: se já há um código ativo recém-criado, não gera/envia
-  // outro. Barra email bombing e impede contornar o teto de tentativas trocando
-  // de código à vontade (cada código novo zeraria o contador). O código vigente
-  // continua válido — o usuário deve usá-lo (ou esperar o cooldown).
-  const active = await findActiveCodeByUser(user.id)
-  if (active) {
-    const ageMs = Date.now() - active.createdAt.getTime()
-    if (ageMs < env.PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS * 1000) return
-  }
-
   const code = generateCode()
   const codeHash = await hash(code, 10)
   const expiresAt = new Date(
     Date.now() + env.PASSWORD_RESET_CODE_TTL_MINUTES * 60_000,
   )
 
-  await replacePriorCodes(user.id, codeHash, expiresAt)
+  // Cooldown por conta (decidido atomicamente sob advisory lock): se já há um
+  // código ativo recém-criado, não gera/envia outro. Barra email bombing e impede
+  // contornar o teto de tentativas trocando de código à vontade. Retorna false →
+  // não envia (o código vigente continua válido).
+  const created = await createCodeIfNoneActive(
+    user.id,
+    codeHash,
+    expiresAt,
+    env.PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS * 1000,
+  )
+  if (!created) return
 
   // Envio best-effort: uma falha transitória do provedor não pode quebrar o
   // contrato sempre-200/sem-enumeração. O usuário simplesmente pede de novo.

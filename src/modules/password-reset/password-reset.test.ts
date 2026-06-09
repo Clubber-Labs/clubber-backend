@@ -99,6 +99,19 @@ describe('POST /auth/forgot-password', () => {
     expect(codes).toHaveLength(1)
   })
 
+  it('requisições concorrentes não criam dois códigos ativos', async () => {
+    const user = await makeUser()
+
+    // Sem o advisory lock, ambas passariam a checagem de cooldown e criariam
+    // dois códigos ativos. O lock serializa por usuário → só um é criado.
+    await Promise.all([forgot(user.email), forgot(user.email)])
+
+    const active = await testPrisma.passwordResetCode.findMany({
+      where: { userId: user.id, usedAt: null },
+    })
+    expect(active).toHaveLength(1)
+  })
+
   it('invalida o código anterior ao gerar um novo após o cooldown', async () => {
     const user = await makeUser()
     await forgot(user.email)

@@ -126,6 +126,13 @@ const parsed = baseSchema
     message:
       "EMAIL_DRIVER='log' não é permitido em produção. Configure EMAIL_DRIVER=resend e RESEND_API_KEY.",
   })
+  // Boot falha em vez de silenciar todos os envios: sem a chave, o ResendMailer
+  // lança 502 a cada envio, que o requestPasswordReset engole (best-effort) e
+  // ninguém percebe que nenhum e-mail saiu.
+  .refine((v) => !(v.EMAIL_DRIVER === 'resend' && !v.RESEND_API_KEY), {
+    path: ['RESEND_API_KEY'],
+    message: "RESEND_API_KEY é obrigatório quando EMAIL_DRIVER='resend'.",
+  })
   .parse(process.env)
 
 const STORAGE_DRIVER: 'cloudinary' | 'local' =
