@@ -1,4 +1,7 @@
-import { notifyFromActor } from '../notifications/notifications.service'
+import {
+  clearFollowNotifications,
+  notifyFromActor,
+} from '../notifications/notifications.service'
 import { findUserById } from '../users/users.repository'
 import {
   acceptFollow,
@@ -67,7 +70,9 @@ export async function rejectFollowRequest(ownerId: string, followerId: string) {
   if (follow.status !== 'PENDING') {
     throw { statusCode: 409, message: 'Solicitação já foi processada' }
   }
-  return deleteFollow(followerId, ownerId)
+  const result = await deleteFollow(followerId, ownerId)
+  await clearFollowNotifications(followerId, ownerId)
+  return result
 }
 
 export async function removeFollower(ownerId: string, followerId: string) {
@@ -75,7 +80,9 @@ export async function removeFollower(ownerId: string, followerId: string) {
   if (!follow) {
     throw { statusCode: 404, message: 'Seguidor não encontrado' }
   }
-  return deleteFollow(followerId, ownerId)
+  const result = await deleteFollow(followerId, ownerId)
+  await clearFollowNotifications(followerId, ownerId)
+  return result
 }
 
 export async function unfollowUser(followerId: string, followingId: string) {
@@ -83,7 +90,9 @@ export async function unfollowUser(followerId: string, followingId: string) {
   if (!follow) {
     throw { statusCode: 404, message: 'Você não segue este usuário' }
   }
-  return deleteFollow(followerId, followingId)
+  const result = await deleteFollow(followerId, followingId)
+  await clearFollowNotifications(followerId, followingId)
+  return result
 }
 
 async function ensureCanViewFollowList(userId: string, requesterId: string) {

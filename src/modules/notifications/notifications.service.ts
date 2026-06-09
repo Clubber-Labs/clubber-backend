@@ -11,6 +11,7 @@ import {
 import {
   countUnreadNotifications,
   createNotificationIfNew,
+  deleteFollowNotifications,
   findActorSummary,
   listNotifications,
   markAllNotificationsRead,
@@ -42,12 +43,10 @@ export type SocialNotificationInput = {
  * (retry, duplo clique) colapsam na mesma notificação; gatilhos distintos (outro
  * comentário, outro evento) geram chaves diferentes.
  *
- * Trade-off conhecido para tipos SEM alvo distinto (NEW_FOLLOWER / FOLLOW_REQUEST):
- * a chave é só (tipo, actor, recipient), então unfollow→refollow NÃO re-notifica
- * enquanto a linha existir. É bounded pela retenção (a notificação some após
- * NOTIFY_RETENTION_DAYS e libera a chave) e funciona como anti-spam de
- * follow/unfollow. Re-notificação imediata exigiria a identidade do follow na
- * chave — issue de follow-up.
+ * Tipos SEM alvo distinto (NEW_FOLLOWER / FOLLOW_REQUEST / FOLLOW_ACCEPTED) têm
+ * chave só (tipo, actor, recipient). Para um refollow voltar a notificar, os
+ * fluxos de unfollow/rejeição/remoção chamam clearFollowNotifications, que apaga
+ * a notificação obsoleta e libera a chave (ver follows.service).
  */
 function buildDedupeKey(input: SocialNotificationInput): string {
   return [
@@ -176,6 +175,25 @@ export async function notifyFromActor(
     logger.warn(
       { err, type: input.type, recipientId: input.recipientId },
       'notifyFromActor falhou',
+    )
+  }
+}
+
+/**
+ * Limpa as notificações de um follow desfeito (chamado pelos fluxos de
+ * unfollow / rejeição / remoção). Best-effort: nunca quebra a ação principal.
+ * Remove a notificação obsoleta e libera o dedupe para um refollow re-notificar.
+ */
+export async function clearFollowNotifications(
+  followerId: string,
+  followingId: string,
+): Promise<void> {
+  try {
+    await deleteFollowNotifications(followerId, followingId)
+  } catch (err) {
+    logger.warn(
+      { err, followerId, followingId },
+      'clearFollowNotifications falhou',
     )
   }
 }

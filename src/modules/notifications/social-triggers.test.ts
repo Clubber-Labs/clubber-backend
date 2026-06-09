@@ -23,7 +23,12 @@ import {
   addCommentToPost,
 } from '../comments/comments.service'
 import { inviteToEvent } from '../event-invites/event-invites.service'
-import { approveFollowRequest, followUser } from '../follows/follows.service'
+import {
+  approveFollowRequest,
+  followUser,
+  rejectFollowRequest,
+  unfollowUser,
+} from '../follows/follows.service'
 import {
   likeComment,
   likeEvent,
@@ -81,6 +86,33 @@ describe('gatilhos de follow', () => {
     const n = await notifFor(requester.id, 'FOLLOW_ACCEPTED')
     expect(n).not.toBeNull()
     expect(n?.actorId).toBe(owner.id)
+  })
+
+  it('unfollow→refollow volta a notificar (limpa o dedupe)', async () => {
+    const [follower, target] = await Promise.all([
+      makeUser(),
+      makeUser({ isPrivate: false }),
+    ])
+    await followUser(follower.id, target.id)
+    expect(await notifFor(target.id, 'NEW_FOLLOWER')).not.toBeNull()
+
+    await unfollowUser(follower.id, target.id)
+    expect(await notifFor(target.id, 'NEW_FOLLOWER')).toBeNull() // limpou
+
+    await followUser(follower.id, target.id)
+    expect(await notifFor(target.id, 'NEW_FOLLOWER')).not.toBeNull() // re-notifica
+  })
+
+  it('rejeitar solicitação limpa a notificação FOLLOW_REQUEST', async () => {
+    const [requester, owner] = await Promise.all([
+      makeUser(),
+      makeUser({ isPrivate: true }),
+    ])
+    await followUser(requester.id, owner.id)
+    expect(await notifFor(owner.id, 'FOLLOW_REQUEST')).not.toBeNull()
+
+    await rejectFollowRequest(owner.id, requester.id)
+    expect(await notifFor(owner.id, 'FOLLOW_REQUEST')).toBeNull()
   })
 })
 
