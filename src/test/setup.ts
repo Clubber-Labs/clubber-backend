@@ -1,14 +1,17 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
 import { setMailer } from '../lib/mailer'
+import { setPushService } from '../lib/push'
 import { redis } from '../lib/redis'
 import { setStorage } from '../lib/storage'
 import { fakeMailer } from './fake-mailer'
+import { fakePush } from './fake-push'
 import { fakeStorage } from './fake-storage'
 import { testPrisma } from './prisma'
 
 beforeAll(() => {
   setStorage(fakeStorage)
   setMailer(fakeMailer)
+  setPushService(fakePush)
 })
 
 const dbUrl = process.env.DATABASE_URL ?? ''
@@ -54,6 +57,7 @@ afterEach(async () => {
   ])
   fakeStorage.reset()
   fakeMailer.reset()
+  fakePush.reset()
   if (redis) await redis.flushdb()
 })
 
