@@ -90,6 +90,11 @@ export async function listEvents(query: ListEventsQuery, viewerId?: string) {
   )
 
   let shared = await cache.get<SharedListResult>(cacheKey)
+  // Guarda de shape: entrada corrompida ou de versão antiga não pode virar
+  // TypeError no mergeViewerState — trata como miss e recomputa.
+  if (shared && !Array.isArray(shared.data)) {
+    shared = null
+  }
   if (!shared) {
     if (effectiveQuery.orderBy === 'distance') {
       const { events, nextCursor } = await findPublicEventsByDistance(

@@ -39,6 +39,9 @@ export const cache = {
       recordCacheHit(key)
       return JSON.parse(data) as T
     } catch (err) {
+      // Redis configurado mas indisponível/erro: degrada pro DB (retorna null)
+      // e conta como `unavailable` — não como miss, que poluiria o hit-rate.
+      recordCacheUnavailable(key)
       logCacheError('get', err)
       return null
     }
