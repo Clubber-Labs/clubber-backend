@@ -61,7 +61,8 @@ export type EventDistanceRow = { id: string; dist: number }
 // `events.id` é UUID no Postgres. Validar no decode evita "ERROR: invalid
 // input syntax for type uuid" virar 500 quando o cliente manda cursor
 // adulterado — o controller-level decode null → 400 "Cursor inválido".
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Filtros secundários aplicados DENTRO da SQL espacial (não depois, no Prisma).
@@ -357,6 +358,10 @@ export async function findEventIdsAtExactDistance(opts: {
   const conditions: Prisma.Sql[] = [
     visibilityPredicate(viewerId),
     spatialFiltersPredicate(filters),
+    // Bound indexável (GiST) pra não varrer a tabela inteira no drain. O 4º arg
+    // `false` (use_spheroid) é OBRIGATÓRIO: casa a esfera do `<->`; o default
+    // spheroid divergiria e excluiria linhas do empate exato (reintroduz skip).
+    Prisma.sql`ST_DWithin(e.location, ${point}, ${dist}, false)`,
     Prisma.sql`(e.location <-> ${point}) = ${dist}`,
     Prisma.sql`e.id NOT IN (${Prisma.join(excludeIds)})`,
   ]
