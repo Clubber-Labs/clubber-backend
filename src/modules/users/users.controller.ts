@@ -101,7 +101,7 @@ export async function deleteUserHandler(
       message: 'Você não tem permissão para deletar este usuário',
     }
   const body = (request.body ?? {}) as NonNullable<DeleteAccountBody>
-  const result = await scheduleAccountDeletion(id, body?.password)
+  const result = await scheduleAccountDeletion(id, body?.password, body?.reason)
   request.log.info(
     { userId: request.user.sub },
     'User scheduled their own account for deletion',

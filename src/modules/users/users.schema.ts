@@ -47,10 +47,12 @@ export const userIdParamSchema = z.object({
 export type UserIdParam = z.infer<typeof userIdParamSchema>
 
 // Exclusão de conta (soft-delete): reconfirmação de senha opcional — exigida no
-// service apenas quando a conta tem senha (contas social-only dispensam).
+// service apenas quando a conta tem senha (contas social-only dispensam) — e
+// motivo de saída opcional (analytics de churn), só neste fluxo de exclusão.
 export const deleteAccountBodySchema = z
   .object({
     password: z.string().optional(),
+    reason: z.string().trim().max(500).optional(),
   })
   .optional()
 

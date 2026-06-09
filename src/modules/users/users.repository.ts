@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import type { AccountLifecycleAction, Prisma } from '@prisma/client'
 import {
   activeUserWhere,
   DELETED_DISPLAY_LASTNAME,
@@ -231,6 +231,21 @@ export async function reactivateOnLogin(id: string) {
       deactivatedAt: null,
       scheduledDeletionAt: null,
     },
+  })
+}
+
+/**
+ * Registra um evento de ciclo de vida da conta (append-only). Hoje só o fluxo de
+ * exclusão grava (com o motivo de saída opcional); o modelo já comporta outras
+ * ações para evolução futura.
+ */
+export async function createAccountLifecycleLog(
+  userId: string,
+  action: AccountLifecycleAction,
+  reason?: string,
+) {
+  return prisma.accountLifecycleLog.create({
+    data: { userId, action, reason: reason ?? null },
   })
 }
 

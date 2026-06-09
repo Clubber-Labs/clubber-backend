@@ -1031,3 +1031,58 @@ describe('GET /users/me — hasPassword', () => {
     expect(res.json().hasPassword).toBe(false)
   })
 })
+
+describe('motivo de saída (só no fluxo de exclusão)', () => {
+  it('DELETE /users/:id registra o motivo em AccountLifecycleLog', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { password: 'senha123', reason: 'gasto muito tempo no app' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const logs = await testPrisma.accountLifecycleLog.findMany({
+      where: { userId: user.id },
+    })
+    expect(logs).toHaveLength(1)
+    expect(logs[0]).toMatchObject({
+      action: 'DELETION_SCHEDULED',
+      reason: 'gasto muito tempo no app',
+    })
+  })
+
+  it('DELETE /users/:id sem motivo grava log com reason null', async () => {
+    const user = await makeUser()
+
+    await app.inject({
+      method: 'DELETE',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { password: 'senha123' },
+    })
+
+    const logs = await testPrisma.accountLifecycleLog.findMany({
+      where: { userId: user.id },
+    })
+    expect(logs).toHaveLength(1)
+    expect(logs[0].reason).toBeNull()
+  })
+
+  it('desativar NÃO registra motivo (sem log)', async () => {
+    const user = await makeUser()
+
+    await app.inject({
+      method: 'POST',
+      url: '/users/me/deactivate',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    const logs = await testPrisma.accountLifecycleLog.findMany({
+      where: { userId: user.id },
+    })
+    expect(logs).toHaveLength(0)
+  })
+})

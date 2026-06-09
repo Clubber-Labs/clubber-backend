@@ -8,6 +8,7 @@ import {
 } from '../follows/follows.repository'
 import {
   anonymizeUserTx,
+  createAccountLifecycleLog,
   createUser,
   findAccountState,
   findAllUsers,
@@ -205,6 +206,7 @@ export async function deactivateAccount(userId: string) {
 export async function scheduleAccountDeletion(
   userId: string,
   password?: string,
+  reason?: string,
 ) {
   const state = await findAccountState(userId)
   if (!state || state.accountStatus === 'ANONYMIZED') {
@@ -236,7 +238,10 @@ export async function scheduleAccountDeletion(
   const scheduledDeletionAt = new Date(
     Date.now() + env.ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000,
   )
-  return setAccountPendingDeletion(userId, scheduledDeletionAt)
+  const updated = await setAccountPendingDeletion(userId, scheduledDeletionAt)
+  // Motivo de saída registrado SÓ no fluxo de exclusão (analytics de churn).
+  await createAccountLifecycleLog(userId, 'DELETION_SCHEDULED', reason)
+  return updated
 }
 
 /**
