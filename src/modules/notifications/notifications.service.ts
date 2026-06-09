@@ -302,5 +302,15 @@ export async function setUserLocation(userId: string, geohash: string) {
 }
 
 export async function setNotifyRadius(userId: string, radiusKm: number) {
+  // Invariante operacional: o raio do usuário (refino por linha) nunca pode
+  // passar do pré-filtro ST_DWithin (raio MÁXIMO constante). Enforçado aqui — se
+  // o teto baixar via env, raios acima dele param de ser aceitos (sem degradação
+  // silenciosa onde o ST_DWithin cortaria antes do refino).
+  if (radiusKm > env.NOTIFY_MAX_RADIUS_KM) {
+    throw {
+      statusCode: 400,
+      message: `Raio máximo permitido: ${env.NOTIFY_MAX_RADIUS_KM}km`,
+    }
+  }
   return updateNotifyRadius(userId, radiusKm)
 }

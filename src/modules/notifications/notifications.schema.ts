@@ -36,8 +36,10 @@ export const updateLocationSchema = z.object({
 export type UpdateLocationBody = z.infer<typeof updateLocationSchema>
 
 export const updateNotificationPrefsSchema = z.object({
-  // Raio de interesse. Máx = NOTIFY_MAX_RADIUS_KM (teto do pré-filtro indexável).
-  notifyRadiusKm: z.coerce.number().int().min(2).max(50),
+  // Raio de interesse (km). O teto (NOTIFY_MAX_RADIUS_KM, que é também a constante
+  // do pré-filtro indexável) é enforçado no service — fonte única do invariante
+  // notifyRadiusKm ≤ NOTIFY_MAX_RADIUS_KM, em vez de um literal que não acompanha o env.
+  notifyRadiusKm: z.coerce.number().int().min(2),
 })
 
 export type UpdateNotificationPrefsBody = z.infer<

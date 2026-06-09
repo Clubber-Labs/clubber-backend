@@ -141,6 +141,15 @@ describe('PATCH /users/me/location', () => {
 })
 
 describe('PATCH /users/me/notification-prefs', () => {
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/users/me/notification-prefs',
+      body: { notifyRadiusKm: 10 },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
   it('atualiza o raio de interesse', async () => {
     const user = await makeUser()
     const res = await app.inject({

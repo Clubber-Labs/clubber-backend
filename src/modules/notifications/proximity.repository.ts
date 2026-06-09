@@ -2,6 +2,11 @@ import { Prisma } from '@prisma/client'
 import type { EventCategory } from '../../lib/event-categories'
 import { prisma } from '../../lib/prisma'
 
+// NOTA DE LOCALIZAÇÃO: as queries de lib/spatial.ts são primitivas geométricas
+// reutilizáveis sobre EVENTOS (bbox/raio/KNN). Esta é uma query de DOMÍNIO de
+// notificação — o PostGIS é só um predicado entre joins de consentimento,
+// categoria e bloqueio. Fica no módulo de propósito (coesão), não em spatial.ts.
+
 // Over-notify: meia-diagonal da célula geohash precisão 6 (~0.7km). Somada ao
 // raio no refino, garante que nunca silenciamos quem está dentro — só falsos
 // positivos na borda (decisão de produto).
