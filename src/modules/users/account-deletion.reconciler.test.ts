@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  makeBlock,
   makeComment,
   makeEvent,
   makeFollow,
@@ -99,6 +100,28 @@ describe('reconcileAccountDeletions', () => {
       (await testPrisma.user.findUnique({ where: { id: deactivated.id } }))
         ?.accountStatus,
     ).toBe('DEACTIVATED')
+  })
+
+  it('remove bloqueios FEITOS pela conta anonimizada e mantém os CONTRA ela', async () => {
+    const user = await makeUser({
+      accountStatus: 'PENDING_DELETION',
+      scheduledDeletionAt: past(1000),
+    })
+    const blockedByUser = await makeUser()
+    const blockerOfUser = await makeUser()
+    await makeBlock(user.id, blockedByUser.id) // feito pelo usuário → remove
+    await makeBlock(blockerOfUser.id, user.id) // contra o usuário → mantém
+
+    await reconcileAccountDeletions()
+
+    const outgoing = await testPrisma.block.findMany({
+      where: { blockerId: user.id },
+    })
+    const incoming = await testPrisma.block.findMany({
+      where: { blockedId: user.id },
+    })
+    expect(outgoing).toHaveLength(0)
+    expect(incoming).toHaveLength(1)
   })
 
   it('decrementa o followersCount de quem a conta anonimizada seguia', async () => {

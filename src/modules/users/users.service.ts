@@ -12,7 +12,7 @@ import {
   createUser,
   findAccountState,
   findAllUsers,
-  findAnonymizationData,
+  findAnonymizationStorageKeys,
   findOwnUserById,
   findUserAvatarKey,
   findUserByEmail,
@@ -282,16 +282,13 @@ export async function anonymizeAccount(
   logger: Logger,
   now: Date = new Date(),
 ): Promise<boolean> {
-  const data = await findAnonymizationData(userId)
-  const anonymized = await anonymizeUserTx(
-    userId,
-    data.followingIds,
-    data.followerIds,
-    now,
-  )
+  // Chaves coletadas antes da tx (storage é externo/não-transacional). Os IDs de
+  // follow para decrementar contadores são coletados DENTRO da tx (sem corrida).
+  const storage = await findAnonymizationStorageKeys(userId)
+  const anonymized = await anonymizeUserTx(userId, now)
   if (!anonymized) return false
 
-  const keys = [data.avatarKey, ...data.eventImageKeys].filter(
+  const keys = [storage.avatarKey, ...storage.eventImageKeys].filter(
     (k): k is string => Boolean(k),
   )
   for (const key of keys) {

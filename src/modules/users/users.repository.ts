@@ -261,12 +261,12 @@ export async function findAccountsDueForAnonymization(now: Date) {
 }
 
 /**
- * Dados coletados ANTES da anonimização: chaves de storage a limpar (avatar +
- * imagens dos eventos do usuário) e os lados de follow ACCEPTED cujos contadores
- * de terceiros precisam ser decrementados.
+ * Chaves de storage a limpar na anonimização (avatar + imagens dos eventos do
+ * usuário). Coletadas ANTES da transação porque o storage é externo e
+ * não-transacional, e as linhas somem na transação.
  */
-export async function findAnonymizationData(userId: string) {
-  const [user, eventImages, following, followers] = await Promise.all([
+export async function findAnonymizationStorageKeys(userId: string) {
+  const [user, eventImages] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { avatarKey: true },
@@ -275,30 +275,21 @@ export async function findAnonymizationData(userId: string) {
       where: { event: { authorId: userId } },
       select: { key: true },
     }),
-    prisma.follow.findMany({
-      where: { followerId: userId, status: 'ACCEPTED' },
-      select: { followingId: true },
-    }),
-    prisma.follow.findMany({
-      where: { followingId: userId, status: 'ACCEPTED' },
-      select: { followerId: true },
-    }),
   ])
   return {
     avatarKey: user?.avatarKey ?? null,
     eventImageKeys: eventImages.map((i) => i.key),
-    followingIds: following.map((f) => f.followingId),
-    followerIds: followers.map((f) => f.followerId),
   }
 }
 
 /**
  * Anonimiza a conta numa transação (LGPD): sobrescreve PII com placeholders
  * únicos pelo id, remove conteúdo próprio standalone (eventos/posts e respectivos
- * cascades) e interações (reações/presenças/follows/social/consent), mantendo o
- * que vive em espaço alheio (comentários/mensagens) — que passa a exibir
- * "Usuário Excluído" pelo próprio registro. Decrementa os contadores de follow
- * dos terceiros afetados.
+ * cascades), interações (reações/presenças), vínculos sociais (follows, social
+ * accounts, bloqueios FEITOS pelo usuário) e consentimento — mantendo o que vive
+ * em espaço alheio (comentários/mensagens, e bloqueios CONTRA o usuário), que
+ * passa a exibir "Usuário Excluído" pelo próprio registro. Decrementa os
+ * contadores de follow dos terceiros afetados.
  *
  * Guard condicional ao status PENDING_DELETION: se um login reativou a conta na
  * corrida, o updateMany não casa (count 0) e nada é apagado — o login vence.
@@ -306,8 +297,6 @@ export async function findAnonymizationData(userId: string) {
  */
 export async function anonymizeUserTx(
   userId: string,
-  followingIds: string[],
-  followerIds: string[],
   now: Date = new Date(),
 ): Promise<boolean> {
   return prisma.$transaction(async (tx) => {
@@ -334,6 +323,22 @@ export async function anonymizeUserTx(
     })
     if (flagged.count === 0) return false
 
+    // Snapshot dos follows ACCEPTED DENTRO da transação (antes de apagar): evita
+    // a corrida de contadores que existiria se a coleta fosse feita fora da tx
+    // (follow criado/desfeito entre a coleta e o delete causaria contagem errada).
+    const [following, followers] = await Promise.all([
+      tx.follow.findMany({
+        where: { followerId: userId, status: 'ACCEPTED' },
+        select: { followingId: true },
+      }),
+      tx.follow.findMany({
+        where: { followingId: userId, status: 'ACCEPTED' },
+        select: { followerId: true },
+      }),
+    ])
+    const followingIds = following.map((f) => f.followingId)
+    const followerIds = followers.map((f) => f.followerId)
+
     // Conteúdo próprio standalone (cascateia filhos pelo evento/post).
     await tx.event.deleteMany({ where: { authorId: userId } })
     await tx.post.deleteMany({ where: { authorId: userId } })
@@ -341,9 +346,11 @@ export async function anonymizeUserTx(
     await tx.reaction.deleteMany({ where: { userId } })
     await tx.commentReaction.deleteMany({ where: { userId } })
     await tx.eventAttendance.deleteMany({ where: { userId } })
-    // Vínculos sociais e consentimento.
+    // Vínculos sociais e consentimento. Bloqueios FEITOS pelo usuário somem;
+    // bloqueios CONTRA ele ficam (listBlocks mostra "Usuário Excluído").
     await tx.socialAccount.deleteMany({ where: { userId } })
     await tx.userConsent.deleteMany({ where: { userId } })
+    await tx.block.deleteMany({ where: { blockerId: userId } })
     await tx.follow.deleteMany({
       where: { OR: [{ followerId: userId }, { followingId: userId }] },
     })

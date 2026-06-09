@@ -159,3 +159,19 @@ describe('visibilidade de contas inativas em blocks', () => {
     expect(ids).not.toContain(deactivated.id)
   })
 })
+
+describe('não bloquear contas inativas', () => {
+  it('POST /blocks contra conta desativada retorna 404', async () => {
+    const blocker = await makeUser()
+    const target = await makeUser({ accountStatus: 'DEACTIVATED' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/blocks',
+      headers: auth(blocker.id),
+      body: { userId: target.id },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+})

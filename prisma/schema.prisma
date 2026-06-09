@@ -48,7 +48,10 @@ model User {
   birthdate      DateTime?
   lastSeenAt     DateTime?
 
-  // Ciclo de vida da conta
+  // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
+  // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
+  // saiu de ACTIVE (vale tanto para desativação quanto para exclusão agendada).
+  // scheduledDeletionAt só existe em PENDING_DELETION. anonymizedAt em ANONYMIZED.
   accountStatus       AccountStatus @default(ACTIVE)
   deactivatedAt       DateTime?
   scheduledDeletionAt DateTime?

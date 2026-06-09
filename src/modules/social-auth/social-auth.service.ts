@@ -63,6 +63,12 @@ async function loadUserAndDecorate(userId: string) {
       message: 'Usuário não encontrado após autenticação social',
     }
   }
+  // Defesa em profundidade (simétrico ao getMe): conta anonimizada não loga.
+  // Inatingível na prática — a anonimização apaga as social accounts e troca o
+  // email por placeholder, então nem `existing` nem `linkable` resolvem aqui.
+  if (user.accountStatus === 'ANONYMIZED') {
+    throw { statusCode: 401, message: 'Sessão inválida' }
+  }
   // Espelha o shape de getMe: achata _count em eventsCount e expõe hasPassword
   // (derivado, sem vazar o hash) pra o cliente decidir o fluxo de exclusão.
   const { _count, password, ...rest } = user

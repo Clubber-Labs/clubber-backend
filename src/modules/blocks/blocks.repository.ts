@@ -1,4 +1,7 @@
-import { visibleAuthorWhere } from '../../lib/account-visibility'
+import {
+  activeUserWhere,
+  visibleAuthorWhere,
+} from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 const blockedUserSelect = {
@@ -9,9 +12,11 @@ const blockedUserSelect = {
   avatarUrl: true,
 } as const
 
+// Só conta ACTIVE pode ser alvo de bloqueio — não faz sentido bloquear conta
+// desativada/pendente/anonimizada (são invisíveis e não interagem).
 export async function userExists(id: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id },
+  const user = await prisma.user.findFirst({
+    where: { id, ...activeUserWhere() },
     select: { id: true },
   })
   return user !== null
