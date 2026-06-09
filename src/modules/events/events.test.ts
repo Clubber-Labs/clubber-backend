@@ -427,6 +427,7 @@ describe('GET /events', () => {
     })
 
     expect(res.statusCode).toBe(400)
+    expect(res.json().message).toContain('Raio muito amplo')
   })
 
   it('radiusKm: 1001 brutos mas filtro reduz para <1000 → 200 (cap conta o filtrado)', async () => {
@@ -946,6 +947,7 @@ describe('cache de GET /events', () => {
   })
 
   it('orderBy=distance: coords na mesma célula compartilham cache (snap ~110m)', async () => {
+    resetMetrics()
     const author = await makeUser()
     await makeEvent(author.id, { latitude: -25.4, longitude: -49.3 })
 
@@ -962,6 +964,13 @@ describe('cache de GET /events', () => {
       url: '/events?nearLat=-25.4004&nearLng=-49.2997&orderBy=distance',
     })
     expect(await redis.keys('v1:events:public:*')).toHaveLength(1)
+
+    // Prova o HIT (não só que a chave é a mesma): a 2ª request bateu no cache.
+    // Sem isso, um cache.get sempre-null passaria (miss + reescrita da mesma key).
+    const metrics = await app.inject({ method: 'GET', url: '/metrics' })
+    expect(metrics.body).toMatch(
+      /cache_hits_total\{namespace="events:public"\} 1/,
+    )
 
     // célula diferente → chave nova
     await app.inject({
