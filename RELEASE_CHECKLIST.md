@@ -72,6 +72,10 @@
   - Ação: definir um default global sensato e limites mais agressivos nas rotas de auth (login, social-auth) contra brute force.
 - [ ] **🟡 Limites de multipart.** Falta `maxFiles`/`maxFields` → DoS por muitos arquivos numa request.
   - Onde: [server.ts:83-87](src/server.ts#L83-L87)
+- [ ] **🟡 Ligar "Enhanced Security for Push Notifications" no Expo + setar `EXPO_ACCESS_TOKEN`.** Por padrão o Expo Push API aceita enviar push pra qualquer device só com o push token, **sem autenticação** — se um token vazar, dá pra spammar os usuários. Em produção (com push ligado), ligar a segurança reforçada no painel Expo e definir o `EXPO_ACCESS_TOKEN`, que o backend passa a enviar em cada request.
+  - Por quê: sem isso, qualquer um com o push token de um usuário consegue enviar notificação; com a segurança ligada mas **sem** o token no backend, os envios passam a **falhar**.
+  - Onde: gerar em expo.dev (Account Settings → Access Tokens) e ligar a opção em *projeto → settings*; consumido em [lib/push/expo-push.service.ts](src/lib/push/expo-push.service.ts) (`new Expo({ accessToken })`) via env `EXPO_ACCESS_TOKEN` ([lib/env.ts](src/lib/env.ts)).
+  - Escopo: só relevante quando `NOTIFICATIONS_ENABLED=true`. Em dev pode ficar vazio.
 
 ---
 
