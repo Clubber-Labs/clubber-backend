@@ -102,6 +102,15 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Notificações (push + in-app). Master switch da feature — OFF por padrão
+  // (opt-in). Quando ligada, a fila de fan-out e os gatilhos passam a publicar.
+  NOTIFICATIONS_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('false')
+    .transform((v) => v === 'true' || v === '1'),
+  // Token de acesso do projeto Expo (opcional). Necessário só se "Enhanced
+  // Security for Push Notifications" estiver ligado no painel Expo/EAS.
+  EXPO_ACCESS_TOKEN: z.string().optional(),
 })
 
 const cloudinarySchema = z.object({
@@ -133,6 +142,18 @@ const parsed = baseSchema
     path: ['RESEND_API_KEY'],
     message: "RESEND_API_KEY é obrigatório quando EMAIL_DRIVER='resend'.",
   })
+  // Boot falha em vez de silenciar o fan-out: a fila de notificações roda sobre
+  // o Redis. Sem REDIS_URL em produção com a feature ligada, todo enqueue seria
+  // no-op e ninguém notificaria — sem erro visível.
+  .refine(
+    (v) =>
+      !(v.NODE_ENV === 'production' && v.NOTIFICATIONS_ENABLED && !v.REDIS_URL),
+    {
+      path: ['REDIS_URL'],
+      message:
+        'REDIS_URL é obrigatório quando NOTIFICATIONS_ENABLED=true em produção (a fila de notificações precisa do Redis).',
+    },
+  )
   .parse(process.env)
 
 const STORAGE_DRIVER: 'cloudinary' | 'local' =
@@ -204,4 +225,6 @@ export const env = {
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
+  NOTIFICATIONS_ENABLED: parsed.NOTIFICATIONS_ENABLED,
+  EXPO_ACCESS_TOKEN: parsed.EXPO_ACCESS_TOKEN,
 } as const
