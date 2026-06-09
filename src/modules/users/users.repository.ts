@@ -1,4 +1,4 @@
-import type { AccountLifecycleAction, Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import {
   activeUserWhere,
   DELETED_DISPLAY_LASTNAME,
@@ -187,18 +187,35 @@ export async function setAccountDeactivated(id: string) {
   })
 }
 
+/**
+ * Agenda a exclusão e registra o log de churn na MESMA transação: a transição
+ * para PENDING_DELETION e o AccountLifecycleLog (com o motivo) são atômicos.
+ * Sem isso, uma falha no log após o update deixaria a conta agendada sem motivo
+ * registrado — e o guard de idempotência impediria o log num retry.
+ */
 export async function setAccountPendingDeletion(
   id: string,
   scheduledDeletionAt: Date,
+  reason?: string,
 ) {
-  return prisma.user.update({
-    where: { id },
-    data: {
-      accountStatus: 'PENDING_DELETION',
-      deactivatedAt: new Date(),
-      scheduledDeletionAt,
-    },
-    select: accountStateSelect,
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      data: {
+        accountStatus: 'PENDING_DELETION',
+        deactivatedAt: new Date(),
+        scheduledDeletionAt,
+      },
+      select: accountStateSelect,
+    })
+    await tx.accountLifecycleLog.create({
+      data: {
+        userId: id,
+        action: 'DELETION_SCHEDULED',
+        reason: reason ?? null,
+      },
+    })
+    return updated
   })
 }
 
@@ -231,21 +248,6 @@ export async function reactivateOnLogin(id: string) {
       deactivatedAt: null,
       scheduledDeletionAt: null,
     },
-  })
-}
-
-/**
- * Registra um evento de ciclo de vida da conta (append-only). Hoje só o fluxo de
- * exclusão grava (com o motivo de saída opcional); o modelo já comporta outras
- * ações para evolução futura.
- */
-export async function createAccountLifecycleLog(
-  userId: string,
-  action: AccountLifecycleAction,
-  reason?: string,
-) {
-  return prisma.accountLifecycleLog.create({
-    data: { userId, action, reason: reason ?? null },
   })
 }
 

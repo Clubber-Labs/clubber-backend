@@ -8,7 +8,6 @@ import {
 } from '../follows/follows.repository'
 import {
   anonymizeUserTx,
-  createAccountLifecycleLog,
   createUser,
   findAccountState,
   findAllUsers,
@@ -238,10 +237,8 @@ export async function scheduleAccountDeletion(
   const scheduledDeletionAt = new Date(
     Date.now() + env.ACCOUNT_DELETION_GRACE_DAYS * 24 * 60 * 60 * 1000,
   )
-  const updated = await setAccountPendingDeletion(userId, scheduledDeletionAt)
-  // Motivo de saída registrado SÓ no fluxo de exclusão (analytics de churn).
-  await createAccountLifecycleLog(userId, 'DELETION_SCHEDULED', reason)
-  return updated
+  // Transição + log de churn (com o motivo de saída) gravados atomicamente.
+  return setAccountPendingDeletion(userId, scheduledDeletionAt, reason)
 }
 
 /**

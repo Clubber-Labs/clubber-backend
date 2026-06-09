@@ -521,6 +521,8 @@ export async function findTopAttendancesByEvent(
       WHERE a."eventId" IN (${Prisma.join(eventIds)})
         AND a.type IN ('CONFIRMED', 'INTERESTED')
         -- Só participantes ativos entram no ranking (top-5 sem buracos).
+        -- Equivale ao activeUserWhere() (lib/account-visibility): aqui é raw SQL,
+        -- então o literal 'ACTIVE' é intencional — manter em sincronia com o enum.
         AND EXISTS (
           SELECT 1 FROM users uu
           WHERE uu.id = a."userId" AND uu."accountStatus" = 'ACTIVE'
