@@ -114,26 +114,44 @@ raio de 5 km do centro SP):
 | `ST_DWithin` → ids | Bitmap Index Scan em `events_location_idx` | **2,6 ms** |
 | `findMany` (id IN 737, ORDER BY date, LIMIT 21) | top-N heapsort | **4,6 ms** |
 
-As duas são ms-rápidas (índice usado, hidratação já limitada a `limit+1` pelo
-`take`). A inflação para 1,05 s **sob 100 VUs** é **contenção de pool**: o caminho
-`radiusKm` faz **dois round-trips sequenciais** (busca espacial → hidratação),
-segurando a conexão por mais tempo que o caminho `distance` (keyset de 1 query);
-com `connection_limit=20` × 100 VUs, isso enfileira.
+As duas SQL são ms-rápidas (índice usado, hidratação já limitada a `limit+1`).
+Mas o custo **por request** do caminho antigo era bem maior que isso: medindo a
+1 VU (sem concorrência, cache-miss) o `radiusKm` levava **74 ms** vs. **30 ms**
+do `distance`. O extra não está no banco — está em **buscar TODOS os ids do raio
+(737) → montar um `IN (...)` gigante → re-ordenar no Prisma**; sob 100 VUs essa
+sobrecarga por request amplifica pra 1,05 s p95.
 
 **Por que NÃO é a Fase 3 (enxugar payload):** o feed do app mobile **consome**
 `recentComments[0]`, `images[0]` e `author` no `EventCard` — cortar o payload
 quebraria a UI. A Fase 3 estava condicionada a "o mobile não consumir esses
 campos"; ele consome, então a Fase 3 fica **descartada**.
 
-**Fix de raiz (escopo separado):** unificar o caminho `radiusKm + orderBy=date`
-numa **única query keyset** (igual ao `findPublicEventsByDistance`, mas ordenando
-por data) — `ST_DWithin` + `ORDER BY date` + keyset + `LIMIT` num SQL só,
-devolvendo já os ~21 IDs da página pra hidratar. Elimina 1 round-trip (corta o
-tempo de posse da conexão pela metade) e o re-sort de 737 linhas. Em produção o
-impacto é **limitado**: requests `radiusKm` são cacheadas (hit-rate ~89,6%), só
-o cache-miss paga o caminho de 2 queries. Por isso fica como **otimização
-planejada**, não bloqueante — coerente com a ressalva de hardware (o número
-absoluto é de sandbox; o relativo, radius ≫ distance, é o que orienta).
+**Fix de raiz aplicado:** unificar o caminho `radiusKm + orderBy=date` numa
+**única query keyset** (`findEventIdsWithinRadiusPage`, espelhando o
+`findPublicEventsByDistance` mas ordenando por `(isFeatured, date, id)`):
+`ST_DWithin` + ordenação + keyset + `LIMIT` num SQL só, devolvendo já os ~21 IDs
+da página pra hidratar (em vez dos 737). O cap de abuso é preservado por um
+`count(*)` capado em `RADIUS_MAX_RESULTS+1` na mesma query; o cursor segue sendo
+o id da última linha (mesmo formato do feed por data).
+
+**Antes → depois (1 VU, cache-miss, back-to-back na mesma máquina — o `distance`
+serve de régua, ficou idêntico nas duas medições, ~30 ms):**
+
+| `radiusKm` cache-miss | Antigo (todos os ids + IN + re-sort) | Novo (keyset de página) |
+|---|---|---|
+| mediana | 74,2 ms | **41,9 ms** (−44%) |
+| p90 | 97 ms | **47,5 ms** (−51%) |
+| vs. `distance` | 2,47× | **1,36×** |
+
+O gap residual (1,36×) é estrutural: o `radiusKm` ordena por data (sort da set
+filtrada), enquanto o `distance` usa o índice GiST KNN pra ordenar sem sort.
+Eliminá-lo exigiria um índice composto inviável sobre o resultado espacial —
+fora de escopo. Em produção o cache (~89,6% hit) cobre a maioria das requests;
+só o cache-miss paga o caminho de banco, agora ~44% mais barato.
+
+> ⚠️ Comparação **a 1 VU** de propósito: os runs k6 a 100 VUs no sandbox variam
+> 2–3× entre execuções (carga do host), então só a razão *dentro* de um run vale.
+> A 1 VU back-to-back, com o `distance` de régua, isola o ganho do refactor.
 
 ### 1. Cache de grade (RNF05.2 + RNF01.4)
 
