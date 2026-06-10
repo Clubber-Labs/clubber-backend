@@ -1,4 +1,4 @@
-import type { Notification, NotificationType, Prisma } from '@prisma/client'
+import type { NotificationType, Prisma } from '@prisma/client'
 import { Expo } from 'expo-server-sdk'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
@@ -28,6 +28,12 @@ import {
   type SocialNotificationKind,
   socialNotificationContent,
 } from './notification-content'
+import { enqueuePush } from './notification-queue'
+import {
+  buildPushData,
+  notificationDedupeKey,
+  shapeNotification,
+} from './notification-shape'
 import type { ListNotificationsQuery } from './notifications.schema'
 
 export type SocialNotificationInput = {
@@ -43,41 +49,11 @@ export type SocialNotificationInput = {
   data?: Prisma.InputJsonValue
 }
 
-/**
- * Chave de dedupe determinística por (tipo + alvos). Dois gatilhos idênticos
- * (retry, duplo clique) colapsam na mesma notificação; gatilhos distintos (outro
- * comentário, outro evento) geram chaves diferentes.
- *
- * Tipos SEM alvo distinto (NEW_FOLLOWER / FOLLOW_REQUEST / FOLLOW_ACCEPTED) têm
- * chave só (tipo, actor, recipient). Para um refollow voltar a notificar, os
- * fluxos de unfollow/rejeição/remoção chamam clearFollowNotifications, que apaga
- * a notificação obsoleta e libera a chave (ver follows.service).
- */
+// dedupeKey de NEW_FOLLOWER/FOLLOW_REQUEST/FOLLOW_ACCEPTED é só (tipo, actor,
+// recipient); refollow volta a notificar porque unfollow/rejeição/remoção
+// chamam clearFollowNotifications, que libera a chave (ver follows.service).
 function buildDedupeKey(input: SocialNotificationInput): string {
-  return [
-    input.type,
-    input.actorId ?? '',
-    input.eventId ?? '',
-    input.postId ?? '',
-    input.commentId ?? '',
-  ].join(':')
-}
-
-/** Formato da notificação entregue ao cliente (sem userId/dedupeKey internos). */
-export function shapeNotification(n: Notification) {
-  return {
-    id: n.id,
-    type: n.type,
-    actorId: n.actorId,
-    eventId: n.eventId,
-    postId: n.postId,
-    commentId: n.commentId,
-    title: n.title,
-    body: n.body,
-    data: n.data,
-    readAt: n.readAt,
-    createdAt: n.createdAt,
-  }
+  return notificationDedupeKey(input)
 }
 
 /**
@@ -120,6 +96,17 @@ export async function dispatchSocial(
       recipientId,
       notification: shapeNotification(notification),
     })
+
+    // Push (canal do SO): só com consentimento de push. Enfileirado — não bloqueia
+    // a request; o worker envia via Expo (entrega 5). O data leva notificationId/
+    // type/ids para o deep-link e o mark-as-read no tap (contrato do mobile).
+    if (await hasConsent(recipientId, 'pushNotifications')) {
+      await enqueuePush(recipientId, {
+        title: notification.title,
+        body: notification.body,
+        data: buildPushData(notification),
+      })
+    }
   } catch (err) {
     logger.warn(
       { err, type: input.type, recipientId: input.recipientId },

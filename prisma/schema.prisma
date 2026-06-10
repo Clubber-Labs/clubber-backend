@@ -675,8 +675,27 @@ model DeviceToken {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  pushTickets PushTicket[]
+
   @@index([userId])
   @@map("device_tokens")
+}
+
+// Ticket de um push enviado ao Expo. O envio retorna só o ticket (recebido pelos
+// servidores do Expo, NÃO pelo device); o receipt — buscado ~15min depois — diz
+// se entregou. status=PENDING até o reconciler ler o receipt; DeviceNotRegistered
+// no receipt invalida o DeviceToken.
+model PushTicket {
+  id            String      @id @default(uuid())
+  deviceTokenId String
+  deviceToken   DeviceToken @relation(fields: [deviceTokenId], references: [id], onDelete: Cascade)
+  receiptId     String?
+  status        String      @default("PENDING")
+  error         String?
+  createdAt     DateTime    @default(now())
+
+  @@index([status, createdAt])
+  @@map("push_tickets")
 }
 
 // Notificação in-app (central + base do push). `dedupeKey` torna o fan-out

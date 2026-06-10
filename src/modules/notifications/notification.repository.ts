@@ -96,6 +96,46 @@ export async function notificationExists(userId: string, id: string) {
   return found !== null
 }
 
+/**
+ * Cria várias notificações de uma vez, pulando duplicatas (unique userId+dedupeKey).
+ * Base do fan-out de proximidade. Retorna quantas foram efetivamente criadas.
+ */
+export async function createManyNotifications(
+  inputs: CreateNotificationInput[],
+) {
+  if (inputs.length === 0) return 0
+  const result = await prisma.notification.createMany({
+    data: inputs,
+    skipDuplicates: true,
+  })
+  return result.count
+}
+
+/** Usuários (entre os passados) que JÁ têm EVENT_NEARBY deste evento. */
+export async function findExistingNearbyUserIds(
+  userIds: string[],
+  eventId: string,
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const rows = await prisma.notification.findMany({
+    where: { userId: { in: userIds }, type: 'EVENT_NEARBY', eventId },
+    select: { userId: true },
+  })
+  return new Set(rows.map((r) => r.userId))
+}
+
+/** Linhas completas das notificações de um evento para os usuários dados (foreground). */
+export async function findNotificationsForEvent(
+  userIds: string[],
+  eventId: string,
+  type: NotificationType,
+) {
+  if (userIds.length === 0) return []
+  return prisma.notification.findMany({
+    where: { userId: { in: userIds }, eventId, type },
+  })
+}
+
 /** Resumo do autor para montar a copy + payload da notificação (sem refetch no cliente). */
 export async function findActorSummary(userId: string) {
   return prisma.user.findUnique({

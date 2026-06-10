@@ -252,6 +252,26 @@ export async function findEventAccess(id: string) {
   })
 }
 
+/**
+ * Campos crus do evento para o fan-out de notificações de proximidade — sem o
+ * include pesado nem o filtro de autor visível do findEventById.
+ */
+export async function findEventForFanout(id: string) {
+  return prisma.event.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      title: true,
+      latitude: true,
+      longitude: true,
+      category: true,
+      authorId: true,
+      isPublic: true,
+      canceledAt: true,
+    },
+  })
+}
+
 export async function findEventById(
   id: string,
   now: Date = new Date(),

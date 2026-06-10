@@ -15,6 +15,7 @@ import { makeBlock, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { anonymizeUserTx } from '../users/users.repository'
 import { reconcileNotificationRetention } from './notification-retention.reconciler'
+import { buildPushData } from './notification-shape'
 import { dispatchSocial } from './notifications.service'
 
 let app: FastifyInstance
@@ -160,6 +161,64 @@ describe('dispatchSocial', () => {
     })
     expect(count).toBe(1)
     expect(publishSpy).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('buildPushData', () => {
+  it('inclui notificationId, type e os ids não-nulos, preservando o data persistido', async () => {
+    const user = await makeUser()
+    const n = await testPrisma.notification.create({
+      data: {
+        userId: user.id,
+        type: 'POST_COMMENT',
+        actorId: 'actor-1',
+        eventId: 'evt-1',
+        postId: 'post-1',
+        commentId: 'cmt-1',
+        title: 't',
+        body: 'b',
+        data: { actor: { id: 'actor-1', name: 'Fulano' } },
+        dedupeKey: `key-push-${Date.now()}`,
+      },
+    })
+
+    const data = buildPushData(n)
+
+    expect(data).toMatchObject({
+      notificationId: n.id,
+      type: 'POST_COMMENT',
+      actorId: 'actor-1',
+      eventId: 'evt-1',
+      postId: 'post-1',
+      commentId: 'cmt-1',
+      // data persistido preservado (compatibilidade com o parse atual do app)
+      actor: { id: 'actor-1', name: 'Fulano' },
+    })
+  })
+
+  it('omite ids nulos (não manda chaves vazias no payload)', async () => {
+    const user = await makeUser()
+    const n = await testPrisma.notification.create({
+      data: {
+        userId: user.id,
+        type: 'EVENT_NEARBY',
+        eventId: 'evt-2',
+        title: 't',
+        body: 'b',
+        dedupeKey: `key-push2-${Date.now()}`,
+      },
+    })
+
+    const data = buildPushData(n)
+
+    expect(data).toMatchObject({
+      notificationId: n.id,
+      type: 'EVENT_NEARBY',
+      eventId: 'evt-2',
+    })
+    expect(data).not.toHaveProperty('actorId')
+    expect(data).not.toHaveProperty('postId')
+    expect(data).not.toHaveProperty('commentId')
   })
 })
 

@@ -2,6 +2,7 @@ import { cache } from '../../lib/cache'
 import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
+import { enqueueEventCreated } from '../notifications/notification-queue'
 import {
   createEvent,
   createEventImage,
@@ -258,6 +259,8 @@ export async function addEvent(data: CreateEventBody, authorId: string) {
   const event = await createEvent({ ...data, authorId })
   if (data.isPublic === true) {
     await cache.invalidate('events:public:*')
+    // Fan-out de proximidade (best-effort, pós-commit): só eventos públicos.
+    await enqueueEventCreated(event.id)
   }
   return event
 }
