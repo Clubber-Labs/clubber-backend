@@ -162,6 +162,25 @@ describe('PATCH /users/me/notification-prefs', () => {
     expect(res.json().notifyRadiusKm).toBe(25)
   })
 
+  it('GET /users/me expõe o raio atual (o app lê após troca de device)', async () => {
+    const user = await makeUser()
+    const auth = { authorization: `Bearer ${token(user.id)}` }
+    await app.inject({
+      method: 'PATCH',
+      url: '/users/me/notification-prefs',
+      headers: auth,
+      body: { notifyRadiusKm: 30 },
+    })
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: auth,
+    })
+    expect(me.statusCode).toBe(200)
+    expect(me.json().notifyRadiusKm).toBe(30)
+  })
+
   it('rejeita raio fora dos limites (2–50)', async () => {
     const user = await makeUser()
     const auth = { authorization: `Bearer ${token(user.id)}` }

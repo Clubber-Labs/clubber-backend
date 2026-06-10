@@ -69,6 +69,8 @@ export async function addCommentToPost(
     recipientId: post.authorId,
     actorId: authorId,
     type: 'POST_COMMENT',
+    // eventId junto: post não tem tela própria no app — o deep-link abre o evento.
+    eventId: post.eventId,
     postId,
     commentId: comment.id,
   })

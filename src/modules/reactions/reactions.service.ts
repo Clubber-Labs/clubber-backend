@@ -36,6 +36,8 @@ export async function likePost(userId: string, postId: string) {
     recipientId: post.authorId,
     actorId: userId,
     type: 'POST_REACTION',
+    // eventId junto: o deep-link do app abre o evento que contém o post.
+    eventId: post.eventId,
     postId,
   })
   return reaction
@@ -51,6 +53,8 @@ export async function likeComment(userId: string, commentId: string) {
     recipientId: comment.authorId,
     actorId: userId,
     type: 'COMMENT_REACTION',
+    // eventId junto (já resolvido acima): o deep-link abre o evento do comentário.
+    eventId,
     commentId,
   })
   return reaction

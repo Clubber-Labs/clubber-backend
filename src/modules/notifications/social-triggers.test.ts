@@ -158,6 +158,8 @@ describe('gatilhos de comentário', () => {
     const n = await notifFor(author.id, 'POST_COMMENT')
     expect(n).not.toBeNull()
     expect(n?.postId).toBe(post.id)
+    // eventId junto: o deep-link do app abre o evento que contém o post.
+    expect(n?.eventId).toBe(event.id)
   })
 })
 
@@ -184,6 +186,7 @@ describe('gatilhos de reação', () => {
     expect(n).not.toBeNull()
     expect(n?.postId).toBe(post.id)
     expect(n?.actorId).toBe(liker.id)
+    expect(n?.eventId).toBe(event.id)
   })
 
   it('curtir comentário notifica o autor do comentário (COMMENT_REACTION)', async () => {
@@ -196,6 +199,7 @@ describe('gatilhos de reação', () => {
     const n = await notifFor(commentAuthor.id, 'COMMENT_REACTION')
     expect(n).not.toBeNull()
     expect(n?.commentId).toBe(comment.id)
+    expect(n?.eventId).toBe(event.id)
   })
 })
 
