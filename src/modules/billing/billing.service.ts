@@ -1,7 +1,7 @@
 import Stripe from 'stripe'
 import { env } from '../../lib/env'
 import { prisma } from '../../lib/prisma'
-import { stripe } from '../../lib/stripe'
+import { STRIPE_API_VERSION, stripe } from '../../lib/stripe'
 import {
   findActiveSubscriptionByUserId,
   hasAnyPreviousSubscription,
@@ -55,6 +55,42 @@ function assertAllowedRedirectUrl(
   }
 }
 
+/**
+ * Garante que o user tem um Stripe Customer vinculado, criando se preciso.
+ * idempotencyKey por userId protege contra race em requests concorrentes:
+ * Stripe retorna o MESMO Customer pra retries dentro de 24h. Sem isso,
+ * dois cliques simultâneos no botão "Subscribe" criavam 2 Customers,
+ * o segundo update do DB vencia, e webhook do pagamento do primeiro
+ * Customer não encontrava user → user pagava sem virar premium.
+ */
+async function ensureStripeCustomer(user: {
+  id: string
+  email: string
+  name: string
+  lastname: string
+  stripeCustomerId: string | null
+}): Promise<string> {
+  if (user.stripeCustomerId) return user.stripeCustomerId
+
+  try {
+    const customer = await stripe.customers.create(
+      {
+        email: user.email,
+        name: `${user.name} ${user.lastname}`.trim(),
+        metadata: { userId: user.id },
+      },
+      { idempotencyKey: `customer_${user.id}` },
+    )
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId: customer.id },
+    })
+    return customer.id
+  } catch (err) {
+    return wrapStripeError(err)
+  }
+}
+
 export async function createCheckoutSession(
   userId: string,
   overrides?: { successUrl?: string; cancelUrl?: string },
@@ -78,31 +114,7 @@ export async function createCheckoutSession(
     }
   }
 
-  let customerId = user.stripeCustomerId
-  if (!customerId) {
-    try {
-      // idempotencyKey por userId protege contra race em requests concorrentes:
-      // Stripe retorna o MESMO Customer pra retries dentro de 24h. Sem isso,
-      // dois cliques simultâneos no botão "Subscribe" criavam 2 Customers,
-      // o segundo update do DB vencia, e webhook do pagamento do primeiro
-      // Customer não encontrava user → user pagava sem virar premium.
-      const customer = await stripe.customers.create(
-        {
-          email: user.email,
-          name: `${user.name} ${user.lastname}`.trim(),
-          metadata: { userId: user.id },
-        },
-        { idempotencyKey: `customer_${user.id}` },
-      )
-      customerId = customer.id
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId },
-      })
-    } catch (err) {
-      wrapStripeError(err)
-    }
-  }
+  const customerId = await ensureStripeCustomer(user)
 
   // Mitigação trial abuse: só concede trial se user nunca assinou antes
   const alreadyHadSubscription = await hasAnyPreviousSubscription(userId)
@@ -198,6 +210,115 @@ export async function resumeSubscription(userId: string) {
     where: { id: sub.id },
     data: { cancelAtPeriodEnd: false },
   })
+}
+
+/**
+ * Fluxo PaymentSheet (mobile nativo): cria a Subscription com
+ * `payment_behavior: 'default_incomplete'` e devolve o client secret que o
+ * app usa pra confirmar o pagamento na PaymentSheet — sem browser.
+ *
+ * - Sem trial: a 1ª invoice nasce aberta e o secret vem de
+ *   `latest_invoice.confirmation_secret` (PaymentIntent da invoice).
+ * - Com trial: não há cobrança imediata; Stripe gera `pending_setup_intent`
+ *   pra coletar o cartão. `trial_settings.end_behavior.missing_payment_method:
+ *   'cancel'` garante que, se o user abandonar a sheet sem cadastrar cartão,
+ *   a assinatura cancela ao fim do trial (não vira PAST_DUE cobrando ninguém).
+ *
+ * A ativação do premium continua 100% via webhook (subscription.created/
+ * updated + invoice.payment_succeeded) — INCOMPLETE não conta como ativa,
+ * então abandonar a sheet sem pagar não dá acesso.
+ */
+export async function createSubscriptionIntent(userId: string) {
+  const user = await findUserOrThrow(userId)
+
+  const existingActive = await findActiveSubscriptionByUserId(userId)
+  if (existingActive) {
+    throw {
+      statusCode: 409,
+      message: 'Usuário já tem uma assinatura ativa',
+    }
+  }
+
+  const customerId = await ensureStripeCustomer(user)
+
+  // Mitigação trial abuse: só concede trial se user nunca assinou antes
+  const alreadyHadSubscription = await hasAnyPreviousSubscription(userId)
+  const trialDays = alreadyHadSubscription ? undefined : 7
+
+  // SDK 22+ não expõe `Stripe.Subscription` via namespace — inferir do client.
+  let subscription: Awaited<ReturnType<typeof stripe.subscriptions.create>>
+  try {
+    // Mesmo bucket de idempotência do checkout: bloqueia dupla submissão
+    // em sequência rápida, permite retentativa legítima após 1 minuto.
+    const minuteBucket = Math.floor(Date.now() / 60_000)
+    subscription = await stripe.subscriptions.create(
+      {
+        customer: customerId,
+        items: [{ price: env.STRIPE_PREMIUM_PRICE_ID, quantity: 1 }],
+        payment_behavior: 'default_incomplete',
+        // Cartão confirmado na sheet vira default da subscription —
+        // renovações futuras cobram dele sem passo extra.
+        payment_settings: { save_default_payment_method: 'on_subscription' },
+        ...(trialDays !== undefined && {
+          trial_period_days: trialDays,
+          trial_settings: {
+            end_behavior: { missing_payment_method: 'cancel' },
+          },
+        }),
+        metadata: { userId: user.id },
+        expand: ['latest_invoice.confirmation_secret', 'pending_setup_intent'],
+      },
+      { idempotencyKey: `subscribe_${user.id}_${minuteBucket}` },
+    )
+  } catch (err) {
+    return wrapStripeError(err)
+  }
+
+  const pendingSetupIntent =
+    typeof subscription.pending_setup_intent === 'object'
+      ? subscription.pending_setup_intent
+      : null
+  const latestInvoice =
+    typeof subscription.latest_invoice === 'object'
+      ? subscription.latest_invoice
+      : null
+
+  const intent = pendingSetupIntent
+    ? { type: 'setup' as const, secret: pendingSetupIntent.client_secret }
+    : {
+        type: 'payment' as const,
+        secret: latestInvoice?.confirmation_secret?.client_secret ?? null,
+      }
+
+  if (!intent.secret) {
+    // Payload inesperado (sem secret em nenhum dos dois caminhos) — não dá
+    // pra abrir a PaymentSheet. 502 orienta o app a tentar de novo.
+    throw {
+      statusCode: 502,
+      message:
+        'Gateway de pagamento indisponível, tente novamente em alguns instantes.',
+    }
+  }
+
+  try {
+    // Ephemeral key: credencial curta e escopada ao Customer que a
+    // PaymentSheet usa pra ler/salvar métodos de pagamento — nunca expomos
+    // a secret key ao app. Atrelada à versão de API do SDK nativo.
+    const ephemeralKey = await stripe.ephemeralKeys.create(
+      { customer: customerId },
+      { apiVersion: STRIPE_API_VERSION },
+    )
+
+    return {
+      subscriptionId: subscription.id,
+      clientSecret: intent.secret,
+      intentType: intent.type,
+      customerId,
+      ephemeralKey: ephemeralKey.secret,
+    }
+  } catch (err) {
+    return wrapStripeError(err)
+  }
 }
 
 export async function createSetupIntent(userId: string) {

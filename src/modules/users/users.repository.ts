@@ -32,6 +32,8 @@ const userPrivateProfileSelect = {
   phone: true,
   birthdate: true,
   role: true,
+  // Só no perfil próprio: o mobile usa pra gates de UI premium e paywall.
+  isPremium: true,
   accountStatus: true,
   deactivatedAt: true,
   scheduledDeletionAt: true,

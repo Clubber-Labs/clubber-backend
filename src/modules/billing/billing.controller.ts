@@ -4,6 +4,7 @@ import {
   cancelSubscription,
   createCheckoutSession,
   createSetupIntent,
+  createSubscriptionIntent,
   getSubscription,
   resumeSubscription,
 } from './billing.service'
@@ -16,6 +17,14 @@ export async function postCheckout(
   const body = request.body as CreateCheckoutBody
   const result = await createCheckoutSession(request.user.sub, body)
   return reply.status(200).send(result)
+}
+
+export async function postSubscribe(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const result = await createSubscriptionIntent(request.user.sub)
+  return reply.status(201).send(result)
 }
 
 export async function getSubscriptionHandler(

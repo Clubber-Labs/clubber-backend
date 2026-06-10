@@ -11,6 +11,7 @@ import {
   postCheckout,
   postPaymentMethod,
   postResume,
+  postSubscribe,
   postWebhook,
 } from './billing.controller'
 import { createCheckoutBodySchema } from './billing.schema'
@@ -35,6 +36,17 @@ export async function billingRoutes(app: FastifyInstance) {
       config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
     },
     postCheckout,
+  )
+
+  api.post(
+    '/billing/subscribe',
+    {
+      onRequest: [app.authenticate],
+      // Fluxo PaymentSheet (mobile): cria Subscription + ephemeral key —
+      // mesmas chamadas externas pagas do checkout, mesmo limite.
+      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+    },
+    postSubscribe,
   )
 
   api.get(

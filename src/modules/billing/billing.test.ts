@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import Stripe from 'stripe'
 import {
   afterAll,
   beforeAll,
@@ -26,6 +27,7 @@ import {
   cancelSubscription,
   createCheckoutSession,
   createSetupIntent,
+  createSubscriptionIntent,
   getSubscription,
   resumeSubscription,
 } from './billing.service'
@@ -36,11 +38,13 @@ import { processStripeWebhook } from './billing.webhook'
 // e webhook (webhooks.constructEvent). Repository não importa stripe, então o
 // mock global é inócuo pra ele.
 vi.mock('../../lib/stripe', () => ({
+  STRIPE_API_VERSION: '2026-05-27.dahlia',
   stripe: {
     customers: { create: vi.fn(), retrieve: vi.fn(), update: vi.fn() },
     checkout: { sessions: { create: vi.fn() } },
-    subscriptions: { update: vi.fn(), retrieve: vi.fn() },
+    subscriptions: { create: vi.fn(), update: vi.fn(), retrieve: vi.fn() },
     setupIntents: { create: vi.fn() },
+    ephemeralKeys: { create: vi.fn() },
     webhooks: { constructEvent: vi.fn() },
     errors: {
       StripeAPIError: class StripeAPIError extends Error {},
@@ -604,6 +608,143 @@ describe('service', () => {
           cancelUrl: 'http://localhost:3000/canceled',
         }),
       ).resolves.toBeDefined()
+    })
+  })
+
+  describe('createSubscriptionIntent (PaymentSheet)', () => {
+    // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+    function mockSubscriptionCreate(overrides: Record<string, any> = {}) {
+      vi.mocked(stripe.subscriptions.create).mockResolvedValue({
+        id: 'sub_ps_1',
+        pending_setup_intent: null,
+        latest_invoice: {
+          confirmation_secret: { client_secret: 'pi_secret_123' },
+        },
+        ...overrides,
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+      vi.mocked(stripe.ephemeralKeys.create).mockResolvedValue({
+        secret: 'ek_test_123',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+    }
+
+    it('sem trial: retorna client secret do PaymentIntent da 1ª invoice', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'CANCELED' })
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_ps',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+      mockSubscriptionCreate()
+
+      const result = await createSubscriptionIntent(user.id)
+
+      expect(result).toMatchObject({
+        subscriptionId: 'sub_ps_1',
+        clientSecret: 'pi_secret_123',
+        intentType: 'payment',
+        customerId: 'cus_ps',
+        ephemeralKey: 'ek_test_123',
+      })
+      // Sem trial (já teve subscription): não manda trial_period_days
+      const params = vi.mocked(stripe.subscriptions.create).mock.calls[0][0]
+      expect(params?.trial_period_days).toBeUndefined()
+      expect(params?.payment_behavior).toBe('default_incomplete')
+    })
+
+    it('com trial: usa pending_setup_intent e marca intentType=setup', async () => {
+      const user = await makeUser()
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_trial',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+      mockSubscriptionCreate({
+        pending_setup_intent: { client_secret: 'seti_secret_456' },
+        latest_invoice: null,
+      })
+
+      const result = await createSubscriptionIntent(user.id)
+
+      expect(result).toMatchObject({
+        clientSecret: 'seti_secret_456',
+        intentType: 'setup',
+      })
+      const params = vi.mocked(stripe.subscriptions.create).mock.calls[0][0]
+      expect(params?.trial_period_days).toBe(7)
+      // Abandono da sheet sem cartão: assinatura cancela ao fim do trial
+      expect(params?.trial_settings?.end_behavior?.missing_payment_method).toBe(
+        'cancel',
+      )
+    })
+
+    it('reusa Stripe Customer existente e cria ephemeral key pra ele', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_existing_ps' },
+      })
+      mockSubscriptionCreate()
+
+      await createSubscriptionIntent(user.id)
+
+      expect(stripe.customers.create).not.toHaveBeenCalled()
+      expect(stripe.ephemeralKeys.create).toHaveBeenCalledWith(
+        { customer: 'cus_existing_ps' },
+        expect.objectContaining({ apiVersion: expect.any(String) }),
+      )
+    })
+
+    it('lança 409 quando user já tem subscription ativa', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'ACTIVE' })
+
+      await expect(createSubscriptionIntent(user.id)).rejects.toMatchObject({
+        statusCode: 409,
+      })
+      expect(stripe.subscriptions.create).not.toHaveBeenCalled()
+    })
+
+    it('lança 404 quando user não existe', async () => {
+      await expect(
+        createSubscriptionIntent('00000000-0000-0000-0000-000000000000'),
+      ).rejects.toMatchObject({ statusCode: 404 })
+    })
+
+    it('lança 502 quando payload do Stripe não traz client secret algum', async () => {
+      const user = await makeUser()
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_x',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+      mockSubscriptionCreate({
+        pending_setup_intent: null,
+        latest_invoice: null,
+      })
+
+      await expect(createSubscriptionIntent(user.id)).rejects.toMatchObject({
+        statusCode: 502,
+      })
+    })
+
+    it('mapeia erro de rede do Stripe pra 502', async () => {
+      const user = await makeUser()
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_x',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+      // Classe REAL do pacote stripe: o instanceof do wrapStripeError compara
+      // com ela (o vi.mock cobre só o singleton lib/stripe, não o pacote).
+      vi.mocked(stripe.subscriptions.create).mockRejectedValue(
+        new Stripe.errors.StripeConnectionError({
+          message: 'socket hang up',
+          // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+        } as any),
+      )
+
+      await expect(createSubscriptionIntent(user.id)).rejects.toMatchObject({
+        statusCode: 502,
+      })
     })
   })
 
