@@ -50,13 +50,6 @@ export async function markEventProcessedTx(
   return tx.webhookEvent.create({ data })
 }
 
-export async function updateUserPremiumTx(
-  tx: TxClient,
-  { userId, isPremium }: { userId: string; isPremium: boolean },
-) {
-  return tx.user.update({ where: { id: userId }, data: { isPremium } })
-}
-
 /**
  * Recalcula User.isPremium baseado em TODAS as subscriptions do user.
  * Necessário porque o schema permite múltiplas subscriptions (histórico
@@ -77,16 +70,6 @@ export async function recalculateUserPremiumTx(tx: TxClient, userId: string) {
   return tx.user.update({
     where: { id: userId },
     data: { isPremium: activeCount > 0 },
-  })
-}
-
-export async function updateUserStripeCustomerIdTx(
-  tx: TxClient,
-  { userId, stripeCustomerId }: { userId: string; stripeCustomerId: string },
-) {
-  return tx.user.update({
-    where: { id: userId },
-    data: { stripeCustomerId },
   })
 }
 

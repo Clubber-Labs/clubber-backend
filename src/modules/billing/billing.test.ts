@@ -19,8 +19,6 @@ import {
   isEventProcessed,
   markEventProcessedTx,
   recalculateUserPremiumTx,
-  updateUserPremiumTx,
-  updateUserStripeCustomerIdTx,
   upsertSubscriptionTx,
 } from './billing.repository'
 import {
@@ -347,52 +345,6 @@ describe('repository', () => {
           })
         }),
       ).rejects.toMatchObject({ code: 'P2002' })
-    })
-  })
-
-  describe('updateUserPremiumTx', () => {
-    it('seta isPremium=true', async () => {
-      const user = await makeUser({ isPremium: false })
-
-      await testPrisma.$transaction(async (tx) => {
-        await updateUserPremiumTx(tx, { userId: user.id, isPremium: true })
-      })
-
-      const updated = await testPrisma.user.findUnique({
-        where: { id: user.id },
-      })
-      expect(updated?.isPremium).toBe(true)
-    })
-
-    it('seta isPremium=false', async () => {
-      const user = await makeUser({ isPremium: true })
-
-      await testPrisma.$transaction(async (tx) => {
-        await updateUserPremiumTx(tx, { userId: user.id, isPremium: false })
-      })
-
-      const updated = await testPrisma.user.findUnique({
-        where: { id: user.id },
-      })
-      expect(updated?.isPremium).toBe(false)
-    })
-  })
-
-  describe('updateUserStripeCustomerIdTx', () => {
-    it('associa stripeCustomerId ao user', async () => {
-      const user = await makeUser()
-
-      await testPrisma.$transaction(async (tx) => {
-        await updateUserStripeCustomerIdTx(tx, {
-          userId: user.id,
-          stripeCustomerId: 'cus_test_abc',
-        })
-      })
-
-      const updated = await testPrisma.user.findUnique({
-        where: { id: user.id },
-      })
-      expect(updated?.stripeCustomerId).toBe('cus_test_abc')
     })
   })
 
