@@ -198,29 +198,70 @@ export async function findEventIdsInBbox(
 }
 
 /**
- * IDs de eventos dentro do raio, JÁ filtrados (visibilidade + lifecycle +
- * categoria + data) no SQL. Cap em RADIUS_MAX_RESULTS sobre o conjunto
- * filtrado: se estourar, throw 400 instruindo a refinar (em vez de truncar
- * em silêncio e fingir que o usuário viu o conjunto inteiro).
+ * Página de IDs dentro do raio, JÁ filtrados (visibilidade + lifecycle +
+ * categoria + data) no SQL, ordenados por `(isFeatured DESC, date ASC, id ASC)`
+ * com paginação keyset — devolve só os `limit (+1)` IDs da página.
+ *
+ * Por que keyset em vez de "todos os IDs do raio": o caminho antigo buscava o
+ * conjunto inteiro (até o cap) e re-ordenava num `findMany IN (...)` gigante no
+ * Prisma; sob carga, transferir e re-ordenar centenas de IDs por request
+ * inflava o p95 do `radiusKm`. Aqui o trabalho por request espelha o caminho
+ * `distance` (keyset → hidrata só a página).
+ *
+ * Cap de abuso preservado: `total` é contado capado em `RADIUS_MAX_RESULTS + 1`
+ * (early-stop), e se o raio filtrado casa mais que `RADIUS_MAX_RESULTS` → 400
+ * (mesma mensagem do caminho antigo) em vez de paginar um conjunto absurdo.
+ *
+ * Cursor: o id da última linha da página (opaco, igual ao feed por data sem
+ * raio). Os campos `(isFeatured, date)` do keyset vêm de um lookup do próprio
+ * id no mesmo SQL (CTE `cur`) — sem round-trip extra e sem mudar o formato.
  */
-export async function findEventIdsWithinRadius(
-  center: LatLng,
-  radiusKm: number,
-  filters: SpatialFilters = {},
-  viewerId?: string,
-): Promise<string[]> {
+export async function findEventIdsWithinRadiusPage(opts: {
+  center: LatLng
+  radiusKm: number
+  limit: number
+  cursor?: string
+  filters?: SpatialFilters
+  viewerId?: string
+}): Promise<string[]> {
+  const { center, radiusKm, limit, cursor, filters = {}, viewerId } = opts
   const radiusMeters = radiusKm * 1000
   const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${center.longitude}, ${center.latitude}), 4326)::geography`
-  // Fetch cap+1 pra detectar "estourou" sem COUNT separado.
-  const rows = await prisma.$queryRaw<{ id: string }[]>(
+
+  const cursorCte =
+    cursor !== undefined
+      ? Prisma.sql`, cur AS (SELECT "isFeatured" AS f, date AS d FROM events WHERE id = ${cursor})`
+      : Prisma.empty
+  // Keyset da ordem (isFeatured DESC, date ASC, id ASC): "depois do cursor" é
+  // isFeatured menor, OU mesma feature e date maior, OU empate total e id maior.
+  const keyset =
+    cursor !== undefined
+      ? Prisma.sql`AND (
+          m."isFeatured" < (SELECT f FROM cur)
+          OR (m."isFeatured" = (SELECT f FROM cur) AND m.date > (SELECT d FROM cur))
+          OR (m."isFeatured" = (SELECT f FROM cur) AND m.date = (SELECT d FROM cur) AND m.id > ${cursor})
+        )`
+      : Prisma.empty
+
+  const rows = await prisma.$queryRaw<{ id: string; total: bigint }[]>(
     Prisma.sql`
-      SELECT e.id FROM events e      WHERE ${visibilityPredicate(viewerId)}
-        AND ${spatialFiltersPredicate(filters)}
-        AND ST_DWithin(e.location, ${point}, ${radiusMeters})
-      LIMIT ${RADIUS_MAX_RESULTS + 1}
+      WITH matched AS (
+        SELECT e.id, e."isFeatured", e.date
+        FROM events e
+        WHERE ${visibilityPredicate(viewerId)}
+          AND ${spatialFiltersPredicate(filters)}
+          AND ST_DWithin(e.location, ${point}, ${radiusMeters})
+      )${cursorCte}
+      SELECT m.id,
+        (SELECT count(*) FROM (SELECT 1 FROM matched LIMIT ${RADIUS_MAX_RESULTS + 1}) c) AS total
+      FROM matched m
+      WHERE TRUE ${keyset}
+      ORDER BY m."isFeatured" DESC, m.date ASC, m.id ASC
+      LIMIT ${limit + 1}
     `,
   )
-  if (rows.length > RADIUS_MAX_RESULTS) {
+
+  if (rows.length > 0 && Number(rows[0].total) > RADIUS_MAX_RESULTS) {
     throw {
       statusCode: 400,
       message: `Raio muito amplo: mais de ${RADIUS_MAX_RESULTS} eventos correspondem. Refine os filtros (categoria, data ou raio menor).`,

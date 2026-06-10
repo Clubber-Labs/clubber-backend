@@ -4,7 +4,7 @@ import { buildLifecycleWhere } from '../../lib/event-filters'
 import type { EventStatus } from '../../lib/event-lifecycle'
 import { resetMetrics } from '../../lib/metrics'
 import { redis as nullableRedis } from '../../lib/redis'
-import { findEventIdsWithinRadius } from '../../lib/spatial'
+import { findEventIdsWithinRadiusPage } from '../../lib/spatial'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
@@ -71,12 +71,14 @@ describe('paridade lifecycle: SQL (spatial) × Prisma (buildLifecycleWhere)', ()
 
     for (const status of statusVariants) {
       for (const includePast of [false, true]) {
-        // lado SQL (lifecycleSqlPredicate, via findEventIdsWithinRadius)
+        // lado SQL (lifecycleSqlPredicate, via findEventIdsWithinRadiusPage).
+        // limit alto: o teste compara o CONJUNTO de ids, não a paginação.
         const sqlIds = (
-          await findEventIdsWithinRadius(center, 100, {
-            status,
-            includePast,
-            now,
+          await findEventIdsWithinRadiusPage({
+            center,
+            radiusKm: 100,
+            limit: 1000,
+            filters: { status, includePast, now },
           })
         ).sort()
         // lado Prisma (buildLifecycleWhere)
@@ -463,6 +465,46 @@ describe('GET /events', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().data.length).toBe(2)
+  })
+
+  it('radiusKm: paginação keyset por (data, id), página 2 via cursor sem overlap', async () => {
+    const author = await makeUser()
+    // 5 eventos no mesmo ponto, datas crescentes (todos UPCOMING).
+    const base = Date.now() + 86_400_000
+    for (let i = 0; i < 5; i++) {
+      await makeEvent(author.id, {
+        latitude: -25.4,
+        longitude: -49.3,
+        isPublic: true,
+        date: new Date(base + i * 86_400_000),
+      })
+    }
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: '/events?nearLat=-25.4&nearLng=-49.3&radiusKm=5&limit=2',
+    })
+    expect(page1.statusCode).toBe(200)
+    const p1 = page1.json()
+    expect(p1.data).toHaveLength(2)
+    expect(p1.nextCursor).toBeTruthy()
+    const d1 = p1.data.map((e: { date: string }) => new Date(e.date).getTime())
+    expect(d1[0]).toBeLessThanOrEqual(d1[1]) // ordenado por data asc
+
+    const page2 = await app.inject({
+      method: 'GET',
+      url: `/events?nearLat=-25.4&nearLng=-49.3&radiusKm=5&limit=2&cursor=${encodeURIComponent(p1.nextCursor)}`,
+    })
+    expect(page2.statusCode).toBe(200)
+    const p2 = page2.json()
+    expect(p2.data).toHaveLength(2)
+
+    const ids1 = p1.data.map((e: { id: string }) => e.id)
+    const ids2 = p2.data.map((e: { id: string }) => e.id)
+    expect(ids2.some((id: string) => ids1.includes(id))).toBe(false) // sem overlap
+    // datas da página 2 ≥ última da página 1 (keyset avança, não recua)
+    const lastD1 = d1[d1.length - 1]
+    expect(new Date(p2.data[0].date).getTime()).toBeGreaterThanOrEqual(lastD1)
   })
 
   it('orderBy=distance: cursor inválido retorna 400', async () => {

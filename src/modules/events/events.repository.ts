@@ -22,7 +22,7 @@ import {
   findEventIdsByDistanceKeyset,
   findEventIdsByPopularityKeyset,
   findEventIdsInBbox,
-  findEventIdsWithinRadius,
+  findEventIdsWithinRadiusPage,
   type PopularityCursor,
 } from '../../lib/spatial'
 import {
@@ -154,17 +154,21 @@ export async function findPublicEvents(
   viewerId?: string,
   now: Date = new Date(),
 ): Promise<{ events: SharedEvent[]; nextCursor: string | null }> {
-  let spatialIdFilter: string[] | undefined
-
+  // Caminho radiusKm: keyset de 1 query devolve só os IDs da página (já
+  // ordenados por isFeatured/date/id e filtrados no SQL), depois hidrata só
+  // esses. Substitui o caminho de duas fases (todos os IDs do raio → findMany
+  // IN gigante + re-sort no Prisma), que sob carga inflava o p95 do radiusKm.
   if (
     filters.radiusKm !== undefined &&
     filters.nearLat !== undefined &&
     filters.nearLng !== undefined
   ) {
-    spatialIdFilter = await findEventIdsWithinRadius(
-      { latitude: filters.nearLat, longitude: filters.nearLng },
-      filters.radiusKm,
-      {
+    const ids = await findEventIdsWithinRadiusPage({
+      center: { latitude: filters.nearLat, longitude: filters.nearLng },
+      radiusKm: filters.radiusKm,
+      limit,
+      cursor,
+      filters: {
         category: filters.category,
         dateFrom: filters.dateFrom,
         dateTo: filters.dateTo,
@@ -173,14 +177,28 @@ export async function findPublicEvents(
         now,
       },
       viewerId,
-    )
-    if (spatialIdFilter.length === 0) return { events: [], nextCursor: null }
+    })
+    if (ids.length === 0) return { events: [], nextCursor: null }
+
+    const hasMore = ids.length > limit
+    const pageIds = hasMore ? ids.slice(0, limit) : ids
+    // Hidrata só a página, sem re-filtrar: o SQL do keyset já aplicou
+    // visibilidade/lifecycle/categoria/data (igual ao findPublicEventsByDistance).
+    const rows = (await prisma.event.findMany({
+      where: { id: { in: pageIds } },
+      include: buildSharedIncludes(),
+    })) as unknown as PrismaSharedEvent[]
+    const byId = new Map(rows.map((e) => [e.id, e]))
+    const events = pageIds
+      .map((id) => byId.get(id))
+      .filter((e): e is PrismaSharedEvent => e !== undefined)
+      .map((e) => normalizeShared(e, now))
+    const nextCursor = hasMore ? pageIds[pageIds.length - 1] : null
+    return { events, nextCursor }
   }
 
-  // Busca limit+1 pra saber se há próxima página: gerar nextCursor só
-  // porque vieram `limit` resultados produz cursor falso (próxima página
-  // vazia) quando o total é exatamente `limit`. Espelha os repos
-  // findPublicEventsByDistance e findPublicEventsByPopularity.
+  // Feed por data sem raio: Prisma cursor por id na ordem (isFeatured, date,
+  // id). Busca limit+1 pra saber se há próxima página sem gerar cursor falso.
   const rows = (await prisma.event.findMany({
     where: {
       AND: [
@@ -191,7 +209,6 @@ export async function findPublicEvents(
           status: filters.status,
           now,
         }),
-        ...(spatialIdFilter ? [{ id: { in: spatialIdFilter } }] : []),
         ...(filters.category && filters.category.length > 0
           ? [{ category: { in: filters.category } }]
           : []),
