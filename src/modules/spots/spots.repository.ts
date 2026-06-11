@@ -88,6 +88,25 @@ export async function findSpotDetail(id: string): Promise<SpotDetail | null> {
   return prisma.spot.findUnique({ where: { id }, select: spotDetailSelect })
 }
 
+/** Campos para o fan-out de notificação (proximidade na publicação + join). */
+export async function findSpotForFanout(id: string) {
+  return prisma.spot.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      title: true,
+      latitude: true,
+      longitude: true,
+      categories: true,
+      visibility: true,
+      creatorId: true,
+      conversationId: true,
+      canceledAt: true,
+      endsAt: true,
+    },
+  })
+}
+
 /** Campos mínimos para autorizar mutação (dono) e checar estado. */
 export async function findSpotForMutation(id: string) {
   return prisma.spot.findUnique({

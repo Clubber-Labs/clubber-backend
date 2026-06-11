@@ -4,11 +4,17 @@ import { logger } from '../../lib/logger'
 import { createQueue, createWorker } from '../../lib/queue'
 import { type PushContent, sendPushToUsers } from './notification-push.service'
 import { runEventCreatedFanout } from './proximity-fanout.service'
+import {
+  runSpotJoinedFanout,
+  runSpotPublishedFanout,
+} from './spot-fanout.service'
 
 const QUEUE_NAME = 'notifications'
 
 type NotificationJob =
   | { kind: 'event.created'; eventId: string }
+  | { kind: 'spot.published'; spotId: string }
+  | { kind: 'spot.joined'; spotId: string; joinerId: string }
   | { kind: 'notification.push'; userId: string; content: PushContent }
 
 let queue: Queue<NotificationJob> | null = null
@@ -50,6 +56,47 @@ export async function enqueueEventCreated(eventId: string): Promise<void> {
   }
 }
 
+/** Enfileira o fan-out de proximidade de um spot recém-publicado. Best-effort. */
+export async function enqueueSpotPublished(spotId: string): Promise<void> {
+  const q = getQueue()
+  if (!q) return
+  try {
+    await q.add(
+      'spot.published',
+      { kind: 'spot.published', spotId },
+      {
+        jobId: `spot.published:${spotId}`,
+        removeOnComplete: true,
+        removeOnFail: 200,
+      },
+    )
+  } catch (err) {
+    logger.warn({ err, spotId }, 'falha ao enfileirar spot.published')
+  }
+}
+
+/** Enfileira a notificação de entrada num spot (criador + membros). Best-effort. */
+export async function enqueueSpotJoined(
+  spotId: string,
+  joinerId: string,
+): Promise<void> {
+  const q = getQueue()
+  if (!q) return
+  try {
+    await q.add(
+      'spot.joined',
+      { kind: 'spot.joined', spotId, joinerId },
+      {
+        jobId: `spot.joined:${spotId}:${joinerId}`,
+        removeOnComplete: true,
+        removeOnFail: 200,
+      },
+    )
+  } catch (err) {
+    logger.warn({ err, spotId, joinerId }, 'falha ao enfileirar spot.joined')
+  }
+}
+
 /** Enfileira o envio de push de uma notificação (social). Best-effort. */
 export async function enqueuePush(
   userId: string,
@@ -82,6 +129,10 @@ export function startNotificationsWorker(): void {
     async (job: Job<NotificationJob>) => {
       if (job.data.kind === 'event.created') {
         await runEventCreatedFanout(job.data.eventId)
+      } else if (job.data.kind === 'spot.published') {
+        await runSpotPublishedFanout(job.data.spotId)
+      } else if (job.data.kind === 'spot.joined') {
+        await runSpotJoinedFanout(job.data.spotId, job.data.joinerId)
       } else if (job.data.kind === 'notification.push') {
         await sendPushToUsers([job.data.userId], job.data.content)
       }

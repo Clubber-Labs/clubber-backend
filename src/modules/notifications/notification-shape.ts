@@ -9,6 +9,7 @@ export function shapeNotification(n: Notification) {
     eventId: n.eventId,
     postId: n.postId,
     commentId: n.commentId,
+    spotId: n.spotId,
     title: n.title,
     body: n.body,
     data: n.data,
@@ -36,6 +37,7 @@ export function buildPushData(n: Notification): Record<string, unknown> {
     ...(n.eventId && { eventId: n.eventId }),
     ...(n.postId && { postId: n.postId }),
     ...(n.commentId && { commentId: n.commentId }),
+    ...(n.spotId && { spotId: n.spotId }),
   }
 }
 
@@ -51,6 +53,7 @@ export function notificationDedupeKey(parts: {
   eventId?: string | null
   postId?: string | null
   commentId?: string | null
+  spotId?: string | null
 }): string {
   return [
     parts.type,
@@ -58,5 +61,6 @@ export function notificationDedupeKey(parts: {
     parts.eventId ?? '',
     parts.postId ?? '',
     parts.commentId ?? '',
+    parts.spotId ?? '',
   ].join(':')
 }

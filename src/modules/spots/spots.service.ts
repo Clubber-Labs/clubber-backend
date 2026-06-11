@@ -13,6 +13,10 @@ import {
 import { findUserPreferredCategories } from '../feed/feed.repository'
 import { areMutualFollowers } from '../follows/follows.repository'
 import {
+  enqueueSpotJoined,
+  enqueueSpotPublished,
+} from '../notifications/notification-queue'
+import {
   cancelSpotById,
   consumeGenerationQuota,
   countActiveMembersByConversation,
@@ -72,6 +76,8 @@ export async function createSpot(creatorId: string, body: CreateSpotBody) {
     body,
     MAX_ACTIVE_SPOTS,
   )
+  // Fan-out de proximidade (SPOT_NEARBY), best-effort — não bloqueia a resposta.
+  await enqueueSpotPublished(spot.id)
   // Recém-criado: só o criador no grupo.
   return shapeSpot(spot, 1)
 }
@@ -144,6 +150,8 @@ export async function joinSpot(userId: string, id: string) {
   if (existing) return { conversationId: spot.conversationId, created: false }
 
   await reactivateParticipant(spot.conversationId, userId)
+  // Notifica criador + membros (SPOT_JOIN), best-effort.
+  await enqueueSpotJoined(id, userId)
   return { conversationId: spot.conversationId, created: true }
 }
 

@@ -655,6 +655,8 @@ model AccountLifecycleLog {
 
 enum NotificationType {
   EVENT_NEARBY
+  SPOT_NEARBY
+  SPOT_JOIN
   FOLLOW_REQUEST
   FOLLOW_ACCEPTED
   NEW_FOLLOWER
@@ -718,6 +720,7 @@ model Notification {
   eventId   String?
   postId    String?
   commentId String?
+  spotId    String?
   title     String
   body      String
   data      Json?

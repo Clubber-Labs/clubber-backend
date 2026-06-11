@@ -14,8 +14,12 @@ function displayName(actor: NotificationActor): string {
  * autor. Centraliza o texto num único lugar — os gatilhos só passam o tipo + ids.
  * EVENT_NEARBY (proximidade) tem conteúdo próprio na entrega 5 (sem autor).
  */
-/** Tipos sociais (com autor). EVENT_NEARBY é proximidade, sem autor — entrega 5. */
-export type SocialNotificationKind = Exclude<NotificationType, 'EVENT_NEARBY'>
+/** Tipos sociais (com autor). EVENT_NEARBY/SPOT_NEARBY/SPOT_JOIN têm conteúdo
+ * próprio no fan-out (proximidade/spot), fora deste switch. */
+export type SocialNotificationKind = Exclude<
+  NotificationType,
+  'EVENT_NEARBY' | 'SPOT_NEARBY' | 'SPOT_JOIN'
+>
 
 export function socialNotificationContent(
   type: SocialNotificationKind,

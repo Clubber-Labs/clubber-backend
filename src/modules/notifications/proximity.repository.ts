@@ -81,3 +81,66 @@ export async function findUsersToNotifyNearEvent(
   `)
   return rows.map((r) => r.id)
 }
+
+export type SpotProximityTarget = ProximityTarget & {
+  /** PUBLIC notifica qualquer um perto; FRIENDS só follow mútuo do criador. */
+  visibility: 'PUBLIC' | 'FRIENDS'
+}
+
+/**
+ * Versão de spot da query invertida: igual ao evento (proximidade + categoria
+ * preferida + consentimento + bloqueio), MAIS o filtro de visibilidade — spot
+ * FRIENDS só alcança quem segue mutuamente o criador. `authorId` = criador.
+ */
+export async function findUsersToNotifyNearSpot(
+  target: SpotProximityTarget,
+  scan: ProximityScan,
+): Promise<string[]> {
+  const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${target.longitude}, ${target.latitude}), 4326)::geography`
+  const cursor = scan.cursorId
+    ? Prisma.sql`AND u.id > ${scan.cursorId}`
+    : Prisma.empty
+  const visibility =
+    target.visibility === 'FRIENDS'
+      ? Prisma.sql`AND EXISTS (
+          SELECT 1 FROM follows f1
+          JOIN follows f2
+            ON f2."followerId" = u.id
+           AND f2."followingId" = ${target.authorId}
+           AND f2.status = 'ACCEPTED'
+          WHERE f1."followerId" = ${target.authorId}
+            AND f1."followingId" = u.id
+            AND f1.status = 'ACCEPTED'
+        )`
+      : Prisma.empty
+
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT u.id
+    FROM users u
+    JOIN user_consents c ON c."userId" = u.id
+    WHERE u.location IS NOT NULL
+      AND ST_DWithin(u.location, ${point}, ${scan.maxRadiusKm * 1000})
+      AND ST_Distance(u.location, ${point}) <= u."notifyRadiusKm" * 1000 + ${CELL_HALF_DIAGONAL_M}
+      AND u."locationUpdatedAt" > now() - (${scan.ttlDays} * interval '1 day')
+      AND u."accountStatus" = 'ACTIVE'
+      AND u.id <> ${target.authorId}
+      AND c."revokedAt" IS NULL
+      AND c."pushNotifications" = true
+      AND c."locationPrecise" = true
+      AND EXISTS (
+        SELECT 1 FROM user_category_preferences ucp
+        WHERE ucp."userId" = u.id
+          AND ucp.category::text = ANY(${target.categories})
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM blocks b
+        WHERE (b."blockerId" = u.id AND b."blockedId" = ${target.authorId})
+           OR (b."blockerId" = ${target.authorId} AND b."blockedId" = u.id)
+      )
+      ${visibility}
+      ${cursor}
+    ORDER BY u.id
+    LIMIT ${scan.limit}
+  `)
+  return rows.map((r) => r.id)
+}
