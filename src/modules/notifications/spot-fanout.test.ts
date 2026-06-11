@@ -9,7 +9,13 @@ import {
   vi,
 } from 'vitest'
 import { realtime } from '../../lib/realtime'
-import { makeBlock, makeFollow, makeSpot, makeUser } from '../../test/factories'
+import {
+  makeBlock,
+  makeFollow,
+  makeSpot,
+  makeSpotDiscoveryUsage,
+  makeUser,
+} from '../../test/factories'
 import { fakePush } from '../../test/fake-push'
 import { testPrisma } from '../../test/prisma'
 import {
@@ -196,21 +202,24 @@ describe('alcance premium (descoberta)', () => {
     ).toBeNull()
   })
 
-  it('respeita o cap diário de descoberta por destinatário', async () => {
+  it('cap bloqueia SÓ a descoberta, não a audiência que prefere', async () => {
     const creator = await makeUser({ isPremium: true })
-    const user = await makeNearbyUser('SPORTS') // descoberta (spot é MUSIC)
-    // Usuário já no teto de descoberta de hoje (cap = 5).
-    await testPrisma.$executeRaw`
-      INSERT INTO spot_discovery_usage ("userId", "day", "count", "updatedAt")
-      VALUES (${user.id}, CURRENT_DATE, 5, now())`
-    const spot = await makeNearbySpot(creator.id)
+    const matched = await makeNearbyUser('MUSIC') // prefere → notificado
+    const capped = await makeNearbyUser('SPORTS') // descoberta, no teto
+    await makeSpotDiscoveryUsage(capped.id, 5) // cap = 5
+    const spot = await makeNearbySpot(creator.id) // MUSIC
 
     const { notified } = await runSpotPublishedFanout(spot.id)
 
-    expect(notified).toBe(0)
+    expect(notified).toBe(1) // só a audiência que prefere
     expect(
       await testPrisma.notification.findFirst({
-        where: { userId: user.id, type: 'SPOT_NEARBY' },
+        where: { userId: matched.id, type: 'SPOT_NEARBY' },
+      }),
+    ).not.toBeNull()
+    expect(
+      await testPrisma.notification.findFirst({
+        where: { userId: capped.id, type: 'SPOT_NEARBY' },
       }),
     ).toBeNull()
   })

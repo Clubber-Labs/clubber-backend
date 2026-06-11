@@ -223,6 +223,13 @@ export async function makeUserCategoryPreference(
   })
 }
 
+/** Pré-popula o cap de descoberta do dia (CURRENT_DATE) — para testar o teto. */
+export async function makeSpotDiscoveryUsage(userId: string, count: number) {
+  return testPrisma.$executeRaw`
+    INSERT INTO "spot_discovery_usage" ("userId", "day", "count", "updatedAt")
+    VALUES (${userId}, CURRENT_DATE, ${count}, now())`
+}
+
 export async function makeFeaturedEvent(
   eventId: string,
   createdBy: string,

@@ -3,10 +3,7 @@ import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { findActiveParticipantUserIds } from '../chat/chat.repository'
-import {
-  consumeDiscoveryBudgetBatch,
-  findSpotForFanout,
-} from '../spots/spots.repository'
+import { findSpotForFanout } from '../spots/spots.repository'
 import {
   createManyNotifications,
   findActorSummary,
@@ -20,6 +17,7 @@ import {
   shapeNotification,
 } from './notification-shape'
 import { findUsersToNotifyNearSpot } from './proximity.repository'
+import { consumeDiscoveryBudgetBatch } from './spot-fanout.repository'
 
 type CreatedNotification = Awaited<
   ReturnType<typeof findNotificationsByDedupeKey>
