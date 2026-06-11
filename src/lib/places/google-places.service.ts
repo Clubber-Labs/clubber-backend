@@ -76,7 +76,12 @@ export class GooglePlacesService implements IPlacesClient {
       }
     }
 
-    const data = (await res.json()) as { places?: GooglePlace[] }
+    let data: { places?: GooglePlace[] }
+    try {
+      data = (await res.json()) as { places?: GooglePlace[] }
+    } catch {
+      throw { statusCode: 502, message: 'Resposta inválida do Places' }
+    }
     return (data.places ?? []).map((p) => ({
       placeId: p.id,
       name: p.displayName?.text ?? 'Local',

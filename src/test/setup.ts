@@ -4,6 +4,8 @@ import { setPlacesClient } from '../lib/places'
 import { setPushService } from '../lib/push'
 import { redis } from '../lib/redis'
 import { setStorage } from '../lib/storage'
+import { setSuggestionEnhancer } from '../lib/suggestion-ai'
+import { fakeEnhancer } from './fake-enhancer'
 import { fakeMailer } from './fake-mailer'
 import { fakePlaces } from './fake-places'
 import { fakePush } from './fake-push'
@@ -15,6 +17,7 @@ beforeAll(() => {
   setMailer(fakeMailer)
   setPushService(fakePush)
   setPlacesClient(fakePlaces)
+  setSuggestionEnhancer(fakeEnhancer)
 })
 
 const dbUrl = process.env.DATABASE_URL ?? ''
@@ -65,6 +68,7 @@ afterEach(async () => {
   fakeMailer.reset()
   fakePush.reset()
   fakePlaces.reset()
+  fakeEnhancer.reset()
   if (redis) await redis.flushdb()
 })
 

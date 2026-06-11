@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import { makeUser, makeUserCategoryPreference } from '../../test/factories'
+import { fakeEnhancer } from '../../test/fake-enhancer'
 import { fakePlaces } from '../../test/fake-places'
 import { testPrisma } from '../../test/prisma'
 
@@ -46,19 +47,43 @@ describe('POST /spots/suggestions', () => {
         (s: { category: string }) => s.category === 'PARTY',
       ),
     ).toBe(true)
+    // A camada de IA escreveu a copy de cada candidato.
+    expect(body.suggestions[0].suggestedTitle).toMatch(/^IA:/)
     expect(body.remaining).toBe(4) // 5 free - 1
     expect(fakePlaces.calls).toBe(1)
   })
 
-  it('segunda chamada na mesma região vem do cache (não re-chama o Places)', async () => {
+  it('a IA ranqueia (reordena) e escreve a copy dos candidatos', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    await makeUserCategoryPreference(user.id, 'MUSIC')
+
+    const res = await suggest(user.id)
+    const { suggestions } = res.json()
+
+    expect(suggestions).toHaveLength(2)
+    // O fake enhancer inverte a ordem do Places: prova que o service usa o
+    // ranqueamento da IA, não a ordem crua do Places.
+    expect(suggestions[0].category).toBe('PARTY')
+    expect(suggestions[1].category).toBe('MUSIC')
+    // E a copy veio da IA em todos.
+    expect(
+      suggestions.every((s: { suggestedTitle: string }) =>
+        s.suggestedTitle.startsWith('IA:'),
+      ),
+    ).toBe(true)
+  })
+
+  it('segunda chamada na mesma região vem do cache (não re-chama Places nem IA)', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')
 
     await suggest(user.id)
     await suggest(user.id)
 
-    // Places chamado uma vez só; a 2ª veio do cache (mas consumiu quota).
+    // Resultado enriquecido é cacheado junto: Places E IA rodam uma vez só.
     expect(fakePlaces.calls).toBe(1)
+    expect(fakeEnhancer.calls).toBe(1)
   })
 
   it('respeita a quota diária do usuário free (6ª geração → 429)', async () => {
