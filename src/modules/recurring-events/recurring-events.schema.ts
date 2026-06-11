@@ -1,4 +1,27 @@
+import type { EventCategory, RecurrenceFrequency } from '@prisma/client'
 import { z } from 'zod'
+
+// Conteúdo replicado em cada ocorrência (sem date/endDate, que variam). Types
+// compartilhados entre camadas moram no schema (convenção do projeto).
+export type OccurrenceContent = {
+  title: string
+  description: string | null
+  latitude: number
+  longitude: number
+  address: string | null
+  category: EventCategory
+  isPublic: boolean
+  maxCapacity: number | null
+  authorId: string
+}
+
+export type SeriesRule = {
+  frequency: RecurrenceFrequency
+  interval: number
+  until: Date | null
+  count: number | null
+  authorId: string
+}
 
 // Regra de recorrência aninhada no corpo de POST /events. A validação
 // cruzada com a data do evento (until ≤ date + 1 ano) mora no createEventSchema,

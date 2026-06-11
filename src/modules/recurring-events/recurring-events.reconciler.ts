@@ -3,24 +3,46 @@ import { logger } from '../../lib/logger'
 import { buildOccurrenceDates, RECURRENCE_MAX_OCCURRENCES } from './recurrence'
 import {
   appendOccurrences,
-  findLatestOccurrenceContent,
   findReplenishableSeries,
-  getSeriesOccurrenceBounds,
+  getSeriesOccurrenceBoundsBatch,
 } from './recurring-events.repository'
+import type { OccurrenceContent } from './recurring-events.schema'
 
 const reconcilerLog = logger.child({ component: 'recurring-events-reconciler' })
 
-// Repõe ocorrências futuras das séries rolling até o horizonte mover. Cada
-// nova ocorrência é clonada da mais recente (edição propaga — documentado).
-// `now` é injetável para testes determinísticos.
+type OccurrenceRow = OccurrenceContent & {
+  seriesId: string
+  date: Date
+  endDate: Date | null
+}
+
+// Repõe ocorrências futuras das séries rolling até o horizonte mover. Clona do
+// TEMPLATE DA SÉRIE (não da última ocorrência), então editar uma ocorrência
+// individual não propaga para as geradas. Faz 3 queries no total
+// (séries + bounds em lote + um createMany), sem N+1. `now` é injetável.
 export async function reconcileRecurringSeries(now = new Date()) {
   const series = await findReplenishableSeries(now)
-  let created = 0
+  if (series.length === 0) return { created: 0 }
+
+  const boundsMap = await getSeriesOccurrenceBoundsBatch(
+    series.map((s) => s.id),
+  )
+  const rows: OccurrenceRow[] = []
   let touchedPublic = false
 
   for (const s of series) {
-    const bounds = await getSeriesOccurrenceBounds(s.id)
-    if (!bounds.start || !bounds.latest) continue
+    // Série sem template (legado/pré-migration): pula a reposição.
+    if (
+      s.title === null ||
+      s.latitude === null ||
+      s.longitude === null ||
+      s.category === null
+    ) {
+      continue
+    }
+
+    const bounds = boundsMap.get(s.id)
+    if (!bounds?.start || !bounds.latest) continue
     if (bounds.total >= RECURRENCE_MAX_OCCURRENCES) continue
 
     const newDates = buildOccurrenceDates({
@@ -34,35 +56,29 @@ export async function reconcileRecurringSeries(now = new Date()) {
     })
     if (newDates.length === 0) continue
 
-    const template = await findLatestOccurrenceContent(s.id)
-    if (!template) continue
-
-    const durationMs = template.endDate
-      ? template.endDate.getTime() - template.date.getTime()
-      : null
-
-    const count = await appendOccurrences(
-      newDates.map((date) => ({
-        title: template.title,
-        description: template.description,
-        latitude: template.latitude,
-        longitude: template.longitude,
-        address: template.address,
-        category: template.category,
-        isPublic: template.isPublic,
-        maxCapacity: template.maxCapacity,
+    const durationMs = s.durationMs
+    for (const date of newDates) {
+      rows.push({
+        title: s.title,
+        description: s.description,
+        latitude: s.latitude,
+        longitude: s.longitude,
+        address: s.address,
+        category: s.category,
+        isPublic: s.isPublic,
+        maxCapacity: s.maxCapacity,
         authorId: s.authorId,
         seriesId: s.id,
         date,
         endDate:
           durationMs === null ? null : new Date(date.getTime() + durationMs),
-      })),
-    )
-    created += count
-    if (count > 0 && template.isPublic) touchedPublic = true
+      })
+    }
+    if (s.isPublic) touchedPublic = true
   }
 
-  if (touchedPublic) await cache.invalidate('events:public:*')
+  const created = await appendOccurrences(rows)
+  if (created > 0 && touchedPublic) await cache.invalidate('events:public:*')
   return { created }
 }
 

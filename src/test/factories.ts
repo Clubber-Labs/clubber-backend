@@ -117,8 +117,18 @@ export async function makeEventSeries(
     until?: Date | null
     count?: number | null
     canceledAt?: Date | null
+    title?: string
+    description?: string | null
+    latitude?: number
+    longitude?: number
+    address?: string | null
+    category?: EventCategory
+    maxCapacity?: number | null
+    isPublic?: boolean
+    durationMs?: number | null
   } = {},
 ) {
+  const id = uid()
   return testPrisma.eventSeries.create({
     data: {
       authorId,
@@ -127,6 +137,16 @@ export async function makeEventSeries(
       until: overrides.until ?? null,
       count: overrides.count ?? null,
       canceledAt: overrides.canceledAt ?? null,
+      // Template default-preenchido: o reconciler pula séries sem template.
+      title: overrides.title ?? `Série ${id}`,
+      description: overrides.description ?? null,
+      latitude: overrides.latitude ?? -25.4,
+      longitude: overrides.longitude ?? -49.3,
+      address: overrides.address ?? null,
+      category: overrides.category ?? 'PARTY',
+      maxCapacity: overrides.maxCapacity ?? null,
+      isPublic: overrides.isPublic ?? true,
+      durationMs: overrides.durationMs ?? null,
     },
   })
 }

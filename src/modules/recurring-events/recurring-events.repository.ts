@@ -1,26 +1,5 @@
-import type { EventCategory, RecurrenceFrequency } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
-
-// Conteúdo replicado em cada ocorrência (sem date/endDate, que variam).
-export type OccurrenceContent = {
-  title: string
-  description: string | null
-  latitude: number
-  longitude: number
-  address: string | null
-  category: EventCategory
-  isPublic: boolean
-  maxCapacity: number | null
-  authorId: string
-}
-
-export type SeriesRule = {
-  frequency: RecurrenceFrequency
-  interval: number
-  until: Date | null
-  count: number | null
-  authorId: string
-}
+import type { OccurrenceContent, SeriesRule } from './recurring-events.schema'
 
 export async function findAuthorPremium(authorId: string) {
   return prisma.user.findUnique({
@@ -29,17 +8,33 @@ export async function findAuthorPremium(authorId: string) {
   })
 }
 
-// Cria a série + todas as ocorrências numa transação. A primeira é criada com
-// `create` (para retornar o registro completo, contrato de POST /events); as
-// demais via `createMany`. occurrences[0] é a inicial.
+// Cria a série (com o TEMPLATE de conteúdo) + todas as ocorrências numa
+// transação. A primeira é criada com `create` (retorna o registro completo,
+// contrato de POST /events); as demais via `createMany` com `skipDuplicates`
+// (idempotente contra o unique (seriesId, date)). occurrences[0] é a inicial.
 export async function createSeriesWithOccurrences(params: {
   rule: SeriesRule
   content: OccurrenceContent
+  durationMs: number | null
   dates: { date: Date; endDate: Date | null }[]
 }) {
-  const { rule, content, dates } = params
+  const { rule, content, durationMs, dates } = params
   return prisma.$transaction(async (tx) => {
-    const series = await tx.eventSeries.create({ data: rule })
+    const series = await tx.eventSeries.create({
+      data: {
+        ...rule,
+        // Template = conteúdo da série (o reconciler clona daqui).
+        title: content.title,
+        description: content.description,
+        latitude: content.latitude,
+        longitude: content.longitude,
+        address: content.address,
+        category: content.category,
+        maxCapacity: content.maxCapacity,
+        isPublic: content.isPublic,
+        durationMs,
+      },
+    })
     const [first, ...rest] = dates
     const firstEvent = await tx.event.create({
       data: { ...content, seriesId: series.id, ...first },
@@ -47,6 +42,7 @@ export async function createSeriesWithOccurrences(params: {
     if (rest.length > 0) {
       await tx.event.createMany({
         data: rest.map((d) => ({ ...content, seriesId: series.id, ...d })),
+        skipDuplicates: true,
       })
     }
     return firstEvent
@@ -78,6 +74,7 @@ export async function cancelSeries(seriesId: string) {
 
 // Séries vivas elegíveis a reposição: não canceladas, dentro do `until`, de
 // autor premium (downgrade pausa a reposição — risco documentado no plano).
+// Traz o TEMPLATE junto (o reconciler não faz query extra de conteúdo).
 export async function findReplenishableSeries(now: Date) {
   return prisma.eventSeries.findMany({
     where: {
@@ -92,44 +89,49 @@ export async function findReplenishableSeries(now: Date) {
       until: true,
       count: true,
       authorId: true,
-    },
-  })
-}
-
-// Âncora (1ª data), última data e total de ocorrências de uma série.
-export async function getSeriesOccurrenceBounds(seriesId: string) {
-  const agg = await prisma.event.aggregate({
-    where: { seriesId },
-    _min: { date: true },
-    _max: { date: true },
-    _count: { _all: true },
-  })
-  return {
-    start: agg._min.date,
-    latest: agg._max.date,
-    total: agg._count._all,
-  }
-}
-
-// Conteúdo da ocorrência mais recente — usado como template das próximas
-// (edição numa ocorrência propaga para as geradas; comportamento documentado).
-export async function findLatestOccurrenceContent(seriesId: string) {
-  return prisma.event.findFirst({
-    where: { seriesId },
-    orderBy: { date: 'desc' },
-    select: {
       title: true,
       description: true,
       latitude: true,
       longitude: true,
       address: true,
       category: true,
-      isPublic: true,
       maxCapacity: true,
-      date: true,
-      endDate: true,
+      isPublic: true,
+      durationMs: true,
     },
   })
+}
+
+export type SeriesOccurrenceBounds = {
+  start: Date | null
+  latest: Date | null
+  total: number
+}
+
+// Âncora (1ª data), última data e total de ocorrências, em UMA query para
+// todas as séries (evita N+1 no reconciler).
+export async function getSeriesOccurrenceBoundsBatch(
+  seriesIds: string[],
+): Promise<Map<string, SeriesOccurrenceBounds>> {
+  const map = new Map<string, SeriesOccurrenceBounds>()
+  if (seriesIds.length === 0) return map
+
+  const rows = await prisma.event.groupBy({
+    by: ['seriesId'],
+    where: { seriesId: { in: seriesIds } },
+    _min: { date: true },
+    _max: { date: true },
+    _count: { _all: true },
+  })
+  for (const r of rows) {
+    if (r.seriesId === null) continue
+    map.set(r.seriesId, {
+      start: r._min.date,
+      latest: r._max.date,
+      total: r._count._all,
+    })
+  }
+  return map
 }
 
 export async function appendOccurrences(
@@ -140,6 +142,8 @@ export async function appendOccurrences(
   })[],
 ) {
   if (data.length === 0) return 0
-  const result = await prisma.event.createMany({ data })
+  // skipDuplicates: idempotente contra o unique (seriesId, date) — reconcilers
+  // concorrentes não inserem ocorrências duplicadas.
+  const result = await prisma.event.createMany({ data, skipDuplicates: true })
   return result.count
 }

@@ -379,10 +379,13 @@ model Event {
   images      EventImage[]
   features    FeaturedEvent[]
 
+  // Único: uma ocorrência por (série, data). Torna a reposição idempotente e
+  // segura contra reconcilers concorrentes. seriesId NULL é distinto no
+  // Postgres, então eventos avulsos não são afetados.
+  @@unique([seriesId, date])
   @@index([date])
   @@index([isPublic, date])
   @@index([isFeatured, date, id])
-  @@index([seriesId, date])
   @@map("events")
 }
 
@@ -408,6 +411,20 @@ model EventSeries {
   canceledAt DateTime?
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
+
+  // Template de conteúdo da série: o reconciler clona DESTES campos (não da
+  // última ocorrência), então editar uma ocorrência individual não propaga
+  // para as ocorrências geradas depois. Nullable: séries antigas não têm
+  // template e o reconciler as pula. durationMs = endDate-date da 1ª ocorrência.
+  title       String?
+  description String?
+  latitude    Float?
+  longitude   Float?
+  address     String?
+  category    EventCategory?
+  maxCapacity Int?
+  isPublic    Boolean        @default(true)
+  durationMs  Int?
 
   events Event[]
 

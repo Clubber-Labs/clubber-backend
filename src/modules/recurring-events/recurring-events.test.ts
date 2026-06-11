@@ -374,4 +374,70 @@ describe('reconcileRecurringSeries (reposição de horizonte)', () => {
     })
     expect(count).toBe(1)
   })
+
+  it('clona do TEMPLATE da série — editar uma ocorrência NÃO propaga', async () => {
+    const author = await makeUser({ isPremium: true })
+    const start = new Date('2026-06-01T20:00:00Z')
+    // Template da série = 'Original' / categoria SPORTS.
+    const series = await makeEventSeries(author.id, {
+      frequency: 'WEEKLY',
+      title: 'Original',
+      category: 'SPORTS',
+    })
+    await makeEvent(author.id, {
+      seriesId: series.id,
+      date: start,
+      title: 'Original',
+      category: 'SPORTS',
+    })
+    const last = await makeEvent(author.id, {
+      seriesId: series.id,
+      date: new Date(start.getTime() + 7 * DAY),
+      title: 'Original',
+      category: 'SPORTS',
+    })
+    // Edição pontual da ocorrência mais recente.
+    await testPrisma.event.update({
+      where: { id: last.id },
+      data: { title: 'EDITADO', category: 'NIGHTLIFE' },
+    })
+
+    await reconcileRecurringSeries(new Date(start.getTime() + 7 * DAY))
+
+    const generated = await testPrisma.event.findMany({
+      where: {
+        seriesId: series.id,
+        date: { gt: new Date(start.getTime() + 7 * DAY) },
+      },
+    })
+    expect(generated.length).toBeGreaterThan(0)
+    // As geradas seguem o TEMPLATE da série, não a edição da ocorrência.
+    for (const g of generated) {
+      expect(g.title).toBe('Original')
+      expect(g.category).toBe('SPORTS')
+    }
+  })
+
+  it('preserva durationMs do template ao gerar (endDate por ocorrência)', async () => {
+    const author = await makeUser({ isPremium: true })
+    const start = new Date('2026-06-01T20:00:00Z')
+    const series = await makeEventSeries(author.id, {
+      frequency: 'WEEKLY',
+      durationMs: 2 * 3600_000, // 2h
+    })
+    await makeEvent(author.id, { seriesId: series.id, date: start })
+
+    await reconcileRecurringSeries(new Date(start.getTime() + 7 * DAY))
+
+    const generated = await testPrisma.event.findMany({
+      where: { seriesId: series.id, date: { gt: start } },
+    })
+    expect(generated.length).toBeGreaterThan(0)
+    for (const g of generated) {
+      expect(g.endDate).not.toBeNull()
+      expect((g.endDate as Date).getTime() - g.date.getTime()).toBe(
+        2 * 3600_000,
+      )
+    }
+  })
 })

@@ -7,9 +7,11 @@ import {
   createSeriesWithOccurrences,
   findAuthorPremium,
   findSeriesById,
-  type OccurrenceContent,
 } from './recurring-events.repository'
-import type { RecurrenceInput } from './recurring-events.schema'
+import type {
+  OccurrenceContent,
+  RecurrenceInput,
+} from './recurring-events.schema'
 
 type EventData = Omit<CreateEventBody, 'recurrence'>
 
@@ -70,6 +72,7 @@ export async function createRecurringEvent(
       authorId,
     },
     content,
+    durationMs,
     dates: occurrenceDates,
   })
 
