@@ -582,6 +582,13 @@ export async function renameConversation(id: string, title: string) {
   return prisma.conversation.update({ where: { id }, data: { title } })
 }
 
+/** Apaga a conversa (cascade em participants/messages/attachments/reactions).
+ * deleteMany = idempotente (sem P2025 se já removida). */
+export async function deleteConversation(id: string): Promise<number> {
+  const res = await prisma.conversation.deleteMany({ where: { id } })
+  return res.count
+}
+
 /** Não-lidas por conversa (batch, 1 query) — mensagens de outros após lastReadAt. */
 export async function unreadCounts(
   userId: string,

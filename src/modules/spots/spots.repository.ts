@@ -116,6 +116,28 @@ export async function findSpotForMutation(id: string) {
   })
 }
 
+/** Como findSpotForMutation, mais endsAt — para o gate de "ativo" do renew. */
+export async function findSpotForRenew(id: string) {
+  return prisma.spot.findUnique({
+    where: { id },
+    select: { id: true, creatorId: true, canceledAt: true, endsAt: true },
+  })
+}
+
+/**
+ * Renova: empurra endsAt +24h e ZERA renewalNotifiedAt (re-arma o lembrete para
+ * a nova janela). O +24h é a partir do endsAt ATUAL, no SQL (atômico).
+ */
+export async function renewSpotById(id: string): Promise<SpotDetail | null> {
+  await prisma.$executeRaw`
+    UPDATE "spots"
+    SET "endsAt" = "endsAt" + interval '24 hours',
+        "renewalNotifiedAt" = NULL,
+        "updatedAt" = now()
+    WHERE id = ${id}`
+  return findSpotDetail(id)
+}
+
 export async function updateSpotById(
   id: string,
   data: { title?: string; description?: string | null },
@@ -250,6 +272,63 @@ export async function findSpotsByIds(ids: string[]): Promise<SpotDetail[]> {
   // Preserva a ordem do ranking espacial (createdAt DESC do SQL).
   const byId = new Map(spots.map((s) => [s.id, s]))
   return ids.map((id) => byId.get(id)).filter((s): s is SpotDetail => !!s)
+}
+
+// ── Lifecycle (reconciler) ───────────────────────────────────────────────────
+
+/** Spots ativos vencendo dentro de `leadMs` e ainda não lembrados. */
+export async function findSpotsNeedingRenewalReminder(
+  now: Date,
+  leadMs: number,
+  limit: number,
+) {
+  return prisma.spot.findMany({
+    where: {
+      canceledAt: null,
+      renewalNotifiedAt: null,
+      endsAt: { gt: now, lte: new Date(now.getTime() + leadMs) },
+    },
+    select: { id: true, title: true, creatorId: true, endsAt: true },
+    take: limit,
+  })
+}
+
+/** CAS: marca o lembrete como enviado só se ainda NULL. count 0 = outro tick venceu. */
+export async function markSpotRenewalNotified(
+  spotId: string,
+  now: Date,
+): Promise<number> {
+  const res = await prisma.spot.updateMany({
+    where: { id: spotId, renewalNotifiedAt: null },
+    data: { renewalNotifiedAt: now },
+  })
+  return res.count
+}
+
+/** Spots "concluídos" elegíveis para limpeza: cancelados OU já encerrados. */
+export async function findCleanableSpots(now: Date, limit: number) {
+  return prisma.spot.findMany({
+    where: { OR: [{ canceledAt: { not: null } }, { endsAt: { lte: now } }] },
+    select: { id: true, conversationId: true },
+    take: limit,
+  })
+}
+
+/**
+ * Apaga o spot SE ainda elegível (cancelado ou encerrado) — guard anti-corrida
+ * com renew (se foi renovado entre a seleção e aqui, não apaga). Retorna o count.
+ */
+export async function deleteCleanableSpot(
+  spotId: string,
+  now: Date,
+): Promise<number> {
+  const res = await prisma.spot.deleteMany({
+    where: {
+      id: spotId,
+      OR: [{ canceledAt: { not: null } }, { endsAt: { lte: now } }],
+    },
+  })
+  return res.count
 }
 
 export async function findUserIsPremium(userId: string): Promise<boolean> {

@@ -23,10 +23,12 @@ import {
   createSpotWithConversation,
   findSpotDetail,
   findSpotForMutation,
+  findSpotForRenew,
   findSpotIdsInBbox,
   findSpotsByIds,
   findTodayGenerationCount,
   findUserIsPremium,
+  renewSpotById,
   type SpotDetail,
   updateSpotById,
 } from './spots.repository'
@@ -47,6 +49,7 @@ function gridCell(value: number): string {
 }
 
 const MAX_ACTIVE_SPOTS = 5
+const SPOT_WINDOW_MS = 24 * 60 * 60 * 1000 // 24h por janela (criação e renovação)
 
 function shapeSpot(spot: SpotDetail, memberCount: number) {
   const { creatorId: _creatorId, ...rest } = spot
@@ -67,8 +70,16 @@ async function canView(
 export async function createSpot(creatorId: string, body: CreateSpotBody) {
   // endsAt > startsAt já é garantido no schema; aqui barramos o spot "nascido
   // morto" (janela inteira no passado) — `now` é estado externo, fora do Zod.
-  if (body.endsAt <= new Date()) {
+  const now = Date.now()
+  if (body.endsAt <= new Date(now)) {
     throw { statusCode: 400, message: 'endsAt deve estar no futuro' }
+  }
+  // Teto de 24h por janela: além disso, renova (POST /spots/:id/renew).
+  if (body.endsAt.getTime() > now + SPOT_WINDOW_MS) {
+    throw {
+      statusCode: 400,
+      message: 'O rolê pode durar no máximo 24h por vez (renove depois)',
+    }
   }
   // Teto verificado dentro da transação (advisory lock) — à prova de corrida.
   const spot = await createSpotWithConversation(
@@ -184,6 +195,39 @@ export async function cancelSpot(id: string, requesterId: string) {
     throw { statusCode: 403, message: 'Você não tem permissão para cancelar' }
   }
   if (!spot.canceledAt) await cancelSpotById(id, new Date())
+}
+
+/**
+ * Renova o spot por mais 24h. Só o criador, só se ainda ativo. Consome 1 da
+ * MESMA quota diária de geração (free 5 / premium 25). O endsAt += 24h e o
+ * lembrete re-arma (renewalNotifiedAt zerado no repository).
+ */
+export async function renewSpot(id: string, requesterId: string) {
+  const spot = await findSpotForRenew(id)
+  if (!spot) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (spot.creatorId !== requesterId) {
+    throw { statusCode: 403, message: 'Você não tem permissão para renovar' }
+  }
+  if (spot.canceledAt || spot.endsAt <= new Date()) {
+    throw { statusCode: 409, message: 'Este rolê não está mais ativo' }
+  }
+
+  const isPremium = await findUserIsPremium(requesterId)
+  const limit = isPremium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA
+  const quota = await consumeGenerationQuota(requesterId, limit)
+  if (!quota.allowed) {
+    throw {
+      statusCode: 429,
+      message: `Limite diário de ${limit} usos atingido`,
+    }
+  }
+
+  const updated = await renewSpotById(id)
+  if (!updated) throw { statusCode: 404, message: 'Spot não encontrado' }
+  const counts = await countActiveMembersByConversation([
+    updated.conversationId,
+  ])
+  return shapeSpot(updated, counts.get(updated.conversationId) ?? 0)
 }
 
 /**

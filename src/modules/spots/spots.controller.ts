@@ -14,6 +14,7 @@ import {
   getSpot,
   joinSpot,
   listSpotsOnMap,
+  renewSpot,
 } from './spots.service'
 
 export async function postSpot(request: FastifyRequest, reply: FastifyReply) {
@@ -54,6 +55,15 @@ export async function postSuggestions(
   const body = request.body as SuggestionsBody
   const result = await generateSuggestions(request.user.sub, body)
   return reply.send(result)
+}
+
+export async function postRenewSpot(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as SpotParam
+  const spot = await renewSpot(id, request.user.sub)
+  return reply.send(spot)
 }
 
 export async function patchSpot(request: FastifyRequest, reply: FastifyReply) {

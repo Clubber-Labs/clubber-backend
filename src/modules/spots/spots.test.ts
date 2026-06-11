@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeBlock, makeFollow, makeSpot, makeUser } from '../../test/factories'
+import {
+  makeBlock,
+  makeFollow,
+  makeSpot,
+  makeSpotGenerationUsage,
+  makeUser,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -125,6 +131,21 @@ describe('POST /spots', () => {
       headers: auth(user.id),
       body: spotBody({
         categories: ['PARTY', 'MUSIC', 'SPORTS', 'TECH', 'ART', 'GAMING'],
+      }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejeita janela maior que 24h (400)', async () => {
+    const user = await makeUser()
+    const now = Date.now()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({
+        startsAt: new Date(now + 3600_000).toISOString(),
+        endsAt: new Date(now + 25 * 3600_000).toISOString(),
       }),
     })
     expect(res.statusCode).toBe(400)
@@ -402,6 +423,101 @@ describe('DELETE /spots/:id (cancelar)', () => {
     })
     expect(first.statusCode).toBe(204)
     expect(again.statusCode).toBe(204)
+  })
+})
+
+describe('POST /spots/:id/renew (renovar)', () => {
+  it('criador renova: endsAt +24h (200)', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const before = spot.endsAt.getTime()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(200)
+    const after = new Date(res.json().endsAt).getTime()
+    expect(Math.round((after - before) / 3600_000)).toBe(24)
+  })
+
+  it('re-arma o lembrete (zera renewalNotifiedAt)', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    await testPrisma.spot.update({
+      where: { id: spot.id },
+      data: { renewalNotifiedAt: new Date() },
+    })
+
+    await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+
+    const after = await testPrisma.spot.findUnique({ where: { id: spot.id } })
+    expect(after?.renewalNotifiedAt).toBeNull()
+  })
+
+  it('não-criador não renova (403)', async () => {
+    const creator = await makeUser()
+    const other = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(other.id),
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('renovar spot encerrado → 409', async () => {
+    const creator = await makeUser()
+    const p = Date.now() - 2 * 3600_000
+    const spot = await makeSpot(creator.id, {
+      startsAt: new Date(p),
+      endsAt: new Date(p + 3600_000),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('renovar com a quota diária estourada → 429', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    await makeSpotGenerationUsage(creator.id, 5) // free no teto
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(429)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('404 para spot inexistente', async () => {
+    const creator = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/00000000-0000-0000-0000-000000000000/renew',
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(404)
   })
 })
 

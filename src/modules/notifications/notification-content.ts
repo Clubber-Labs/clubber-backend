@@ -18,7 +18,7 @@ function displayName(actor: NotificationActor): string {
  * próprio no fan-out (proximidade/spot), fora deste switch. */
 export type SocialNotificationKind = Exclude<
   NotificationType,
-  'EVENT_NEARBY' | 'SPOT_NEARBY' | 'SPOT_JOIN'
+  'EVENT_NEARBY' | 'SPOT_NEARBY' | 'SPOT_JOIN' | 'SPOT_RENEWAL'
 >
 
 export function socialNotificationContent(
