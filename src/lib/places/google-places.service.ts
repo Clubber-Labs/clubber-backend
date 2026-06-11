@@ -11,6 +11,7 @@ import type {
 const ENDPOINT = 'https://places.googleapis.com/v1/places:searchNearby'
 const DEFAULT_RADIUS_M = 1500
 const DEFAULT_LIMIT = 10
+const REQUEST_TIMEOUT_MS = 5000
 
 type GooglePlace = {
   id: string
@@ -41,21 +42,32 @@ export class GooglePlacesService implements IPlacesClient {
       },
     }
 
-    const res = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': this.apiKey,
-        'X-Goog-FieldMask': [
-          'places.id',
-          'places.displayName',
-          'places.location',
-          'places.types',
-          'places.formattedAddress',
-        ].join(','),
-      },
-      body: JSON.stringify(body),
-    })
+    let res: Response
+    try {
+      res = await fetch(ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': this.apiKey,
+          'X-Goog-FieldMask': [
+            'places.id',
+            'places.displayName',
+            'places.location',
+            'places.types',
+            'places.formattedAddress',
+          ].join(','),
+        },
+        body: JSON.stringify(body),
+        // Sem timeout, lentidão do Places deixaria o handler pendurado (Fastify
+        // não tem timeout de resposta). Timeout/rede viram 503 (indisponível).
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      })
+    } catch {
+      throw {
+        statusCode: 503,
+        message: 'Busca de locais indisponível no momento',
+      }
+    }
 
     if (!res.ok) {
       throw {

@@ -3,7 +3,7 @@ import type {
   CreateSpotBody,
   ListSpotsQuery,
   SpotParam,
-  SuggestionsQuery,
+  SuggestionsBody,
   UpdateSpotBody,
 } from './spots.schema'
 import {
@@ -51,7 +51,7 @@ export async function postSuggestions(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const body = request.body as SuggestionsQuery
+  const body = request.body as SuggestionsBody
   const result = await generateSuggestions(request.user.sub, body)
   return reply.send(result)
 }

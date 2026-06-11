@@ -95,6 +95,20 @@ describe('POST /spots/suggestions', () => {
     expect(usage).toHaveLength(0)
   })
 
+  it('preferência sem mapeamento no Places retorna 400 sem consumir quota', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'TECH') // sem tipo no Places
+
+    const res = await suggest(user.id)
+    expect(res.statusCode).toBe(400)
+    expect(fakePlaces.calls).toBe(0)
+
+    const usage = await testPrisma.spotGenerationUsage.findMany({
+      where: { userId: user.id },
+    })
+    expect(usage).toHaveLength(0)
+  })
+
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({
       method: 'POST',

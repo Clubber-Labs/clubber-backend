@@ -1,5 +1,6 @@
 import { cache } from '../../lib/cache'
 import { getPlacesClient, type PlaceCandidate } from '../../lib/places'
+import { placeTypesForCategories } from '../../lib/places/place-category-map'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   findActiveParticipant,
@@ -16,6 +17,7 @@ import {
   findSpotForMutation,
   findSpotIdsInBbox,
   findSpotsByIds,
+  findTodayGenerationCount,
   findUserIsPremium,
   type SpotDetail,
   updateSpotById,
@@ -23,7 +25,7 @@ import {
 import type {
   CreateSpotBody,
   ListSpotsQuery,
-  SuggestionsQuery,
+  SuggestionsBody,
   UpdateSpotBody,
 } from './spots.schema'
 
@@ -180,7 +182,7 @@ export async function cancelSpot(id: string, requesterId: string) {
  */
 export async function generateSuggestions(
   userId: string,
-  query: SuggestionsQuery,
+  body: SuggestionsBody,
 ) {
   const categories = await findUserPreferredCategories(userId)
   if (categories.length === 0) {
@@ -189,11 +191,21 @@ export async function generateSuggestions(
       message: 'Configure suas preferências de rolê para gerar sugestões',
     }
   }
+  // Nenhuma preferência mapeia para tipo do Places (ex.: só TECH/BUSINESS):
+  // a busca devolveria locais aleatórios. Barra ANTES de consumir quota.
+  if (placeTypesForCategories(categories).length === 0) {
+    throw {
+      statusCode: 400,
+      message: 'Suas preferências de rolê ainda não têm sugestões de locais',
+    }
+  }
 
   const isPremium = await findUserIsPremium(userId)
   const limit = isPremium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA
-  const quota = await consumeGenerationQuota(userId, limit)
-  if (!quota.allowed) {
+
+  // Rejeita excesso ANTES de chamar o Places (economia de custo). O teto real é
+  // garantido pelo consume atômico no fim.
+  if ((await findTodayGenerationCount(userId)) >= limit) {
     throw {
       statusCode: 429,
       message: `Limite diário de ${limit} gerações atingido`,
@@ -203,18 +215,29 @@ export async function generateSuggestions(
   const sortedCats = [...categories].sort()
   const key = cache.key(
     'spots:suggestions',
-    gridCell(query.latitude),
-    gridCell(query.longitude),
+    gridCell(body.latitude),
+    gridCell(body.longitude),
     sortedCats.join(','),
   )
+  // Busca ANTES de consumir: se o Places falhar (timeout/503), a quota não é
+  // gasta. Cache hit também passa por aqui e consome — decisão de produto.
   let suggestions = await cache.get<PlaceCandidate[]>(key)
   if (!suggestions) {
     suggestions = await getPlacesClient().searchNearby({
-      latitude: query.latitude,
-      longitude: query.longitude,
+      latitude: body.latitude,
+      longitude: body.longitude,
       categories: sortedCats,
     })
     await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)
+  }
+
+  // Consome agora (sucesso garantido). Atômico = teto à prova de corrida.
+  const quota = await consumeGenerationQuota(userId, limit)
+  if (!quota.allowed) {
+    throw {
+      statusCode: 429,
+      message: `Limite diário de ${limit} gerações atingido`,
+    }
   }
 
   return { suggestions, remaining: Math.max(0, limit - quota.used) }

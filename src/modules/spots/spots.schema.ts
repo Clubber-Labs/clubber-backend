@@ -71,4 +71,4 @@ export type CreateSpotBody = z.infer<typeof createSpotSchema>
 export type UpdateSpotBody = z.infer<typeof updateSpotSchema>
 export type SpotParam = z.infer<typeof spotParamSchema>
 export type ListSpotsQuery = z.infer<typeof listSpotsQuerySchema>
-export type SuggestionsQuery = z.infer<typeof suggestionsSchema>
+export type SuggestionsBody = z.infer<typeof suggestionsSchema>

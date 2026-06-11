@@ -240,6 +240,18 @@ export async function findUserIsPremium(userId: string): Promise<boolean> {
   return user?.isPremium ?? false
 }
 
+/** Leitura do uso de hoje (CURRENT_DATE), para rejeitar excesso ANTES de chamar
+ * o Places. O teto real é garantido pelo consumeGenerationQuota (atômico). */
+export async function findTodayGenerationCount(
+  userId: string,
+): Promise<number> {
+  const rows = await prisma.$queryRaw<{ count: number }[]>(Prisma.sql`
+    SELECT "count" FROM "spot_generation_usage"
+    WHERE "userId" = ${userId} AND "day" = CURRENT_DATE
+  `)
+  return rows.length > 0 ? Number(rows[0].count) : 0
+}
+
 /**
  * Consome 1 da quota diária de geração, de forma ATÔMICA e à prova de corrida:
  * o upsert só incrementa enquanto `count < limit` (cláusula WHERE no ON CONFLICT).
