@@ -1,6 +1,10 @@
 import { cache } from '../../lib/cache'
-import { getPlacesClient, type PlaceCandidate } from '../../lib/places'
+import { getPlacesClient } from '../../lib/places'
 import { placeTypesForCategories } from '../../lib/places/place-category-map'
+import {
+  type EnhancedCandidate,
+  getSuggestionEnhancer,
+} from '../../lib/suggestion-ai'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   findActiveParticipant,
@@ -219,14 +223,19 @@ export async function generateSuggestions(
     gridCell(body.longitude),
     sortedCats.join(','),
   )
-  // Busca ANTES de consumir: se o Places falhar (timeout/503), a quota não é
-  // gasta. Cache hit também passa por aqui e consome — decisão de produto.
-  let suggestions = await cache.get<PlaceCandidate[]>(key)
+  // Busca ANTES de consumir: se o Places/IA falhar, a quota não é gasta. Cache
+  // hit também passa por aqui e consome — decisão de produto. O resultado
+  // ENRIQUECIDO (candidatos + copy + ranqueamento) é cacheado junto, então
+  // Places E IA rodam só no cache miss.
+  let suggestions = await cache.get<EnhancedCandidate[]>(key)
   if (!suggestions) {
-    suggestions = await getPlacesClient().searchNearby({
+    const candidates = await getPlacesClient().searchNearby({
       latitude: body.latitude,
       longitude: body.longitude,
       categories: sortedCats,
+    })
+    suggestions = await getSuggestionEnhancer().enhance(candidates, {
+      preferredCategories: sortedCats,
     })
     await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)
   }
