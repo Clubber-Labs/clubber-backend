@@ -67,6 +67,16 @@ export const createEventSchema = z
       path: ['recurrence', 'until'],
     },
   )
+  .refine(
+    // until antes da data do evento geraria zero ocorrências → criação quebraria
+    // (first = undefined). Rejeita no schema com 400 em vez de estourar 500.
+    (v) =>
+      !v.recurrence?.until || v.recurrence.until.getTime() >= v.date.getTime(),
+    {
+      message: 'until não pode ser antes da data do evento',
+      path: ['recurrence', 'until'],
+    },
+  )
 
 export const updateEventSchema = z
   .object({

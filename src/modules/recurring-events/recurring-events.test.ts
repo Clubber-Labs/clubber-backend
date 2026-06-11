@@ -195,6 +195,24 @@ describe('POST /events com recurrence', () => {
     })
     expect(res.statusCode).toBe(400)
   })
+
+  it('until antes da data do evento → 400 (não 500)', async () => {
+    const author = await makeUser({ isPremium: true })
+    const date = new Date(Date.now() + DAY)
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: baseEventBody({
+        date: date.toISOString(),
+        recurrence: {
+          frequency: 'WEEKLY',
+          until: new Date(date.getTime() - 7 * DAY).toISOString(),
+        },
+      }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
 })
 
 describe('DELETE /events/series/:seriesId', () => {
