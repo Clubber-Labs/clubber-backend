@@ -1,6 +1,9 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
+// Inclui os _count de engajamento no mesmo SELECT da autorização: evita uma
+// segunda query para a mesma row e fecha a janela TOCTOU (o evento poderia ser
+// deletado entre a checagem de existência e um findUniqueOrThrow → P2025/500).
 export async function findEventForStats(eventId: string) {
   return prisma.event.findUnique({
     where: { id: eventId },
@@ -8,6 +11,9 @@ export async function findEventForStats(eventId: string) {
       id: true,
       authorId: true,
       author: { select: { isPremium: true } },
+      _count: {
+        select: { reactions: true, comments: true, posts: true, invites: true },
+      },
     },
   })
 }
@@ -18,18 +24,6 @@ export async function countAttendanceByType(eventId: string) {
     where: { eventId },
     _count: { _all: true },
   })
-}
-
-export async function countEngagement(eventId: string) {
-  const event = await prisma.event.findUniqueOrThrow({
-    where: { id: eventId },
-    select: {
-      _count: {
-        select: { reactions: true, comments: true, posts: true, invites: true },
-      },
-    },
-  })
-  return event._count
 }
 
 export type AttendanceTimelineRow = {

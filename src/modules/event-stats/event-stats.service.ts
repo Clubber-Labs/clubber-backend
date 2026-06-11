@@ -2,7 +2,6 @@ import { cache } from '../../lib/cache'
 import {
   type AttendanceTimelineRow,
   countAttendanceByType,
-  countEngagement,
   findAttendanceTimeline,
   findEventForStats,
 } from './event-stats.repository'
@@ -60,9 +59,11 @@ export async function getEventStats(
   const cached = await cache.get<EventStats>(cacheKey)
   if (cached) return cached
 
-  const [attendanceGroups, engagement, timelineRows] = await Promise.all([
+  // _count de engajamento já veio em findEventForStats (uma query a menos,
+  // sem TOCTOU). Falta só agregar attendances e a timeline.
+  const engagement = event._count
+  const [attendanceGroups, timelineRows] = await Promise.all([
     countAttendanceByType(eventId),
-    countEngagement(eventId),
     findAttendanceTimeline(eventId),
   ])
 
