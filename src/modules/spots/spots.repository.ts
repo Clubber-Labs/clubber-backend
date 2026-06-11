@@ -100,10 +100,21 @@ export async function updateSpotById(
   id: string,
   data: { title?: string; description?: string | null },
 ): Promise<SpotDetail> {
-  return prisma.spot.update({
-    where: { id },
-    data,
-    select: spotDetailSelect,
+  return prisma.$transaction(async (tx) => {
+    const spot = await tx.spot.update({
+      where: { id },
+      data,
+      select: spotDetailSelect,
+    })
+    // O título do spot e o do grupo nascem iguais (createSpotWithConversation);
+    // renomear o spot renomeia o chat junto, senão o cabeçalho fica defasado.
+    if (data.title !== undefined) {
+      await tx.conversation.update({
+        where: { id: spot.conversationId },
+        data: { title: data.title },
+      })
+    }
+    return spot
   })
 }
 
@@ -111,6 +122,7 @@ export async function cancelSpotById(id: string, now: Date) {
   return prisma.spot.update({
     where: { id },
     data: { canceledAt: now },
+    select: { id: true },
   })
 }
 

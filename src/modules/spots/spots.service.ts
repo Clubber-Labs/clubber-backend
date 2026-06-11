@@ -137,6 +137,9 @@ export async function editSpot(
   if (spot.creatorId !== requesterId) {
     throw { statusCode: 403, message: 'Você não tem permissão para editar' }
   }
+  if (spot.canceledAt) {
+    throw { statusCode: 409, message: 'Spot cancelado não pode ser editado' }
+  }
   const updated = await updateSpotById(id, data)
   const counts = await countActiveMembersByConversation([
     updated.conversationId,

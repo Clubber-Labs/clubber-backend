@@ -250,6 +250,47 @@ describe('PATCH /spots/:id (editar)', () => {
     })
   })
 
+  it('renomear o spot renomeia o chat junto', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/spots/${spot.id}`,
+      headers: auth(creator.id),
+      body: { title: 'Título sincronizado' },
+    })
+
+    const conversation = await testPrisma.conversation.findUnique({
+      where: { id: spot.conversationId },
+    })
+    expect(conversation?.title).toBe('Título sincronizado')
+  })
+
+  it('não edita spot cancelado (409)', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id, { canceledAt: new Date() })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/spots/${spot.id}`,
+      headers: auth(creator.id),
+      body: { title: 'Tentativa' },
+    })
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/spots/${spot.id}`,
+      body: { title: 'X title' },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
   it('não-criador não edita (403)', async () => {
     const creator = await makeUser()
     const other = await makeUser()
@@ -321,6 +362,16 @@ describe('DELETE /spots/:id (cancelar)', () => {
       headers: auth(joiner.id),
     })
     expect(join.statusCode).toBe(409)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/spots/${spot.id}`,
+    })
+    expect(res.statusCode).toBe(401)
   })
 
   it('não-criador não cancela (403)', async () => {
