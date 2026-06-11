@@ -3,6 +3,7 @@ import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import { enqueueEventCreated } from '../notifications/notification-queue'
+import { createRecurringEvent } from '../recurring-events/recurring-events.service'
 import {
   createEvent,
   createEventImage,
@@ -256,8 +257,15 @@ export async function getEventById(id: string, requesterId?: string) {
 }
 
 export async function addEvent(data: CreateEventBody, authorId: string) {
-  const event = await createEvent({ ...data, authorId })
-  if (data.isPublic === true) {
+  const { recurrence, ...eventData } = data
+  // RF11.6: com bloco recurrence, delega para a criação de série (gate premium
+  // no service). Sem recurrence, o evento avulso segue sem exigir premium.
+  if (recurrence) {
+    return createRecurringEvent(eventData, recurrence, authorId)
+  }
+
+  const event = await createEvent({ ...eventData, authorId })
+  if (eventData.isPublic === true) {
     await cache.invalidate('events:public:*')
     // Fan-out de proximidade (best-effort, pós-commit): só eventos públicos.
     await enqueueEventCreated(event.id)

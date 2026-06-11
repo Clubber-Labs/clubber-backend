@@ -86,6 +86,7 @@ export async function makeEvent(
     title?: string
     description?: string
     address?: string | null
+    seriesId?: string | null
   } = {},
 ) {
   const id = uid()
@@ -102,7 +103,30 @@ export async function makeEvent(
       isPublic: overrides.isPublic ?? true,
       isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
+      seriesId: overrides.seriesId ?? null,
       authorId,
+    },
+  })
+}
+
+export async function makeEventSeries(
+  authorId: string,
+  overrides: {
+    frequency?: 'WEEKLY' | 'MONTHLY'
+    interval?: number
+    until?: Date | null
+    count?: number | null
+    canceledAt?: Date | null
+  } = {},
+) {
+  return testPrisma.eventSeries.create({
+    data: {
+      authorId,
+      frequency: overrides.frequency ?? 'WEEKLY',
+      interval: overrides.interval ?? 1,
+      until: overrides.until ?? null,
+      count: overrides.count ?? null,
+      canceledAt: overrides.canceledAt ?? null,
     },
   })
 }

@@ -32,6 +32,7 @@ import { notificationsRoutes } from '../modules/notifications/notifications.rout
 import { passwordResetRoutes } from '../modules/password-reset/password-reset.routes'
 import { postsRoutes } from '../modules/posts/posts.routes'
 import { reactionsRoutes } from '../modules/reactions/reactions.routes'
+import { recurringEventsRoutes } from '../modules/recurring-events/recurring-events.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { usersRoutes } from '../modules/users/users.routes'
@@ -86,6 +87,7 @@ export function buildApp() {
   app.register(categoriesRoutes)
   app.register(eventsRoutes)
   app.register(eventStatsRoutes)
+  app.register(recurringEventsRoutes)
   app.register(featuredEventsRoutes)
   app.register(usersRoutes)
   app.register(followsRoutes)

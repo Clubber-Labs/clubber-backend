@@ -28,26 +28,26 @@ enum AccountStatus {
 }
 
 model User {
-  id             String   @id @default(uuid())
-  name           String
-  lastname       String
-  username       String   @unique
-  email          String   @unique
-  password       String?
-  phone          String?  @unique
-  bio            String?
-  avatarUrl      String?
-  avatarKey      String?
-  isPrivate      Boolean  @default(false)
-  isPremium      Boolean  @default(false)
-  stripeCustomerId String? @unique
-  role           UserRole @default(USER)
-  followersCount Int      @default(0)
-  followingCount Int      @default(0)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  birthdate      DateTime?
-  lastSeenAt     DateTime?
+  id               String    @id @default(uuid())
+  name             String
+  lastname         String
+  username         String    @unique
+  email            String    @unique
+  password         String?
+  phone            String?   @unique
+  bio              String?
+  avatarUrl        String?
+  avatarKey        String?
+  isPrivate        Boolean   @default(false)
+  isPremium        Boolean   @default(false)
+  stripeCustomerId String?   @unique
+  role             UserRole  @default(USER)
+  followersCount   Int       @default(0)
+  followingCount   Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  birthdate        DateTime?
+  lastSeenAt       DateTime?
 
   // Localização grosseira (geohash) para notificações por proximidade. A coluna
   // `location` geography é GERADA via SQL cru (ST_PointFromGeoHash), fora do
@@ -60,31 +60,32 @@ model User {
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
   // saiu de ACTIVE (vale tanto para desativação quanto para exclusão agendada).
   // scheduledDeletionAt só existe em PENDING_DELETION. anonymizedAt em ANONYMIZED.
-  accountStatus         AccountStatus     @default(ACTIVE)
-  deactivatedAt         DateTime?
-  scheduledDeletionAt   DateTime?
-  anonymizedAt          DateTime?
-  events                Event[]
-  attendances           EventAttendance[]
-  posts                 Post[]
-  comments              Comment[]
-  reactions             Reaction[]
-  commentReactions      CommentReaction[]
-  eventInvitesSent      EventInvite[]     @relation("inviter")
-  eventInvitesReceived  EventInvite[]     @relation("invited")
-  socialAccounts        SocialAccount[]
-  passwordResetCodes    PasswordResetCode[]
+  accountStatus        AccountStatus       @default(ACTIVE)
+  deactivatedAt        DateTime?
+  scheduledDeletionAt  DateTime?
+  anonymizedAt         DateTime?
+  events               Event[]
+  attendances          EventAttendance[]
+  posts                Post[]
+  comments             Comment[]
+  reactions            Reaction[]
+  commentReactions     CommentReaction[]
+  eventInvitesSent     EventInvite[]       @relation("inviter")
+  eventInvitesReceived EventInvite[]       @relation("invited")
+  socialAccounts       SocialAccount[]
+  passwordResetCodes   PasswordResetCode[]
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
   followers Follow[] @relation("following")
 
-  reports Report[] @relation("reporterReports")
+  reports         Report[] @relation("reporterReports")
   reportsReceived Report[] @relation("targetUserReports")
   reviewedReports Report[] @relation("reportReviewer")
 
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
   subscriptions         Subscription[]
+  eventSeries           EventSeries[]
 
   categoryPreferences UserCategoryPreference[]
 
@@ -97,8 +98,8 @@ model User {
   messageReactions           MessageReaction[]         @relation("messageReactions")
 
   // LGPD
-  consent        UserConsent?
-  consentLogs    ConsentAuditLog[]
+  consent     UserConsent?
+  consentLogs ConsentAuditLog[]
 
   // Ciclo de vida da conta (motivo de saída / churn)
   accountLifecycleLogs AccountLifecycleLog[]
@@ -271,21 +272,21 @@ enum AttachmentKind {
 }
 
 model MessageAttachment {
-  id        String         @id @default(uuid())
-  messageId String
-  message   Message        @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  kind      AttachmentKind @default(IMAGE)
-  url       String
-  key       String
-  format    String
-  size      Int
-  durationMs Int?
-  waveform   Int[]
-  width      Int?
-  height     Int?
+  id           String         @id @default(uuid())
+  messageId    String
+  message      Message        @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  kind         AttachmentKind @default(IMAGE)
+  url          String
+  key          String
+  format       String
+  size         Int
+  durationMs   Int?
+  waveform     Int[]
+  width        Int?
+  height       Int?
   thumbnailUrl String?
-  order      Int            @default(0)
-  createdAt  DateTime       @default(now())
+  order        Int            @default(0)
+  createdAt    DateTime       @default(now())
 
   @@index([messageId, order])
   @@map("message_attachments")
@@ -345,7 +346,7 @@ model Follow {
 }
 
 model Event {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   title       String
   description String?
   date        DateTime
@@ -354,15 +355,20 @@ model Event {
   longitude   Float
   address     String?
   category    EventCategory
-  isPublic    Boolean  @default(true)
-  isFeatured  Boolean  @default(false)
+  isPublic    Boolean       @default(true)
+  isFeatured  Boolean       @default(false)
   maxCapacity Int?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
   canceledAt  DateTime?
 
-  authorId    String
-  author      User     @relation(fields: [authorId], references: [id])
+  authorId String
+  author   User   @relation(fields: [authorId], references: [id])
+
+  // Ocorrência de uma série recorrente (RF11.6). null = evento avulso. SetNull:
+  // apagar a série não apaga as ocorrências já materializadas.
+  seriesId String?
+  series   EventSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
   attendances EventAttendance[]
   posts       Post[]
@@ -376,7 +382,38 @@ model Event {
   @@index([date])
   @@index([isPublic, date])
   @@index([isFeatured, date, id])
+  @@index([seriesId, date])
   @@map("events")
+}
+
+enum RecurrenceFrequency {
+  WEEKLY
+  MONTHLY
+}
+
+// Série de eventos recorrentes (RF11.6, premium). A regra mora aqui; cada
+// ocorrência é um Event materializado com seriesId apontando pra cá. O
+// reconciler repõe ocorrências futuras até um horizonte rolante quando
+// `until` é null. `count` (alternativa a `until`) limita o total de ocorrências.
+// MONTHLY usa o mesmo dia do mês com clamp para o último dia em meses curtos;
+// datas são UTC, então o horário local pode deslocar em mudanças de fuso/DST.
+model EventSeries {
+  id         String              @id @default(uuid())
+  frequency  RecurrenceFrequency
+  interval   Int                 @default(1)
+  until      DateTime?
+  count      Int?
+  authorId   String
+  author     User                @relation(fields: [authorId], references: [id])
+  canceledAt DateTime?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  events Event[]
+
+  // Predicado do reconciler: séries vivas que ainda podem crescer.
+  @@index([canceledAt, until])
+  @@map("event_series")
 }
 
 enum AttendanceType {
@@ -401,14 +438,14 @@ model EventAttendance {
 }
 
 model Post {
-  id        String    @id @default(uuid())
+  id        String     @id @default(uuid())
   content   String
   authorId  String
   eventId   String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
   comments  Comment[]
   reactions Reaction[]
 
@@ -425,10 +462,10 @@ model Comment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  author User   @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  event  Event? @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  post   Post?  @relation(fields: [postId], references: [id], onDelete: Cascade)
-  reports Report[]
+  author    User              @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event     Event?            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  post      Post?             @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reports   Report[]
   reactions CommentReaction[]
 
   @@index([eventId, createdAt])
@@ -437,11 +474,11 @@ model Comment {
 }
 
 model EventInvite {
-  id          String   @id @default(uuid())
-  eventId     String
-  inviterId   String
-  invitedId   String
-  createdAt   DateTime @default(now())
+  id        String   @id @default(uuid())
+  eventId   String
+  inviterId String
+  invitedId String
+  createdAt DateTime @default(now())
 
   event   Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   inviter User  @relation("inviter", fields: [inviterId], references: [id])
@@ -498,12 +535,12 @@ enum ReportStatus {
 }
 
 model Report {
-  id         String       @id @default(uuid())
-  reason     ReportReason
-  details    String?
-  status     ReportStatus @default(PENDING)
-  createdAt  DateTime     @default(now())
-  resolvedAt DateTime?
+  id             String       @id @default(uuid())
+  reason         ReportReason
+  details        String?
+  status         ReportStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  resolvedAt     DateTime?
   resolutionNote String?
 
   reporterId String
@@ -512,8 +549,8 @@ model Report {
   targetUserId String?
   targetUser   User?   @relation("targetUserReports", fields: [targetUserId], references: [id], onDelete: SetNull)
 
-  eventId   String?
-  event     Event?   @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
 
   commentId String?
   comment   Comment? @relation(fields: [commentId], references: [id], onDelete: SetNull)
@@ -524,16 +561,16 @@ model Report {
   reviewerId String?
   reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
+  @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
+  @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
+  @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
+  @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
   @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
   @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
   @@index([reviewerId], map: "reports_reviewer_idx")
   @@index([status, createdAt, id], map: "reports_status_created_at_id_idx")
-  @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
-  @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
-  @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
-  @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@map("reports")
 }
 
@@ -616,28 +653,28 @@ model WebhookEvent {
 // ── LGPD ────────────────────────────────────────────────────
 
 model UserConsent {
-  id                 String    @id @default(uuid())
-  userId             String    @unique
-  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Essencial (sempre true, imutável)
-  essentialAccepted  Boolean   @default(true)
+  essentialAccepted Boolean @default(true)
 
   // Os 7 consentimentos granulares da Política de Privacidade v1.0
-  locationPrecise    Boolean   @default(false)  // GPS em tempo real
-  socialFeed         Boolean   @default(false)  // Feed personalizado por amigos
-  socialVisibility   Boolean   @default(false)  // Visibilidade de atividades
-  pushNotifications  Boolean   @default(false)  // Notificações push
-  marketing          Boolean   @default(false)  // Comunicações de marketing
-  analytics          Boolean   @default(false)  // Analytics e métricas de uso
-  surveys            Boolean   @default(false)  // Participação em pesquisas
+  locationPrecise   Boolean @default(false) // GPS em tempo real
+  socialFeed        Boolean @default(false) // Feed personalizado por amigos
+  socialVisibility  Boolean @default(false) // Visibilidade de atividades
+  pushNotifications Boolean @default(false) // Notificações push
+  marketing         Boolean @default(false) // Comunicações de marketing
+  analytics         Boolean @default(false) // Analytics e métricas de uso
+  surveys           Boolean @default(false) // Participação em pesquisas
 
-  consentVersion     String    @default("1.0")
-  ipAddress          String?
-  userAgent          String?
-  collectedAt        DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  revokedAt          DateTime?
+  consentVersion String    @default("1.0")
+  ipAddress      String?
+  userAgent      String?
+  collectedAt    DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  revokedAt      DateTime?
 
   // @@index([userId]) removido — userId @unique já cria índice implícito
   @@map("user_consents")
@@ -651,17 +688,17 @@ enum ConsentAction {
 }
 
 model ConsentAuditLog {
-  id             String   @id @default(uuid())
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   action         ConsentAction
-  changedFields  Json     // { field: string, from: boolean|null, to: boolean }[]
+  changedFields  Json // { field: string, from: boolean|null, to: boolean }[]
   ipAddress      String?
   userAgent      String?
   consentVersion String
 
-  createdAt      DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([createdAt])
@@ -678,14 +715,14 @@ enum AccountLifecycleAction {
 // (opcional) informado ao desativar/excluir — fonte de analytics de churn.
 // Sobrevive à anonimização (o usuário não é deletado, só anonimizado).
 model AccountLifecycleLog {
-  id        String                 @id @default(uuid())
-  userId    String
-  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  action    AccountLifecycleAction
-  reason    String?
+  action AccountLifecycleAction
+  reason String?
 
-  createdAt DateTime               @default(now())
+  createdAt DateTime @default(now())
 
   @@index([userId])
   @@index([action, createdAt])

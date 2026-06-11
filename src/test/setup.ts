@@ -51,7 +51,10 @@ afterEach(async () => {
     testPrisma.eventInvite.deleteMany(),
     testPrisma.eventAttendance.deleteMany(),
     testPrisma.featuredEvent.deleteMany(),
+    // event (seriesId SetNull) antes de eventSeries; eventSeries antes de user
+    // (authorId é RESTRICT).
     testPrisma.event.deleteMany(),
+    testPrisma.eventSeries.deleteMany(),
     testPrisma.follow.deleteMany(),
     testPrisma.socialAccount.deleteMany(),
     testPrisma.passwordResetCode.deleteMany(),
