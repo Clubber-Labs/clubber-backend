@@ -195,6 +195,25 @@ async function normalizeSharedList(
   return events.map((e) => normalizeShared(e, now))
 }
 
+// Filtro que colapsa séries nas listagens: mantém só a ocorrência ÂNCORA de
+// cada série (a de menor data — única graças ao unique (seriesId, date)) +
+// todos os eventos avulsos (seriesId null). `baseWhere` é o MESMO filtro da
+// query principal, para a âncora ser a menor data ENTRE as que passam no filtro
+// (lifecycle, bbox, etc.). NÃO usado no feed GET /events (lá não colapsa).
+async function seriesAnchorFilter(
+  baseWhere: Prisma.EventWhereInput,
+): Promise<Prisma.EventWhereInput> {
+  const grouped = await prisma.event.groupBy({
+    by: ['seriesId'],
+    where: { AND: [baseWhere, { seriesId: { not: null } }] },
+    _min: { date: true },
+  })
+  const anchors = grouped
+    .filter((g) => g.seriesId !== null && g._min.date !== null)
+    .map((g) => ({ seriesId: g.seriesId as string, date: g._min.date as Date }))
+  return { OR: [{ seriesId: null }, ...anchors] }
+}
+
 export async function findPublicEvents(
   filters: Pick<
     ListEventsQuery,
@@ -501,33 +520,37 @@ export async function findEventsForMap(
   const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return []
 
-  const events = await prisma.event.findMany({
-    where: {
-      AND: [
-        { id: { in: idsInBbox } },
-        { isPublic: true },
-        { author: visibleAuthorWhere() },
-        buildMapLifecycleWhere({
-          status: query.status,
-          now,
-          recentPastMs: RECENT_PAST_MS,
-        }),
-        ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
-        ...(query.category && query.category.length > 0
-          ? [{ category: { in: query.category } }]
-          : []),
-        ...(query.dateFrom || query.dateTo
-          ? [
-              {
-                date: {
-                  ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
-                  ...(query.dateTo && { lte: new Date(query.dateTo) }),
-                },
+  const baseWhere: Prisma.EventWhereInput = {
+    AND: [
+      { id: { in: idsInBbox } },
+      { isPublic: true },
+      { author: visibleAuthorWhere() },
+      buildMapLifecycleWhere({
+        status: query.status,
+        now,
+        recentPastMs: RECENT_PAST_MS,
+      }),
+      ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
+      ...(query.category && query.category.length > 0
+        ? [{ category: { in: query.category } }]
+        : []),
+      ...(query.dateFrom || query.dateTo
+        ? [
+            {
+              date: {
+                ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+                ...(query.dateTo && { lte: new Date(query.dateTo) }),
               },
-            ]
-          : []),
-      ],
-    },
+            },
+          ]
+        : []),
+    ],
+  }
+
+  // Colapsa séries: 1 ponto por série no heatmap (a âncora) + avulsos.
+  const anchorFilter = await seriesAnchorFilter(baseWhere)
+  const events = await prisma.event.findMany({
+    where: { AND: [baseWhere, anchorFilter] },
     select: {
       id: true,
       latitude: true,
@@ -662,23 +685,27 @@ export async function findEventsInViewport(
   const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return { events: [], truncated: false }
 
+  const baseWhere: Prisma.EventWhereInput = {
+    AND: [
+      { id: { in: idsInBbox } },
+      { isPublic: true },
+      { author: visibleAuthorWhere() },
+      buildMapLifecycleWhere({
+        status: query.status,
+        now,
+        recentPastMs: RECENT_PAST_MS,
+      }),
+      ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
+      ...(query.category && query.category.length > 0
+        ? [{ category: { in: query.category } }]
+        : []),
+    ],
+  }
+
+  // Colapsa séries antes do take+1, então `truncated` conta representativos.
+  const anchorFilter = await seriesAnchorFilter(baseWhere)
   const rows = (await prisma.event.findMany({
-    where: {
-      AND: [
-        { id: { in: idsInBbox } },
-        { isPublic: true },
-        { author: visibleAuthorWhere() },
-        buildMapLifecycleWhere({
-          status: query.status,
-          now,
-          recentPastMs: RECENT_PAST_MS,
-        }),
-        ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
-        ...(query.category && query.category.length > 0
-          ? [{ category: { in: query.category } }]
-          : []),
-      ],
-    },
+    where: { AND: [baseWhere, anchorFilter] },
     // +1 pra detectar truncamento sem uma query de contagem extra.
     take: query.limit + 1,
     orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
@@ -700,21 +727,25 @@ export async function searchEvents(
   cursor: string | undefined,
   now: Date = new Date(),
 ): Promise<SharedEvent[]> {
+  const baseWhere: Prisma.EventWhereInput = {
+    AND: [
+      { isPublic: true },
+      { author: visibleAuthorWhere() },
+      buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
+      {
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { address: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+    ],
+  }
+
+  // Colapsa séries mantendo o cursor keyset (anchorFilter é só um WHERE extra).
+  const anchorFilter = await seriesAnchorFilter(baseWhere)
   const events = (await prisma.event.findMany({
-    where: {
-      AND: [
-        { isPublic: true },
-        { author: visibleAuthorWhere() },
-        buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
-        {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-            { address: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-      ],
-    },
+    where: { AND: [baseWhere, anchorFilter] },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
