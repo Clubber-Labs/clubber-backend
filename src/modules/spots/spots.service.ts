@@ -1,25 +1,40 @@
+import { cache } from '../../lib/cache'
+import { getPlacesClient, type PlaceCandidate } from '../../lib/places'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   findActiveParticipant,
   reactivateParticipant,
 } from '../chat/chat.repository'
+import { findUserPreferredCategories } from '../feed/feed.repository'
 import { areMutualFollowers } from '../follows/follows.repository'
 import {
   cancelSpotById,
+  consumeGenerationQuota,
   countActiveMembersByConversation,
   createSpotWithConversation,
   findSpotDetail,
   findSpotForMutation,
   findSpotIdsInBbox,
   findSpotsByIds,
+  findUserIsPremium,
   type SpotDetail,
   updateSpotById,
 } from './spots.repository'
 import type {
   CreateSpotBody,
   ListSpotsQuery,
+  SuggestionsQuery,
   UpdateSpotBody,
 } from './spots.schema'
+
+const FREE_DAILY_QUOTA = 5
+const PREMIUM_DAILY_QUOTA = 25
+const SUGGESTIONS_TTL_SECONDS = 15 * 60
+
+/** Célula de ~1km (2 casas decimais) para a chave de cache por região. */
+function gridCell(value: number): string {
+  return (Math.round(value * 100) / 100).toFixed(2)
+}
 
 const MAX_ACTIVE_SPOTS = 5
 
@@ -155,4 +170,52 @@ export async function cancelSpot(id: string, requesterId: string) {
     throw { statusCode: 403, message: 'Você não tem permissão para cancelar' }
   }
   if (!spot.canceledAt) await cancelSpotById(id, new Date())
+}
+
+/**
+ * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places perto
+ * do ponto, filtrados pelas preferências do usuário. Consome 1 da quota diária
+ * (5 free / 25 premium) ANTES de buscar — conta mesmo em cache hit; sem
+ * preferências, nem consome (400). Cache por célula de ~1km + categorias.
+ */
+export async function generateSuggestions(
+  userId: string,
+  query: SuggestionsQuery,
+) {
+  const categories = await findUserPreferredCategories(userId)
+  if (categories.length === 0) {
+    throw {
+      statusCode: 400,
+      message: 'Configure suas preferências de rolê para gerar sugestões',
+    }
+  }
+
+  const isPremium = await findUserIsPremium(userId)
+  const limit = isPremium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA
+  const quota = await consumeGenerationQuota(userId, limit)
+  if (!quota.allowed) {
+    throw {
+      statusCode: 429,
+      message: `Limite diário de ${limit} gerações atingido`,
+    }
+  }
+
+  const sortedCats = [...categories].sort()
+  const key = cache.key(
+    'spots:suggestions',
+    gridCell(query.latitude),
+    gridCell(query.longitude),
+    sortedCats.join(','),
+  )
+  let suggestions = await cache.get<PlaceCandidate[]>(key)
+  if (!suggestions) {
+    suggestions = await getPlacesClient().searchNearby({
+      latitude: query.latitude,
+      longitude: query.longitude,
+      categories: sortedCats,
+    })
+    await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)
+  }
+
+  return { suggestions, remaining: Math.max(0, limit - quota.used) }
 }

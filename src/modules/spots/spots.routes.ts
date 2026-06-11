@@ -6,11 +6,13 @@ import {
   patchSpot,
   postJoinSpot,
   postSpot,
+  postSuggestions,
 } from './spots.controller'
 import {
   createSpotSchema,
   listSpotsQuerySchema,
   spotParamSchema,
+  suggestionsSchema,
   updateSpotSchema,
 } from './spots.schema'
 
@@ -19,6 +21,13 @@ export async function spotsRoutes(app: FastifyInstance) {
     '/spots',
     { schema: { body: createSpotSchema }, onRequest: [app.authenticate] },
     postSpot,
+  )
+
+  // Geração de sugestões (botão "gerar") — consome quota diária.
+  app.post(
+    '/spots/suggestions',
+    { schema: { body: suggestionsSchema }, onRequest: [app.authenticate] },
+    postSuggestions,
   )
 
   app.get(

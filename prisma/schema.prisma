@@ -106,7 +106,8 @@ model User {
   notifications Notification[]
 
   // Spots (rolês sugeridos, distintos de Event)
-  spotsCreated Spot[] @relation("spotsCreated")
+  spotsCreated        Spot[]                @relation("spotsCreated")
+  spotGenerationUsage SpotGenerationUsage[]
 
   // Predicado do reconciler: PENDING_DELETION com scheduledDeletionAt vencido.
   @@index([accountStatus, scheduledDeletionAt])
@@ -767,4 +768,20 @@ model Spot {
   @@index([creatorId])
   @@index([categories], type: Gin)
   @@map("spots")
+}
+
+// Quota diária de geração de sugestões de spot (botão "gerar"). Uma linha por
+// (usuário, dia); `count` é consumido de forma atômica. Free = 5, premium = 25
+// (o limite é regra de negócio no service, não no schema). A renovação de spot
+// no lifecycle consome desta MESMA quota.
+model SpotGenerationUsage {
+  userId    String
+  day       DateTime @db.Date
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+  @@map("spot_generation_usage")
 }

@@ -231,3 +231,34 @@ export async function findSpotsByIds(ids: string[]): Promise<SpotDetail[]> {
   const byId = new Map(spots.map((s) => [s.id, s]))
   return ids.map((id) => byId.get(id)).filter((s): s is SpotDetail => !!s)
 }
+
+export async function findUserIsPremium(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isPremium: true },
+  })
+  return user?.isPremium ?? false
+}
+
+/**
+ * Consome 1 da quota diária de geração, de forma ATÔMICA e à prova de corrida:
+ * o upsert só incrementa enquanto `count < limit` (cláusula WHERE no ON CONFLICT).
+ * Se já está no limite, o UPDATE não acontece e o RETURNING vem vazio → negado.
+ * `CURRENT_DATE` (data do servidor) define o dia, evitando descompasso de fuso
+ * entre app e banco.
+ */
+export async function consumeGenerationQuota(
+  userId: string,
+  limit: number,
+): Promise<{ allowed: boolean; used: number }> {
+  const rows = await prisma.$queryRaw<{ count: number }[]>(Prisma.sql`
+    INSERT INTO "spot_generation_usage" ("userId", "day", "count", "updatedAt")
+    VALUES (${userId}, CURRENT_DATE, 1, now())
+    ON CONFLICT ("userId", "day")
+    DO UPDATE SET "count" = "spot_generation_usage"."count" + 1, "updatedAt" = now()
+    WHERE "spot_generation_usage"."count" < ${limit}
+    RETURNING "count"
+  `)
+  if (rows.length === 0) return { allowed: false, used: limit }
+  return { allowed: true, used: Number(rows[0].count) }
+}

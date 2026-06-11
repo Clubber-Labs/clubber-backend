@@ -1,9 +1,11 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
 import { setMailer } from '../lib/mailer'
+import { setPlacesClient } from '../lib/places'
 import { setPushService } from '../lib/push'
 import { redis } from '../lib/redis'
 import { setStorage } from '../lib/storage'
 import { fakeMailer } from './fake-mailer'
+import { fakePlaces } from './fake-places'
 import { fakePush } from './fake-push'
 import { fakeStorage } from './fake-storage'
 import { testPrisma } from './prisma'
@@ -12,6 +14,7 @@ beforeAll(() => {
   setStorage(fakeStorage)
   setMailer(fakeMailer)
   setPushService(fakePush)
+  setPlacesClient(fakePlaces)
 })
 
 const dbUrl = process.env.DATABASE_URL ?? ''
@@ -39,6 +42,7 @@ if (!redisUrl.endsWith('/15')) {
 afterEach(async () => {
   await testPrisma.$transaction([
     testPrisma.report.deleteMany(),
+    testPrisma.spotGenerationUsage.deleteMany(),
     // Spot referencia conversation e creator com RESTRICT — apaga antes de ambos.
     testPrisma.spot.deleteMany(),
     // Chat: conversation cascateia participants/messages/attachments;
@@ -60,6 +64,7 @@ afterEach(async () => {
   fakeStorage.reset()
   fakeMailer.reset()
   fakePush.reset()
+  fakePlaces.reset()
   if (redis) await redis.flushdb()
 })
 

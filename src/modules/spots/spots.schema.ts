@@ -61,7 +61,14 @@ export const listSpotsQuerySchema = z
     path: ['bboxEast'],
   })
 
+// Geração de sugestões: ponto em torno do qual buscar (centro do mapa / posição).
+export const suggestionsSchema = z.object({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+})
+
 export type CreateSpotBody = z.infer<typeof createSpotSchema>
 export type UpdateSpotBody = z.infer<typeof updateSpotSchema>
 export type SpotParam = z.infer<typeof spotParamSchema>
 export type ListSpotsQuery = z.infer<typeof listSpotsQuerySchema>
+export type SuggestionsQuery = z.infer<typeof suggestionsSchema>

@@ -3,12 +3,14 @@ import type {
   CreateSpotBody,
   ListSpotsQuery,
   SpotParam,
+  SuggestionsQuery,
   UpdateSpotBody,
 } from './spots.schema'
 import {
   cancelSpot,
   createSpot,
   editSpot,
+  generateSuggestions,
   getSpot,
   joinSpot,
   listSpotsOnMap,
@@ -43,6 +45,15 @@ export async function postJoinSpot(
   const { conversationId, created } = await joinSpot(request.user.sub, id)
   // 201 no primeiro ingresso (cria a participação); 200 nos repetidos.
   return reply.status(created ? 201 : 200).send({ conversationId })
+}
+
+export async function postSuggestions(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const body = request.body as SuggestionsQuery
+  const result = await generateSuggestions(request.user.sub, body)
+  return reply.send(result)
 }
 
 export async function patchSpot(request: FastifyRequest, reply: FastifyReply) {

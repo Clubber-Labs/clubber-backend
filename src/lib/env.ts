@@ -48,6 +48,7 @@ const baseSchema = z.object({
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
   GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
   FACEBOOK_APP_ID: z.string().optional(),
   FACEBOOK_APP_SECRET: z.string().optional(),
   FEATURED_RECONCILE_INTERVAL_MS: z.coerce
@@ -253,6 +254,7 @@ export const env = {
   PASSWORD_RESET_CLEANUP_INTERVAL_MS: parsed.PASSWORD_RESET_CLEANUP_INTERVAL_MS,
   PASSWORD_RESET_CLEANUP_ENABLED: parsed.PASSWORD_RESET_CLEANUP_ENABLED,
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
+  GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
   FACEBOOK_APP_ID: parsed.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
