@@ -1,10 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import {
   deleteSpot,
+  getMySpots,
   getSpotById,
   getSpots,
   patchSpot,
   postJoinSpot,
+  postRenewSpot,
   postSpot,
   postSuggestions,
 } from './spots.controller'
@@ -29,6 +31,11 @@ export async function spotsRoutes(app: FastifyInstance) {
     { schema: { body: suggestionsSchema }, onRequest: [app.authenticate] },
     postSuggestions,
   )
+
+  // "Meus spots": os spots ativos do próprio usuário (editar/cancelar/renovar).
+  // Rota estática registrada antes de /spots/:id — o roteador do Fastify já
+  // prioriza estática sobre paramétrica, mas mantemos a ordem explícita.
+  app.get('/spots/mine', { onRequest: [app.authenticate] }, getMySpots)
 
   app.get(
     '/spots',
@@ -68,5 +75,12 @@ export async function spotsRoutes(app: FastifyInstance) {
     '/spots/:id/members',
     { schema: { params: spotParamSchema }, onRequest: [app.authenticate] },
     postJoinSpot,
+  )
+
+  // Renovar o rolê por mais 24h (consome quota diária). Só o criador.
+  app.post(
+    '/spots/:id/renew',
+    { schema: { params: spotParamSchema }, onRequest: [app.authenticate] },
+    postRenewSpot,
   )
 }

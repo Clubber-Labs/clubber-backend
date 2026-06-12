@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeBlock, makeFollow, makeSpot, makeUser } from '../../test/factories'
+import {
+  makeBlock,
+  makeFollow,
+  makeSpot,
+  makeSpotGenerationUsage,
+  makeUser,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -125,6 +131,21 @@ describe('POST /spots', () => {
       headers: auth(user.id),
       body: spotBody({
         categories: ['PARTY', 'MUSIC', 'SPORTS', 'TECH', 'ART', 'GAMING'],
+      }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejeita janela maior que 24h (400)', async () => {
+    const user = await makeUser()
+    const now = Date.now()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({
+        startsAt: new Date(now + 3600_000).toISOString(),
+        endsAt: new Date(now + 25 * 3600_000).toISOString(),
       }),
     })
     expect(res.statusCode).toBe(400)
@@ -405,6 +426,113 @@ describe('DELETE /spots/:id (cancelar)', () => {
   })
 })
 
+describe('POST /spots/:id/renew (renovar)', () => {
+  it('criador renova: endsAt +24h (200)', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const before = spot.endsAt.getTime()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(200)
+    const after = new Date(res.json().endsAt).getTime()
+    expect(Math.round((after - before) / 3600_000)).toBe(24)
+  })
+
+  it('re-arma o lembrete (zera renewalNotifiedAt)', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    await testPrisma.spot.update({
+      where: { id: spot.id },
+      data: { renewalNotifiedAt: new Date() },
+    })
+
+    await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+
+    const after = await testPrisma.spot.findUnique({ where: { id: spot.id } })
+    expect(after?.renewalNotifiedAt).toBeNull()
+  })
+
+  it('não-criador não renova (403)', async () => {
+    const creator = await makeUser()
+    const other = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(other.id),
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('renovar spot encerrado → 409', async () => {
+    const creator = await makeUser()
+    const p = Date.now() - 2 * 3600_000
+    const spot = await makeSpot(creator.id, {
+      startsAt: new Date(p),
+      endsAt: new Date(p + 3600_000),
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('renovar spot cancelado → 409', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id, { canceledAt: new Date() })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('renovar com a quota diária estourada → 429', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    await makeSpotGenerationUsage(creator.id, 5) // free no teto
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(429)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/renew`,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('404 para spot inexistente', async () => {
+    const creator = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/00000000-0000-0000-0000-000000000000/renew',
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(404)
+  })
+})
+
 describe('GET /spots (mapa)', () => {
   it('lista spots ativos dentro da bbox', async () => {
     const creator = await makeUser()
@@ -515,6 +643,74 @@ describe('GET /spots (mapa)', () => {
       headers: auth(blocked.id),
     })
     expect(res.json().map((s: { id: string }) => s.id)).not.toContain(spot.id)
+  })
+})
+
+describe('GET /spots/mine (meus spots)', () => {
+  it('lista só os spots ativos do próprio usuário, com memberCount (200)', async () => {
+    const creator = await makeUser()
+    const member = await makeUser()
+    const other = await makeUser()
+    const mine = await makeSpot(creator.id, { memberIds: [member.id] })
+    const alheio = await makeSpot(other.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.map((s: { id: string }) => s.id)).toEqual([mine.id])
+    expect(body.map((s: { id: string }) => s.id)).not.toContain(alheio.id)
+    expect(body[0]).toMatchObject({ id: mine.id, memberCount: 2 })
+  })
+
+  it('exclui cancelado e encerrado', async () => {
+    const creator = await makeUser()
+    const past = Date.now() - 10 * 3600_000
+    const active = await makeSpot(creator.id)
+    const canceled = await makeSpot(creator.id, { canceledAt: new Date() })
+    const ended = await makeSpot(creator.id, {
+      startsAt: new Date(past),
+      endsAt: new Date(past + 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toContain(active.id)
+    expect(ids).not.toContain(canceled.id)
+    expect(ids).not.toContain(ended.id)
+  })
+
+  it('ordena pelo vencimento mais próximo primeiro', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    const later = await makeSpot(creator.id, {
+      endsAt: new Date(now + 6 * 3600_000),
+    })
+    const sooner = await makeSpot(creator.id, {
+      endsAt: new Date(now + 2 * 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+    expect(res.json().map((s: { id: string }) => s.id)).toEqual([
+      sooner.id,
+      later.id,
+    ])
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({ method: 'GET', url: '/spots/mine' })
+    expect(res.statusCode).toBe(401)
   })
 })
 

@@ -230,6 +230,13 @@ export async function makeSpotDiscoveryUsage(userId: string, count: number) {
     VALUES (${userId}, CURRENT_DATE, ${count}, now())`
 }
 
+/** Pré-popula a quota diária de geração (CURRENT_DATE) — para testar o limite. */
+export async function makeSpotGenerationUsage(userId: string, count: number) {
+  return testPrisma.$executeRaw`
+    INSERT INTO "spot_generation_usage" ("userId", "day", "count", "updatedAt")
+    VALUES (${userId}, CURRENT_DATE, ${count}, now())`
+}
+
 export async function makeFeaturedEvent(
   eventId: string,
   createdBy: string,

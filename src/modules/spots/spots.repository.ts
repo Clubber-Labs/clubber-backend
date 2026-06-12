@@ -116,6 +116,32 @@ export async function findSpotForMutation(id: string) {
   })
 }
 
+/** Como findSpotForMutation, mais endsAt — para o gate de "ativo" do renew. */
+export async function findSpotForRenew(id: string) {
+  return prisma.spot.findUnique({
+    where: { id },
+    select: { id: true, creatorId: true, canceledAt: true, endsAt: true },
+  })
+}
+
+/**
+ * Renova: empurra endsAt +24h e ZERA renewalNotifiedAt (re-arma o lembrete para
+ * a nova janela). O +24h é a partir do endsAt ATUAL, no SQL (atômico).
+ */
+export async function renewSpotById(id: string): Promise<SpotDetail | null> {
+  // RETURNING detecta atomicamente se o UPDATE pegou alguma linha — se o spot
+  // sumiu nesse meio-tempo, rows vazio → null (sem um SELECT extra à toa).
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    UPDATE "spots"
+    SET "endsAt" = "endsAt" + interval '24 hours',
+        "renewalNotifiedAt" = NULL,
+        "updatedAt" = now()
+    WHERE id = ${id}
+    RETURNING id`)
+  if (rows.length === 0) return null
+  return findSpotDetail(id)
+}
+
 export async function updateSpotById(
   id: string,
   data: { title?: string; description?: string | null },
@@ -250,6 +276,101 @@ export async function findSpotsByIds(ids: string[]): Promise<SpotDetail[]> {
   // Preserva a ordem do ranking espacial (createdAt DESC do SQL).
   const byId = new Map(spots.map((s) => [s.id, s]))
   return ids.map((id) => byId.get(id)).filter((s): s is SpotDetail => !!s)
+}
+
+/**
+ * Spots ativos do criador (tela "Meus spots"): não cancelados e ainda na janela
+ * (endsAt > now). Ordenados pelo vencimento mais próximo — quem está prestes a
+ * expirar aparece primeiro (contexto pra renovar). Limitado naturalmente pelo
+ * teto de spots ativos por usuário.
+ */
+export async function findOwnActiveSpots(
+  creatorId: string,
+  now: Date,
+): Promise<SpotDetail[]> {
+  return prisma.spot.findMany({
+    where: { creatorId, canceledAt: null, endsAt: { gt: now } },
+    orderBy: { endsAt: 'asc' },
+    select: spotDetailSelect,
+  })
+}
+
+// ── Lifecycle (reconciler) ───────────────────────────────────────────────────
+
+/** Spots ativos vencendo dentro de `leadMs` e ainda não lembrados. */
+export async function findSpotsNeedingRenewalReminder(
+  now: Date,
+  leadMs: number,
+  limit: number,
+) {
+  return prisma.spot.findMany({
+    where: {
+      canceledAt: null,
+      renewalNotifiedAt: null,
+      endsAt: { gt: now, lte: new Date(now.getTime() + leadMs) },
+    },
+    select: { id: true, title: true, creatorId: true, endsAt: true },
+    take: limit,
+  })
+}
+
+/** CAS: marca o lembrete como enviado só se ainda NULL. count 0 = outro tick venceu. */
+export async function markSpotRenewalNotified(
+  spotId: string,
+  now: Date,
+): Promise<number> {
+  const res = await prisma.spot.updateMany({
+    where: { id: spotId, renewalNotifiedAt: null },
+    data: { renewalNotifiedAt: now },
+  })
+  return res.count
+}
+
+/** Spots "concluídos" elegíveis para limpeza: cancelados OU já encerrados. */
+export async function findCleanableSpots(now: Date, limit: number) {
+  return prisma.spot.findMany({
+    where: { OR: [{ canceledAt: { not: null } }, { endsAt: { lte: now } }] },
+    select: { id: true, conversationId: true },
+    take: limit,
+  })
+}
+
+/**
+ * Limpeza atômica de um spot concluído. Numa única transação:
+ *  1. apaga o spot SE ainda elegível (cancelado ou encerrado) — guard anti-corrida
+ *     com renew; se renovou entre a seleção e aqui, count 0 → 'skipped';
+ *  2. com o spot já fora, decide o destino da conversa: se só resta o criador
+ *     (≤1 membro ativo) apaga a conversa junto ('deleted'); senão o grupo
+ *     "gradua" e sobrevive como conversa normal ('graduated').
+ *
+ * A atomicidade é o ponto: spot e conversa caem juntos ou nenhum cai — sem ela,
+ * um crash entre os dois passos deixaria a conversa órfã para sempre (o spot já
+ * não existe, então nenhum tick futuro a recolhe). A ordem respeita a FK
+ * spot→conversation RESTRICT (spot primeiro).
+ */
+export async function deleteCleanableSpot(
+  spotId: string,
+  conversationId: string,
+  now: Date,
+): Promise<'deleted' | 'graduated' | 'skipped'> {
+  return prisma.$transaction(async (tx) => {
+    const res = await tx.spot.deleteMany({
+      where: {
+        id: spotId,
+        OR: [{ canceledAt: { not: null } }, { endsAt: { lte: now } }],
+      },
+    })
+    if (res.count === 0) return 'skipped'
+
+    const members = await tx.conversationParticipant.count({
+      where: { conversationId, leftAt: null },
+    })
+    if (members <= 1) {
+      await tx.conversation.deleteMany({ where: { id: conversationId } })
+      return 'deleted'
+    }
+    return 'graduated'
+  })
 }
 
 export async function findUserIsPremium(userId: string): Promise<boolean> {

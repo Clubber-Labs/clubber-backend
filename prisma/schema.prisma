@@ -658,6 +658,7 @@ enum NotificationType {
   EVENT_NEARBY
   SPOT_NEARBY
   SPOT_JOIN
+  SPOT_RENEWAL
   FOLLOW_REQUEST
   FOLLOW_ACCEPTED
   NEW_FOLLOWER
@@ -760,6 +761,9 @@ model Spot {
   startsAt    DateTime
   endsAt      DateTime
   canceledAt  DateTime?
+  // Marcado quando o lembrete de renovação é enviado; zerado ao renovar
+  // (re-arma o lembrete para a nova janela). NULL = ainda não lembrado.
+  renewalNotifiedAt DateTime?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
 
@@ -770,6 +774,8 @@ model Spot {
   conversation   Conversation @relation(fields: [conversationId], references: [id])
 
   @@index([creatorId])
+  // Lembrete: spots ativos vencendo ainda não lembrados.
+  @@index([renewalNotifiedAt, endsAt, canceledAt], map: "spots_renewal_reminder_idx")
   @@index([categories], type: Gin)
   @@map("spots")
 }

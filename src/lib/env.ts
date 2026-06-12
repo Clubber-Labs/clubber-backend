@@ -104,6 +104,18 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Lifecycle de spots: lembrete de renovação + limpeza no vencimento.
+  SPOT_LIFECYCLE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  SPOT_LIFECYCLE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Antecedência do lembrete de renovação antes do endsAt (default 1h).
+  SPOT_RENEWAL_LEAD_MS: z.coerce.number().int().positive().default(3600000),
   // Notificações (push + in-app). Master switch da feature — OFF por padrão
   // (opt-in). Quando ligada, a fila de fan-out e os gatilhos passam a publicar.
   NOTIFICATIONS_ENABLED: z
@@ -274,6 +286,9 @@ export const env = {
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
+  SPOT_LIFECYCLE_INTERVAL_MS: parsed.SPOT_LIFECYCLE_INTERVAL_MS,
+  SPOT_LIFECYCLE_ENABLED: parsed.SPOT_LIFECYCLE_ENABLED,
+  SPOT_RENEWAL_LEAD_MS: parsed.SPOT_RENEWAL_LEAD_MS,
   NOTIFICATIONS_ENABLED: parsed.NOTIFICATIONS_ENABLED,
   EXPO_ACCESS_TOKEN: parsed.EXPO_ACCESS_TOKEN,
   NOTIFY_RETENTION_DAYS: parsed.NOTIFY_RETENTION_DAYS,
