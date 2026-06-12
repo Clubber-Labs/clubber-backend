@@ -17,12 +17,23 @@ export async function findActiveSubscriptionByUserId(userId: string) {
 }
 
 /**
- * True se o usuário já teve qualquer subscription (ativa, expirada, cancelada).
- * Usado pra decidir se concede trial novo (não concede se já teve).
- * Mitigação parcial de trial abuse — ver "Trial abuse" no plano.
+ * True se o usuário já teve uma subscription que VALEU algo — política de
+ * produto: um trial por usuário. Quem chegou a TRIALING/ACTIVE (e depois
+ * PAST_DUE/CANCELED/UNPAID) não ganha trial de novo, mesmo voltando após
+ * cancelar.
+ *
+ * INCOMPLETE e INCOMPLETE_EXPIRED ficam de fora: o fluxo PaymentSheet cria a
+ * subscription como `default_incomplete` ANTES do pagamento, então abrir a
+ * sheet e desistir gera uma linha INCOMPLETE sem o usuário nunca ter pago nem
+ * trialado — contar isso queimava o trial de quem só abandonou a sheet.
  */
 export async function hasAnyPreviousSubscription(userId: string) {
-  const count = await prisma.subscription.count({ where: { userId } })
+  const count = await prisma.subscription.count({
+    where: {
+      userId,
+      status: { notIn: ['INCOMPLETE', 'INCOMPLETE_EXPIRED'] },
+    },
+  })
   return count > 0
 }
 

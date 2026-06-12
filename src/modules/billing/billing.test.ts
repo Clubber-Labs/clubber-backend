@@ -306,6 +306,27 @@ describe('repository', () => {
 
       expect(has).toBe(true)
     })
+
+    it('retorna false quando só existe INCOMPLETE (PaymentSheet aberta e abandonada)', async () => {
+      // createSubscriptionIntent cria a subscription como default_incomplete
+      // ANTES do pagamento; o webhook persiste a linha como INCOMPLETE. Quem
+      // desistiu da sheet nunca pagou nem trialou — não pode queimar o trial.
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'INCOMPLETE' })
+
+      const has = await hasAnyPreviousSubscription(user.id)
+
+      expect(has).toBe(false)
+    })
+
+    it('retorna false quando só existe INCOMPLETE_EXPIRED', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'INCOMPLETE_EXPIRED' })
+
+      const has = await hasAnyPreviousSubscription(user.id)
+
+      expect(has).toBe(false)
+    })
   })
 
   describe('isEventProcessed + markEventProcessedTx', () => {
@@ -483,6 +504,30 @@ describe('service', () => {
         expect.objectContaining({
           idempotencyKey: expect.stringContaining('checkout_'),
         }),
+      )
+    })
+
+    it('aplica trial quando a única subscription anterior é INCOMPLETE (sheet abandonada)', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'INCOMPLETE' })
+      // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_a',
+      } as any)
+      vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
+        url: 'https://x',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+
+      await createCheckoutSession(user.id)
+
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subscription_data: expect.objectContaining({
+            trial_period_days: 7,
+          }),
+        }),
+        expect.anything(),
       )
     })
 
