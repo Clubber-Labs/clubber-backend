@@ -19,6 +19,23 @@ export async function findAcceptedFollowingIds(userId: string) {
   return follows.map((f) => f.followingId)
 }
 
+/**
+ * Follow mútuo aceito (A↔B) — a definição de "amigo" para spots privados:
+ * ambos precisam seguir um ao outro com status ACCEPTED.
+ */
+export async function areMutualFollowers(a: string, b: string) {
+  const count = await prisma.follow.count({
+    where: {
+      status: 'ACCEPTED',
+      OR: [
+        { followerId: a, followingId: b },
+        { followerId: b, followingId: a },
+      ],
+    },
+  })
+  return count === 2
+}
+
 export async function createFollow(
   followerId: string,
   followingId: string,

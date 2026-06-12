@@ -76,7 +76,9 @@ export async function makeEvent(
   authorId: string,
   overrides: {
     isPublic?: boolean
+    /** Atalho legado: uma categoria única (vira `[category]`). */
     category?: EventCategory
+    categories?: EventCategory[]
     date?: Date
     endDate?: Date | null
     canceledAt?: Date | null
@@ -98,7 +100,9 @@ export async function makeEvent(
       endDate: overrides.endDate ?? null,
       latitude: overrides.latitude ?? -25.4,
       longitude: overrides.longitude ?? -49.3,
-      category: overrides.category ?? 'PARTY',
+      categories:
+        overrides.categories ??
+        (overrides.category ? [overrides.category] : ['PARTY']),
       isPublic: overrides.isPublic ?? true,
       isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
@@ -217,6 +221,20 @@ export async function makeUserCategoryPreference(
   return testPrisma.userCategoryPreference.create({
     data: { userId, category },
   })
+}
+
+/** Pré-popula o cap de descoberta do dia (CURRENT_DATE) — para testar o teto. */
+export async function makeSpotDiscoveryUsage(userId: string, count: number) {
+  return testPrisma.$executeRaw`
+    INSERT INTO "spot_discovery_usage" ("userId", "day", "count", "updatedAt")
+    VALUES (${userId}, CURRENT_DATE, ${count}, now())`
+}
+
+/** Pré-popula a quota diária de geração (CURRENT_DATE) — para testar o limite. */
+export async function makeSpotGenerationUsage(userId: string, count: number) {
+  return testPrisma.$executeRaw`
+    INSERT INTO "spot_generation_usage" ("userId", "day", "count", "updatedAt")
+    VALUES (${userId}, CURRENT_DATE, ${count}, now())`
 }
 
 export async function makeFeaturedEvent(
@@ -340,5 +358,58 @@ export async function makeMessage(
 export async function makeBlock(blockerId: string, blockedId: string) {
   return testPrisma.block.create({
     data: { blockerId, blockedId },
+  })
+}
+
+/**
+ * Cria um spot já publicado: a conversa GROUP aberta (criador como ADMIN) + o
+ * spot ligado a ela. Janela ativa por padrão (começou há 1h, termina em 3h).
+ */
+export async function makeSpot(
+  creatorId: string,
+  overrides: {
+    title?: string
+    description?: string | null
+    categories?: EventCategory[]
+    visibility?: 'PUBLIC' | 'FRIENDS'
+    placeId?: string
+    latitude?: number
+    longitude?: number
+    startsAt?: Date
+    endsAt?: Date
+    canceledAt?: Date | null
+    memberIds?: string[]
+  } = {},
+) {
+  const id = uid()
+  const conversation = await testPrisma.conversation.create({
+    data: {
+      type: 'GROUP',
+      title: overrides.title ?? `Rolê ${id}`,
+      createdById: creatorId,
+      participants: {
+        create: [
+          { userId: creatorId, role: 'ADMIN' },
+          ...(overrides.memberIds ?? []).map((userId) => ({ userId })),
+        ],
+      },
+    },
+  })
+  const now = Date.now()
+  return testPrisma.spot.create({
+    data: {
+      title: overrides.title ?? `Rolê ${id}`,
+      description: overrides.description ?? null,
+      categories: overrides.categories ?? ['PARTY'],
+      visibility: overrides.visibility ?? 'PUBLIC',
+      placeId: overrides.placeId ?? `place_${id}`,
+      latitude: overrides.latitude ?? -25.4,
+      longitude: overrides.longitude ?? -49.3,
+      startsAt: overrides.startsAt ?? new Date(now - 3600_000),
+      endsAt: overrides.endsAt ?? new Date(now + 3 * 3600_000),
+      canceledAt: overrides.canceledAt ?? null,
+      creatorId,
+      conversationId: conversation.id,
+    },
   })
 }

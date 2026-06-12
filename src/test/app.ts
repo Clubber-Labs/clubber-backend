@@ -33,6 +33,7 @@ import { postsRoutes } from '../modules/posts/posts.routes'
 import { reactionsRoutes } from '../modules/reactions/reactions.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
+import { spotsRoutes } from '../modules/spots/spots.routes'
 import { usersRoutes } from '../modules/users/users.routes'
 import { metricsPlugin } from '../plugins/metrics'
 import { requestIdPlugin } from '../plugins/request-id'
@@ -98,6 +99,7 @@ export function buildApp() {
   app.register(billingWebhookRoutes)
   app.register(blocksRoutes)
   app.register(chatRoutes)
+  app.register(spotsRoutes)
   app.register(consentRoutes)
   app.register(notificationsRoutes)
 

@@ -51,12 +51,14 @@ import { startNotificationRetentionReconciler } from './modules/notifications/no
 import { notificationsGateway } from './modules/notifications/notifications.gateway'
 import { notificationsRoutes } from './modules/notifications/notifications.routes'
 import { startPushReceiptsReconciler } from './modules/notifications/push-receipts.reconciler'
+import { startSpotLifecycleReconciler } from './modules/notifications/spot-lifecycle.reconciler'
 import { startPasswordResetCleanupReconciler } from './modules/password-reset/password-reset.reconciler'
 import { passwordResetRoutes } from './modules/password-reset/password-reset.routes'
 import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
+import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
 import { metricsPlugin } from './plugins/metrics'
@@ -164,6 +166,7 @@ app.register(billingRoutes)
 app.register(billingWebhookRoutes)
 app.register(blocksRoutes)
 app.register(chatRoutes)
+app.register(spotsRoutes)
 app.register(notificationsRoutes)
 app.register(chatGateway)
 app.register(notificationsGateway)
@@ -211,6 +214,12 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
     startLocationRetentionReconciler(
       env.NOTIFY_LOCATION_CLEANUP_INTERVAL_MS,
       env.NOTIFY_LOCATION_TTL_DAYS,
+    )
+  }
+  if (env.NODE_ENV !== 'test' && env.SPOT_LIFECYCLE_ENABLED) {
+    startSpotLifecycleReconciler(
+      env.SPOT_LIFECYCLE_INTERVAL_MS,
+      env.SPOT_RENEWAL_LEAD_MS,
     )
   }
   if (env.NODE_ENV !== 'test' && env.NOTIFICATIONS_ENABLED) {

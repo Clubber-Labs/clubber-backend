@@ -48,6 +48,8 @@ const baseSchema = z.object({
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
   GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
   FACEBOOK_APP_ID: z.string().optional(),
   FACEBOOK_APP_SECRET: z.string().optional(),
   FEATURED_RECONCILE_INTERVAL_MS: z.coerce
@@ -124,6 +126,18 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Lifecycle de spots: lembrete de renovação + limpeza no vencimento.
+  SPOT_LIFECYCLE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  SPOT_LIFECYCLE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Antecedência do lembrete de renovação antes do endsAt (default 1h).
+  SPOT_RENEWAL_LEAD_MS: z.coerce.number().int().positive().default(3600000),
   // Notificações (push + in-app). Master switch da feature — OFF por padrão
   // (opt-in). Quando ligada, a fila de fan-out e os gatilhos passam a publicar.
   NOTIFICATIONS_ENABLED: z
@@ -275,6 +289,8 @@ export const env = {
   PASSWORD_RESET_CLEANUP_INTERVAL_MS: parsed.PASSWORD_RESET_CLEANUP_INTERVAL_MS,
   PASSWORD_RESET_CLEANUP_ENABLED: parsed.PASSWORD_RESET_CLEANUP_ENABLED,
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
+  GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
+  ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY,
   FACEBOOK_APP_ID: parsed.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
@@ -301,6 +317,9 @@ export const env = {
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
+  SPOT_LIFECYCLE_INTERVAL_MS: parsed.SPOT_LIFECYCLE_INTERVAL_MS,
+  SPOT_LIFECYCLE_ENABLED: parsed.SPOT_LIFECYCLE_ENABLED,
+  SPOT_RENEWAL_LEAD_MS: parsed.SPOT_RENEWAL_LEAD_MS,
   NOTIFICATIONS_ENABLED: parsed.NOTIFICATIONS_ENABLED,
   EXPO_ACCESS_TOKEN: parsed.EXPO_ACCESS_TOKEN,
   NOTIFY_RETENTION_DAYS: parsed.NOTIFY_RETENTION_DAYS,

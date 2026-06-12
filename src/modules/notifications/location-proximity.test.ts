@@ -18,7 +18,7 @@ function token(userId: string) {
 const EVENT = {
   longitude: -49.26819,
   latitude: -25.38116,
-  category: 'MUSIC' as EventCategory,
+  categories: ['MUSIC'] as EventCategory[],
 }
 const GEOHASH_NEAR = '6gkzwg' // mesmo ponto do evento (dist ~0)
 const GEOHASH_MID = '6gkzwj' // ~3.5km do evento
@@ -56,7 +56,7 @@ async function makeNotifiableUser(opts: NotifiableOpts = {}) {
   })
   if (opts.category !== null) {
     await testPrisma.userCategoryPreference.create({
-      data: { userId: user.id, category: opts.category ?? EVENT.category },
+      data: { userId: user.id, category: opts.category ?? EVENT.categories[0] },
     })
   }
   return user
@@ -227,6 +227,21 @@ describe('findUsersToNotifyNearEvent', () => {
     const ids = await scan(author.id)
     expect(ids).not.toContain(small.id) // ~3.5km > 2km + over-notify
     expect(ids).toContain(big.id) // ~3.5km < 10km
+  })
+
+  it('notifica por interseção: prefere QUALQUER categoria do evento', async () => {
+    const author = await makeUser()
+    // Evento MUSIC+ART. onlyArt prefere só ART → casa pela interseção.
+    // onlySports não compartilha nenhuma → fica de fora.
+    const onlyArt = await makeNotifiableUser({ category: 'ART' })
+    const onlySports = await makeNotifiableUser({ category: 'SPORTS' })
+
+    const ids = await findUsersToNotifyNearEvent(
+      { ...EVENT, categories: ['MUSIC', 'ART'], authorId: author.id },
+      SCAN,
+    )
+    expect(ids).toContain(onlyArt.id)
+    expect(ids).not.toContain(onlySports.id)
   })
 
   it('exclui sem categoria, sem consentimentos, velho, sem localização, bloqueado e o autor', async () => {

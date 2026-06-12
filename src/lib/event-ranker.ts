@@ -143,14 +143,20 @@ function proximitySignal(
 }
 
 function categorySignal(
-  category: string,
+  categories: string[],
   preferred: string[],
   weights: RankWeights,
 ): number {
-  const idx = preferred.indexOf(category)
-  if (idx === 0) return weights.categoryTop1
-  if (idx === 1) return weights.categoryTop2
-  if (idx === 2) return weights.categoryTop3
+  // Evento tem N categorias: pontua pelo MELHOR casamento (menor índice entre
+  // as preferidas). -1 (não preferida) é ignorado.
+  let best = Number.POSITIVE_INFINITY
+  for (const c of categories) {
+    const idx = preferred.indexOf(c)
+    if (idx !== -1 && idx < best) best = idx
+  }
+  if (best === 0) return weights.categoryTop1
+  if (best === 1) return weights.categoryTop2
+  if (best === 2) return weights.categoryTop3
   return 0
 }
 
@@ -190,7 +196,7 @@ export function rankEvent(
     date: Date
     endDate: Date | null
     canceledAt: Date | null
-    category: string
+    categories: string[]
   },
   context: RankContext,
   weights: RankWeights,
@@ -202,7 +208,7 @@ export function rankEvent(
     engagementSignal(context.counts, weights) +
     friendEngagementSignal(context.friendInteractionCount, weights) +
     proximitySignal(context.distanceMeters, weights) +
-    categorySignal(event.category, context.preferredCategories, weights) +
+    categorySignal(event.categories, context.preferredCategories, weights) +
     reasonSignal(context.reason, weights)
   )
 }
