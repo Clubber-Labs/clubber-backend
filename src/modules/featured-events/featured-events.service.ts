@@ -1,12 +1,10 @@
 import { env } from '../../lib/env'
-import { prisma } from '../../lib/prisma'
 import {
-  consumePromotionQuotaTx,
-  createFeaturedEventTx,
+  createFeaturedEventWithQuota,
   findEventForFeatured,
   findFeatureById,
   findOverlappingActiveFeature,
-  softCancelAndRecalculateTx,
+  softCancelFeaturedEvent,
 } from './featured-events.repository'
 import type { CreateFeaturedEventBody } from './featured-events.schema'
 
@@ -62,21 +60,15 @@ export async function addFeaturedEvent(
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
-      // Consome a quota mensal ANTES de criar — 429 aborta a transação e o
-      // rollback desfaz o incremento (tentativa rejeitada não consome).
-      await consumePromotionQuotaTx(
-        tx,
-        requesterId,
-        env.PROMOTION_MONTHLY_LIMIT,
-      )
-      return createFeaturedEventTx(tx, {
+    return await createFeaturedEventWithQuota(
+      {
         eventId,
         startsAt: body.startsAt,
         endsAt: body.endsAt,
         createdBy: requesterId,
-      })
-    })
+      },
+      env.PROMOTION_MONTHLY_LIMIT,
+    )
   } catch (err) {
     // Safety-net: dois POSTs concorrentes podem passar pelo check otimista
     // acima e chegar aqui simultaneamente. A constraint de exclusão no DB
@@ -122,7 +114,5 @@ export async function cancelFeaturedEvent(
     throw { statusCode: 409, message: 'Destaque já cancelado' }
   }
 
-  await prisma.$transaction((tx) =>
-    softCancelAndRecalculateTx(tx, { featureId, eventId }),
-  )
+  await softCancelFeaturedEvent({ featureId, eventId })
 }

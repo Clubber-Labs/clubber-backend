@@ -9,7 +9,12 @@ import {
   vi,
 } from 'vitest'
 import { realtime } from '../../lib/realtime'
-import { makeAttendance, makeEvent, makeUser } from '../../test/factories'
+import {
+  makeAttendance,
+  makeBlock,
+  makeEvent,
+  makeUser,
+} from '../../test/factories'
 import { fakePush } from '../../test/fake-push'
 import { testPrisma } from '../../test/prisma'
 import { runPromotedDigest } from './promoted-digest.reconciler'
@@ -201,6 +206,28 @@ describe('runPromotedDigest', () => {
     const author = await makeUser({ isPremium: true })
     await makePromotedEvent(author.id, { canceledAt: new Date() })
     await makePromotedEvent(author.id, { isPublic: false })
+
+    const { notified } = await runPromotedDigest(new Date())
+
+    expect(notified).toBe(0)
+  })
+
+  it('usuário que bloqueou o autor não recebe a notificação de promoção', async () => {
+    const user = await makeEligibleUser()
+    const author = await makeUser({ isPremium: true })
+    await makeBlock(user.id, author.id)
+    await makePromotedEvent(author.id)
+
+    const { notified } = await runPromotedDigest(new Date())
+
+    expect(notified).toBe(0)
+  })
+
+  it('usuário bloqueado pelo autor não recebe a notificação de promoção', async () => {
+    const user = await makeEligibleUser()
+    const author = await makeUser({ isPremium: true })
+    await makeBlock(author.id, user.id)
+    await makePromotedEvent(author.id)
 
     const { notified } = await runPromotedDigest(new Date())
 

@@ -79,7 +79,7 @@ export async function createFeaturedEventTx(
   return feature
 }
 
-export async function softCancelAndRecalculateTx(
+async function softCancelAndRecalculateTx(
   tx: TxClient,
   { featureId, eventId }: { featureId: string; eventId: string },
 ) {
@@ -105,4 +105,23 @@ export async function softCancelAndRecalculateTx(
   })
 }
 
-export { prisma }
+// Cria o destaque consumindo a quota mensal na MESMA transação (atômico): se a
+// quota estoura (429) o rollback desfaz o incremento. A fronteira de transação
+// mora aqui (e não no service) — o service não toca Prisma.
+export async function createFeaturedEventWithQuota(
+  data: { eventId: string; startsAt: Date; endsAt: Date; createdBy: string },
+  monthlyLimit: number,
+) {
+  return prisma.$transaction(async (tx) => {
+    await consumePromotionQuotaTx(tx, data.createdBy, monthlyLimit)
+    return createFeaturedEventTx(tx, data)
+  })
+}
+
+// Cancela o destaque e recalcula Event.isFeatured numa transação.
+export async function softCancelFeaturedEvent(params: {
+  featureId: string
+  eventId: string
+}) {
+  await prisma.$transaction((tx) => softCancelAndRecalculateTx(tx, params))
+}

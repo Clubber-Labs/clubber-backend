@@ -192,7 +192,14 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
   }
-  if (env.NODE_ENV !== 'test' && env.PROMOTION_DIGEST_ENABLED) {
+  // Só inicia se o master-switch de notificações estiver ligado (o digest
+  // entrega push) E o switch específico do digest. Espelha o gate do worker
+  // de notificações.
+  if (
+    env.NODE_ENV !== 'test' &&
+    env.NOTIFICATIONS_ENABLED &&
+    env.PROMOTION_DIGEST_ENABLED
+  ) {
     startPromotedDigestReconciler(env.PROMOTION_DIGEST_INTERVAL_MS)
   }
   if (env.NODE_ENV !== 'test' && env.ACCOUNT_DELETION_ENABLED) {
