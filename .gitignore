@@ -7,3 +7,6 @@ dist/
 /generated/prisma
 .worktrees/
 .claude/
+# Skills do Claude Code (geradas pelo harness na pasta do repo, não versionar)
+.agents/
+skills-lock.json
