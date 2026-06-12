@@ -40,6 +40,7 @@ model User {
   avatarKey      String?
   isPrivate      Boolean  @default(false)
   isPremium      Boolean  @default(false)
+  stripeCustomerId String? @unique
   role           UserRole @default(USER)
   followersCount Int      @default(0)
   followingCount Int      @default(0)
@@ -83,6 +84,7 @@ model User {
   reviewedReports Report[] @relation("reportReviewer")
 
   featuredEventsCreated FeaturedEvent[] @relation("featuredEventCreator")
+  subscriptions         Subscription[]
 
   categoryPreferences UserCategoryPreference[]
 
@@ -572,6 +574,51 @@ model FeaturedEvent {
   @@map("featured_events")
 }
 
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  INCOMPLETE
+  INCOMPLETE_EXPIRED
+  UNPAID
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeSubscriptionId String             @unique
+  stripePriceId        String
+  status               SubscriptionStatus
+  trialEndsAt          DateTime?
+  currentPeriodStart   DateTime
+  currentPeriodEnd     DateTime
+  cancelAtPeriodEnd    Boolean            @default(false)
+  canceledAt           DateTime?
+  startedAt            DateTime           @default(now())
+  // Timestamp do último evento Stripe aplicado. Comparado com event.created
+  // pra descartar eventos fora de ordem (Stripe não garante ordering).
+  lastSyncedAt         DateTime           @default(now())
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  // userId NÃO é @unique: user pode ter histórico (canceladas + nova ativa).
+  // Query "ativa": WHERE userId AND status IN (TRIALING, ACTIVE, PAST_DUE).
+  @@index([userId, status])
+  @@index([status, currentPeriodEnd])
+  @@map("subscriptions")
+}
+
+model WebhookEvent {
+  id            String   @id @default(uuid())
+  stripeEventId String   @unique
+  type          String
+  processedAt   DateTime @default(now())
+  payload       Json
+
+  @@map("webhook_events")
+}
 
 // ── LGPD ────────────────────────────────────────────────────
 

@@ -44,6 +44,8 @@ if (!redisUrl.endsWith('/15')) {
 
 afterEach(async () => {
   await testPrisma.$transaction([
+    testPrisma.webhookEvent.deleteMany(),
+    testPrisma.subscription.deleteMany(),
     testPrisma.report.deleteMany(),
     testPrisma.spotGenerationUsage.deleteMany(),
     testPrisma.spotDiscoveryUsage.deleteMany(),

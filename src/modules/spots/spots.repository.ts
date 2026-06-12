@@ -373,14 +373,6 @@ export async function deleteCleanableSpot(
   })
 }
 
-export async function findUserIsPremium(userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { isPremium: true },
-  })
-  return user?.isPremium ?? false
-}
-
 /** Leitura do uso de hoje (CURRENT_DATE), para rejeitar excesso ANTES de chamar
  * o Places. O teto real é garantido pelo consumeGenerationQuota (atômico). */
 export async function findTodayGenerationCount(

@@ -12,6 +12,10 @@ import { redis } from '../lib/redis'
 import { genReqId } from '../lib/request-id'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
 import { authRoutes } from '../modules/auth/auth.routes'
+import {
+  billingRoutes,
+  billingWebhookRoutes,
+} from '../modules/billing/billing.routes'
 import { blocksRoutes } from '../modules/blocks/blocks.routes'
 import { categoriesRoutes } from '../modules/categories/categories.routes'
 import { chatRoutes } from '../modules/chat/chat.routes'
@@ -91,6 +95,8 @@ export function buildApp() {
   app.register(feedRoutes)
   app.register(eventInvitesRoutes)
   app.register(reportsRoutes)
+  app.register(billingRoutes)
+  app.register(billingWebhookRoutes)
   app.register(blocksRoutes)
   app.register(chatRoutes)
   app.register(spotsRoutes)

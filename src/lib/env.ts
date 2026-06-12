@@ -63,6 +63,60 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  STRIPE_SECRET_KEY: z
+    .string()
+    .regex(
+      /^sk_(test|live)_/,
+      'STRIPE_SECRET_KEY deve começar com sk_test_ ou sk_live_',
+    ),
+  STRIPE_WEBHOOK_SECRET: z
+    .string()
+    .regex(/^whsec_/, 'STRIPE_WEBHOOK_SECRET deve começar com whsec_'),
+  STRIPE_PREMIUM_PRICE_ID: z
+    .string()
+    .regex(/^price_/, 'STRIPE_PREMIUM_PRICE_ID deve começar com price_'),
+  STRIPE_CHECKOUT_SUCCESS_URL: z.url(),
+  STRIPE_CHECKOUT_CANCEL_URL: z.url(),
+  // CSV de hosts (incluir porta se necessário) permitidos para override
+  // de success/cancel URL via body do POST /billing/checkout. Defesa contra
+  // open-redirect: usuário hostil mandando `successUrl: https://evil.com/...`
+  // recebia URL com session_id e potencialmente outras infos sensíveis.
+  // Default cobre apenas localhost de dev.
+  STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS: z
+    .string()
+    .default('localhost:3000,localhost:3333'),
+  // Retenção (minimização LGPD) dos webhook_events do billing: o payload
+  // guarda o evento Stripe inteiro (e-mail, nome, dados de cobrança). A
+  // idempotência só precisa de janela recente (Stripe reenvia por ~3 dias);
+  // além do prazo, expurgo no padrão dos demais reconcilers.
+  BILLING_WEBHOOK_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(90),
+  BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Rede de segurança pra webhook perdido: re-sincroniza do Stripe (fonte de
+  // verdade) subscriptions "ativas" com currentPeriodEnd vencido além do
+  // grace. Sem isso, um customer.subscription.deleted perdido deixa o usuário
+  // premium pra sempre. Grace acomoda a janela de renovação/retry do gateway.
+  BILLING_SYNC_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
+  BILLING_SYNC_GRACE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6 * 3600000),
+  BILLING_SYNC_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -273,6 +327,23 @@ export const env = {
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
+  STRIPE_SECRET_KEY: parsed.STRIPE_SECRET_KEY,
+  STRIPE_WEBHOOK_SECRET: parsed.STRIPE_WEBHOOK_SECRET,
+  STRIPE_PREMIUM_PRICE_ID: parsed.STRIPE_PREMIUM_PRICE_ID,
+  STRIPE_CHECKOUT_SUCCESS_URL: parsed.STRIPE_CHECKOUT_SUCCESS_URL,
+  STRIPE_CHECKOUT_CANCEL_URL: parsed.STRIPE_CHECKOUT_CANCEL_URL,
+  STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS:
+    parsed.STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
+  BILLING_WEBHOOK_RETENTION_DAYS: parsed.BILLING_WEBHOOK_RETENTION_DAYS,
+  BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS:
+    parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS,
+  BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED:
+    parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED,
+  BILLING_SYNC_INTERVAL_MS: parsed.BILLING_SYNC_INTERVAL_MS,
+  BILLING_SYNC_GRACE_MS: parsed.BILLING_SYNC_GRACE_MS,
+  BILLING_SYNC_ENABLED: parsed.BILLING_SYNC_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
   SENTRY_DSN: parsed.SENTRY_DSN,
   OTEL_ENABLED: parsed.OTEL_ENABLED,

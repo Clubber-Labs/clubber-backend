@@ -43,6 +43,29 @@ describe('GET /users/me', () => {
     })
   })
 
+  it('expõe isPremium no perfil próprio (gate de UI premium no mobile)', async () => {
+    const user = await makeUser()
+
+    const before = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(before.json()).toMatchObject({ isPremium: false })
+
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { isPremium: true },
+    })
+
+    const after = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(after.json()).toMatchObject({ isPremium: true })
+  })
+
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({ method: 'GET', url: '/users/me' })
     expect(res.statusCode).toBe(401)
