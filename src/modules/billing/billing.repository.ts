@@ -95,6 +95,53 @@ export async function setSubscriptionCancelAtPeriodEnd(
 }
 
 /**
+ * Subscriptions "vencidas": status ainda ativo localmente, mas
+ * currentPeriodEnd além da tolerância — sinal de webhook perdido (renovação
+ * teria avançado o período; cancelamento teria mudado o status).
+ *
+ * O filtro de lastSyncedAt evita re-poll: uma PAST_DUE em retry de cobrança
+ * fica semanas com período vencido LEGITIMAMENTE — sem o filtro, seria
+ * re-consultada no Stripe a cada tick; com ele, no máximo 1x por janela de
+ * grace. Como webhooks aplicados também avançam lastSyncedAt, o critério vira
+ * "só re-consulta quem está MUDO há mais que o grace" — quem recebe eventos
+ * normalmente nem entra no lote.
+ *
+ * Usa o índice [status, currentPeriodEnd]. `limit` protege o tick do
+ * reconciler de um backlog gigante; o restante fica pros próximos ticks.
+ */
+export async function findStaleActiveSubscriptions(
+  cutoff: Date,
+  limit: number,
+) {
+  return prisma.subscription.findMany({
+    where: {
+      status: { in: ACTIVE_STATUSES },
+      currentPeriodEnd: { lt: cutoff },
+      lastSyncedAt: { lt: cutoff },
+    },
+    orderBy: { currentPeriodEnd: 'asc' },
+    take: limit,
+    select: { stripeSubscriptionId: true, userId: true },
+  })
+}
+
+/**
+ * Cancela localmente uma subscription que não existe mais no gateway
+ * (resource_missing no re-sync). lastSyncedAt avança junto: eventos de
+ * webhook mais velhos que o sync são descartados pelo ordering check.
+ */
+export async function markSubscriptionCanceledTx(
+  tx: TxClient,
+  stripeSubscriptionId: string,
+  canceledAt: Date,
+) {
+  return tx.subscription.update({
+    where: { stripeSubscriptionId },
+    data: { status: 'CANCELED', canceledAt, lastSyncedAt: canceledAt },
+  })
+}
+
+/**
  * Reads tx-aware usados pelo handler do webhook dentro da $transaction.
  * Mantêm o Prisma confinado ao repository mesmo no caminho transacional — o
  * webhook orquestra, mas não toca o client direto.

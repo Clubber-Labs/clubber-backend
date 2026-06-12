@@ -30,6 +30,7 @@ import {
   billingWebhookRoutes,
 } from './modules/billing/billing.routes'
 import { startBillingRetentionReconciler } from './modules/billing/billing-retention.reconciler'
+import { startBillingSyncReconciler } from './modules/billing/billing-sync.reconciler'
 import { blocksRoutes } from './modules/blocks/blocks.routes'
 import { categoriesRoutes } from './modules/categories/categories.routes'
 import { chatGateway } from './modules/chat/chat.gateway'
@@ -209,6 +210,12 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
     startBillingRetentionReconciler(
       env.BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS,
       env.BILLING_WEBHOOK_RETENTION_DAYS,
+    )
+  }
+  if (env.NODE_ENV !== 'test' && env.BILLING_SYNC_ENABLED) {
+    startBillingSyncReconciler(
+      env.BILLING_SYNC_INTERVAL_MS,
+      env.BILLING_SYNC_GRACE_MS,
     )
   }
   if (env.NODE_ENV !== 'test' && env.PASSWORD_RESET_CLEANUP_ENABLED) {

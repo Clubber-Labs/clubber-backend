@@ -556,9 +556,9 @@ describe('service', () => {
 
     it('aplica trial_period_days=7 quando user nunca teve subscription', async () => {
       const user = await makeUser()
-      // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_a',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',
@@ -582,9 +582,9 @@ describe('service', () => {
     it('aplica trial quando a única subscription anterior é INCOMPLETE (sheet abandonada)', async () => {
       const user = await makeUser()
       await makeSubscription(user.id, { status: 'INCOMPLETE' })
-      // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_a',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',
@@ -606,9 +606,9 @@ describe('service', () => {
     it('NÃO aplica trial quando user já teve subscription (mitigação trial abuse)', async () => {
       const user = await makeUser()
       await makeSubscription(user.id, { status: 'CANCELED' })
-      // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_a',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',

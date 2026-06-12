@@ -2,13 +2,21 @@ import Stripe from 'stripe'
 import { env } from '../../lib/env'
 import { STRIPE_API_VERSION, stripe } from '../../lib/stripe'
 import {
+  mapStripeSubscription,
+  type StripeSubscriptionLike,
+} from './billing.mapper'
+import {
   clearUserStripeCustomerIdIfMatches,
   findActiveSubscriptionByUserId,
   findUserById,
   findUserIsPremium,
   hasAnyPreviousSubscription,
+  markSubscriptionCanceledTx,
+  recalculateUserPremiumTx,
+  runInBillingTransaction,
   setSubscriptionCancelAtPeriodEnd,
   updateUserStripeCustomerId,
+  upsertSubscriptionTx,
 } from './billing.repository'
 
 /**
@@ -398,4 +406,59 @@ export async function unlinkStripeCustomer(
   expectedCustomerId: string,
 ): Promise<void> {
   await clearUserStripeCustomerIdIfMatches(userId, expectedCustomerId)
+}
+
+/**
+ * Re-sincroniza UMA subscription a partir do Stripe — fonte de verdade. Usado
+ * pelo reconciler de sync como rede de segurança pra webhook perdido: em vez
+ * de rebaixar localmente (inventaria estado — PAST_DUE com retry em andamento
+ * é premium legítimo), pergunta ao gateway e aplica o que ele responder pelo
+ * mesmo caminho do webhook (mapper → upsert → recálculo do premium).
+ *
+ * `resource_missing` = a subscription não existe mais no gateway (ex.:
+ * Customer deletado) → cancela localmente. Outras falhas sobem; o reconciler
+ * loga e tenta a mesma subscription no próximo tick (ela continua no WHERE).
+ *
+ * Stripe fora da transação (regra do módulo); lastSyncedAt = agora, então
+ * webhooks atrasados mais velhos que o sync são descartados pelo ordering
+ * check — o retrieve é sempre mais fresco que eles.
+ */
+export async function syncSubscriptionFromStripe(sub: {
+  stripeSubscriptionId: string
+  userId: string
+}): Promise<void> {
+  let payload: StripeSubscriptionLike
+  try {
+    payload = (await stripe.subscriptions.retrieve(
+      sub.stripeSubscriptionId,
+    )) as unknown as StripeSubscriptionLike
+  } catch (err) {
+    if (
+      err instanceof Stripe.errors.StripeInvalidRequestError &&
+      err.code === 'resource_missing'
+    ) {
+      const now = new Date()
+      await runInBillingTransaction(async (tx) => {
+        await markSubscriptionCanceledTx(tx, sub.stripeSubscriptionId, now)
+        await recalculateUserPremiumTx(tx, sub.userId)
+      })
+      return
+    }
+    return wrapStripeError(err)
+  }
+
+  // Payload anômalo sem priceId: mapper loga e descarta — mantém o estado
+  // local e a subscription volta no próximo tick.
+  const fields = mapStripeSubscription(payload)
+  if (!fields) return
+
+  const syncedAt = new Date()
+  await runInBillingTransaction(async (tx) => {
+    await upsertSubscriptionTx(tx, {
+      userId: sub.userId,
+      ...fields,
+      lastSyncedAt: syncedAt,
+    })
+    await recalculateUserPremiumTx(tx, sub.userId)
+  })
 }

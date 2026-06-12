@@ -103,6 +103,20 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Rede de segurança pra webhook perdido: re-sincroniza do Stripe (fonte de
+  // verdade) subscriptions "ativas" com currentPeriodEnd vencido além do
+  // grace. Sem isso, um customer.subscription.deleted perdido deixa o usuário
+  // premium pra sempre. Grace acomoda a janela de renovação/retry do gateway.
+  BILLING_SYNC_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
+  BILLING_SYNC_GRACE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6 * 3600000),
+  BILLING_SYNC_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -327,6 +341,9 @@ export const env = {
     parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS,
   BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED:
     parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED,
+  BILLING_SYNC_INTERVAL_MS: parsed.BILLING_SYNC_INTERVAL_MS,
+  BILLING_SYNC_GRACE_MS: parsed.BILLING_SYNC_GRACE_MS,
+  BILLING_SYNC_ENABLED: parsed.BILLING_SYNC_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
   SENTRY_DSN: parsed.SENTRY_DSN,
   OTEL_ENABLED: parsed.OTEL_ENABLED,
