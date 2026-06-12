@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest'
-import { makeUser } from '../test/factories'
-import { testPrisma } from '../test/prisma'
-import { requirePremium } from './require-premium'
+import { makeUser } from '../../test/factories'
+import { testPrisma } from '../../test/prisma'
+import { requirePremium } from './billing.middleware'
 
 afterAll(async () => {
   await testPrisma.$disconnect()

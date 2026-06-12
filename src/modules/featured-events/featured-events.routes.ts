@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { requirePremium } from '../../lib/require-premium'
+import { requirePremium } from '../billing/billing.middleware'
 import {
   deleteFeaturedEvent,
   postFeaturedEvent,

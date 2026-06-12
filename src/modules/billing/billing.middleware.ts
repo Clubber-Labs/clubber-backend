@@ -1,10 +1,11 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { prisma } from './prisma'
+import { findUserIsPremium } from './billing.repository'
 
 /**
  * Middleware Fastify (onRequest hook) que valida que o usuário autenticado
- * tem `isPremium = true`. Usa após `app.authenticate` no mesmo array de
- * `onRequest`:
+ * tem premium. Mora no módulo billing — dono do conceito — e lê o estado pelo
+ * repository (`findUserIsPremium`), em vez de consultar a coluna direto. Usa
+ * após `app.authenticate` no mesmo array de `onRequest`:
  *
  *   { onRequest: [app.authenticate, requirePremium] }
  *
@@ -20,12 +21,7 @@ export async function requirePremium(
     throw { statusCode: 401, message: 'Autenticação necessária' }
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { isPremium: true },
-  })
-
-  if (!user?.isPremium) {
+  if (!(await findUserIsPremium(userId))) {
     throw {
       statusCode: 403,
       message: 'Funcionalidade exclusiva para usuários Premium',
