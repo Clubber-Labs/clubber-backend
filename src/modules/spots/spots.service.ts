@@ -21,6 +21,7 @@ import {
   consumeGenerationQuota,
   countActiveMembersByConversation,
   createSpotWithConversation,
+  findOwnActiveSpots,
   findSpotDetail,
   findSpotForMutation,
   findSpotForRenew,
@@ -130,6 +131,20 @@ export async function listSpotsOnMap(
     new Date(),
   )
   const spots = await findSpotsByIds(ids)
+  const counts = await countActiveMembersByConversation(
+    spots.map((s) => s.conversationId),
+  )
+  return spots.map((s) => shapeSpot(s, counts.get(s.conversationId) ?? 0))
+}
+
+/**
+ * Lista os spots ativos do próprio usuário (tela "Meus spots"). Diferente do
+ * mapa (bbox), aqui o recorte é por dono — para editar/cancelar/renovar os
+ * próprios rolês sem depender de onde a câmera do mapa está. Ordenados pelo
+ * vencimento mais próximo (limitado pelo teto de spots ativos).
+ */
+export async function listOwnSpots(creatorId: string) {
+  const spots = await findOwnActiveSpots(creatorId, new Date())
   const counts = await countActiveMembersByConversation(
     spots.map((s) => s.conversationId),
   )

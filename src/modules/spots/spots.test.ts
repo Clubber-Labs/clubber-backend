@@ -634,6 +634,74 @@ describe('GET /spots (mapa)', () => {
   })
 })
 
+describe('GET /spots/mine (meus spots)', () => {
+  it('lista só os spots ativos do próprio usuário, com memberCount (200)', async () => {
+    const creator = await makeUser()
+    const member = await makeUser()
+    const other = await makeUser()
+    const mine = await makeSpot(creator.id, { memberIds: [member.id] })
+    const alheio = await makeSpot(other.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.map((s: { id: string }) => s.id)).toEqual([mine.id])
+    expect(body.map((s: { id: string }) => s.id)).not.toContain(alheio.id)
+    expect(body[0]).toMatchObject({ id: mine.id, memberCount: 2 })
+  })
+
+  it('exclui cancelado e encerrado', async () => {
+    const creator = await makeUser()
+    const past = Date.now() - 10 * 3600_000
+    const active = await makeSpot(creator.id)
+    const canceled = await makeSpot(creator.id, { canceledAt: new Date() })
+    const ended = await makeSpot(creator.id, {
+      startsAt: new Date(past),
+      endsAt: new Date(past + 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toContain(active.id)
+    expect(ids).not.toContain(canceled.id)
+    expect(ids).not.toContain(ended.id)
+  })
+
+  it('ordena pelo vencimento mais próximo primeiro', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    const later = await makeSpot(creator.id, {
+      endsAt: new Date(now + 6 * 3600_000),
+    })
+    const sooner = await makeSpot(creator.id, {
+      endsAt: new Date(now + 2 * 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+    expect(res.json().map((s: { id: string }) => s.id)).toEqual([
+      sooner.id,
+      later.id,
+    ])
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({ method: 'GET', url: '/spots/mine' })
+    expect(res.statusCode).toBe(401)
+  })
+})
+
 describe('POST /spots/:id/members (entrar)', () => {
   it('entra no chat de spot público e vira participante (201)', async () => {
     const creator = await makeUser()

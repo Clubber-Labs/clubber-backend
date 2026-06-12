@@ -274,6 +274,23 @@ export async function findSpotsByIds(ids: string[]): Promise<SpotDetail[]> {
   return ids.map((id) => byId.get(id)).filter((s): s is SpotDetail => !!s)
 }
 
+/**
+ * Spots ativos do criador (tela "Meus spots"): não cancelados e ainda na janela
+ * (endsAt > now). Ordenados pelo vencimento mais próximo — quem está prestes a
+ * expirar aparece primeiro (contexto pra renovar). Limitado naturalmente pelo
+ * teto de spots ativos por usuário.
+ */
+export async function findOwnActiveSpots(
+  creatorId: string,
+  now: Date,
+): Promise<SpotDetail[]> {
+  return prisma.spot.findMany({
+    where: { creatorId, canceledAt: null, endsAt: { gt: now } },
+    orderBy: { endsAt: 'asc' },
+    select: spotDetailSelect,
+  })
+}
+
 // ── Lifecycle (reconciler) ───────────────────────────────────────────────────
 
 /** Spots ativos vencendo dentro de `leadMs` e ainda não lembrados. */

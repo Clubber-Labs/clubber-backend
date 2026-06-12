@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import {
   deleteSpot,
+  getMySpots,
   getSpotById,
   getSpots,
   patchSpot,
@@ -30,6 +31,11 @@ export async function spotsRoutes(app: FastifyInstance) {
     { schema: { body: suggestionsSchema }, onRequest: [app.authenticate] },
     postSuggestions,
   )
+
+  // "Meus spots": os spots ativos do próprio usuário (editar/cancelar/renovar).
+  // Rota estática registrada antes de /spots/:id — o roteador do Fastify já
+  // prioriza estática sobre paramétrica, mas mantemos a ordem explícita.
+  app.get('/spots/mine', { onRequest: [app.authenticate] }, getMySpots)
 
   app.get(
     '/spots',
