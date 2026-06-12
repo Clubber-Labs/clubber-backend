@@ -22,6 +22,7 @@ import { chatRoutes } from '../modules/chat/chat.routes'
 import { commentsRoutes } from '../modules/comments/comments.routes'
 import { consentRoutes } from '../modules/consent/consent.routes'
 import { eventInvitesRoutes } from '../modules/event-invites/event-invites.routes'
+import { eventStatsRoutes } from '../modules/event-stats/event-stats.routes'
 import { eventsRoutes } from '../modules/events/events.routes'
 import { featuredEventsRoutes } from '../modules/featured-events/featured-events.routes'
 import { feedRoutes } from '../modules/feed/feed.routes'
@@ -85,6 +86,7 @@ export function buildApp() {
   app.register(passwordResetRoutes)
   app.register(categoriesRoutes)
   app.register(eventsRoutes)
+  app.register(eventStatsRoutes)
   app.register(featuredEventsRoutes)
   app.register(usersRoutes)
   app.register(followsRoutes)

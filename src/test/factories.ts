@@ -126,9 +126,15 @@ export async function makeAttendance(
   userId: string,
   eventId: string,
   type: 'CONFIRMED' | 'INTERESTED' | 'NOT_INTERESTED' = 'CONFIRMED',
+  overrides: { createdAt?: Date } = {},
 ) {
   return testPrisma.eventAttendance.create({
-    data: { userId, eventId, type },
+    data: {
+      userId,
+      eventId,
+      type,
+      ...(overrides.createdAt && { createdAt: overrides.createdAt }),
+    },
   })
 }
 
