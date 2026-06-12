@@ -1,8 +1,10 @@
 import { faker } from '@faker-js/faker/locale/pt_BR'
 import {
   AttendanceType,
+  type EventCategory,
   FollowStatus,
   PrismaClient,
+  type SpotVisibility,
   UserRole,
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
@@ -172,11 +174,41 @@ const GROUP_TITLES = [
   'Rolês de Curitiba',
 ]
 
+// Spots = rolês efêmeros ancorados num lugar real. title + categorias coerentes.
+const SPOTS = [
+  {
+    title: 'Happy hour no Boteco do Centro',
+    categories: ['NIGHTLIFE', 'GASTRONOMY'],
+  },
+  { title: 'Pelada no Parque Barigui', categories: ['SPORTS', 'OUTDOORS'] },
+  { title: 'Café & code na Vila', categories: ['TECH', 'GASTRONOMY'] },
+  {
+    title: 'Som ao vivo no bar da esquina',
+    categories: ['MUSIC', 'NIGHTLIFE'],
+  },
+  { title: 'Trilha no Parque Tanguá', categories: ['OUTDOORS', 'SPORTS'] },
+  { title: 'Rodízio de pizza hoje', categories: ['GASTRONOMY'] },
+  { title: 'Cervejada pós-trampo', categories: ['NIGHTLIFE', 'PARTY'] },
+  { title: 'Skate no Largo da Ordem', categories: ['SPORTS', 'ART'] },
+] as const
+
+const SPOT_MESSAGES = [
+  'Bora? já tô a caminho',
+  'Cheguei, tô na entrada',
+  'Quem mais vem?',
+  'Guardei lugar pra galera',
+  'Atrasa não que tá enchendo',
+  'Tô levando mais um amigo',
+]
+
 // ─── seed ─────────────────────────────────────────────────────────────────────
 
 async function main() {
   console.log('🌱 Limpando banco...')
   await prisma.report.deleteMany()
+  // Spot referencia conversation (FK RESTRICT) e creator — apaga antes de ambos.
+  // As quotas (geração/descoberta) e preferências cascateiam no delete do user.
+  await prisma.spot.deleteMany()
   // Chat: conversation cascateia participants/messages/attachments.
   await prisma.conversation.deleteMany()
   await prisma.block.deleteMany()
@@ -341,13 +373,18 @@ async function main() {
 
   const eventsData = users.flatMap((author, i) =>
     Array.from({ length: faker.number.int({ min: 1, max: 3 }) }).map((_, j) => {
-      const category = pick(CATEGORIES)
+      // Categoria primária dá o título; 0–2 extras exercitam o multi-categoria.
+      const primary = pick(CATEGORIES)
+      const extras = sample(
+        CATEGORIES.filter((c) => c !== primary),
+        faker.number.int({ min: 0, max: 2 }),
+      )
       return {
-        title: pick(EVENT_TITLES[category]),
+        title: pick(EVENT_TITLES[primary]),
         description: pick(EVENT_DESCRIPTIONS),
         date: faker.date.soon({ days: 30 }),
         ...curitibaCoords(),
-        category,
+        categories: [primary, ...extras],
         isPublic: !(i % 5 === 0 && j === 0), // ~20% privados
         authorId: author.id,
       }
@@ -683,6 +720,121 @@ async function main() {
 
   console.log(`   ✓ ${conversationCount} conversas e ${messageCount} mensagens`)
 
+  // ── 11. Preferências de categoria ────────────────────────────────────────────
+  // Necessárias pro botão "gerar sugestões" de spot (sem preferência → 400).
+  console.log('🎯 Criando preferências de categoria...')
+
+  const prefRows = users.flatMap((u) =>
+    sample(CATEGORIES, faker.number.int({ min: 2, max: 4 })).map(
+      (category) => ({
+        userId: u.id,
+        category,
+      }),
+    ),
+  )
+  await prisma.userCategoryPreference.createMany({
+    data: prefRows,
+    skipDuplicates: true,
+  })
+  console.log(`   ✓ ${prefRows.length} preferências`)
+
+  // ── 12. Spots (rolês efêmeros ancorados num lugar) ───────────────────────────
+  console.log('📍 Criando spots...')
+
+  const HOUR = 3_600_000
+  let spotCount = 0
+
+  // Cria um spot publicado: grupo de chat (criador ADMIN + membros) + o spot
+  // ligado a ele, com algumas mensagens. A coluna `location` (geography) é
+  // gerada pelo Postgres a partir de lat/lng.
+  async function seedSpot(opts: {
+    creator: { id: string }
+    title: string
+    categories: readonly EventCategory[]
+    visibility: SpotVisibility
+    members: { id: string }[]
+    startsAt: Date
+    endsAt: Date
+  }) {
+    const memberIds = opts.members.map((m) => m.id)
+    const ids = [opts.creator.id, ...memberIds]
+    const convo = await prisma.conversation.create({
+      data: {
+        type: 'GROUP',
+        title: opts.title,
+        createdById: opts.creator.id,
+        lastMessageAt: new Date(),
+        participants: {
+          create: [
+            { userId: opts.creator.id, role: 'ADMIN' },
+            ...memberIds.map((userId) => ({ userId, role: 'MEMBER' as const })),
+          ],
+        },
+      },
+    })
+    await prisma.message.createMany({
+      data: Array.from({ length: faker.number.int({ min: 2, max: 5 }) }).map(
+        () => ({
+          conversationId: convo.id,
+          senderId: pick(ids),
+          content: pick(SPOT_MESSAGES),
+        }),
+      ),
+    })
+    await prisma.spot.create({
+      data: {
+        title: opts.title,
+        categories: [...opts.categories],
+        visibility: opts.visibility,
+        placeId: `seed_place_${++spotCount}`,
+        ...curitibaCoords(),
+        startsAt: opts.startsAt,
+        endsAt: opts.endsAt,
+        creatorId: opts.creator.id,
+        conversationId: convo.id,
+      },
+    })
+  }
+
+  const now = Date.now()
+  // Criadores fixos no topo (premium e admin) pra demo enxergar os próprios.
+  const spotCreators = [
+    premiumDemo,
+    adminDemo,
+    ...sample(randomUsers, SPOTS.length),
+  ]
+
+  for (let s = 0; s < SPOTS.length; s++) {
+    const def = SPOTS[s]
+    const creator = spotCreators[s] ?? pick(users)
+    const members = sample(
+      users.filter((u) => u.id !== creator.id),
+      faker.number.int({ min: 0, max: 4 }),
+    )
+    // Janelas variadas pra exercitar mapa, upcoming, lifecycle e privacidade.
+    let startsAt = new Date(now - HOUR)
+    let endsAt = new Date(now + faker.number.int({ min: 3, max: 8 }) * HOUR)
+    let visibility: SpotVisibility = 'PUBLIC'
+    if (s === 0) {
+      endsAt = new Date(now + 40 * 60_000) // vencendo em ~40min → lembrete de renovação
+    } else if (s === 1) {
+      startsAt = new Date(now + 2 * HOUR) // ainda não começou (upcoming)
+      endsAt = new Date(now + 5 * HOUR)
+    } else if (s === 2) {
+      visibility = 'FRIENDS' // restrito a amigos do criador
+    }
+    await seedSpot({
+      creator,
+      title: def.title,
+      categories: def.categories,
+      visibility,
+      members,
+      startsAt,
+      endsAt,
+    })
+  }
+  console.log(`   ✓ ${spotCount} spots (1 vencendo, 1 upcoming, 1 privado)`)
+
   // ── Resumo ───────────────────────────────────────────────────────────────────
   console.log('\n✅ Seed concluído!')
   console.log(`   👤 Usuários:    ${users.length}`)
@@ -692,6 +844,7 @@ async function main() {
   console.log(`   📝 Posts:       ${posts.length}`)
   console.log(`   💬 Conversas:   ${conversationCount}`)
   console.log(`   ✉️  Mensagens:   ${messageCount}`)
+  console.log(`   📍 Spots:       ${spotCount}`)
   console.log('\n   🔑 Senha de todos os usuários: senha123')
   console.log('   📋 Usuários criados:')
   for (const u of users.slice(0, 5))
