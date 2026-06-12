@@ -32,7 +32,10 @@ export type StripeInvoice = {
 
 export type StripeSubscriptionLike = {
   id: string
-  customer: string | { id: string }
+  // Nullable de propósito: em payloads anômalos do Stripe `customer` pode vir
+  // ausente. extractCustomerId trata o caso; o tipo reflete a defensividade
+  // pra ninguém remover a guarda confiando num não-null que não existe.
+  customer: string | { id: string } | null | undefined
   status: string
   items?: {
     data: Array<{

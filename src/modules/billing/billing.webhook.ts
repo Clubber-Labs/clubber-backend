@@ -1,6 +1,4 @@
-import { Prisma } from '@prisma/client'
 import { env } from '../../lib/env'
-import { prisma } from '../../lib/prisma'
 import { stripe } from '../../lib/stripe'
 import {
   extractCustomerId,
@@ -15,9 +13,11 @@ import {
 import {
   findSubscriptionByStripeIdTx,
   findUserIdByStripeCustomerIdTx,
+  isDuplicateWebhookEventError,
   isEventProcessed,
   markEventProcessedTx,
   recalculateUserPremiumTx,
+  runInBillingTransaction,
   upsertSubscriptionTx,
 } from './billing.repository'
 
@@ -76,7 +76,9 @@ async function preResolveSubscription(
  * só por anexar o método via SetupIntent). Sem essa chamada, renovações
  * futuras continuariam cobrando o cartão antigo.
  *
- * Idempotente: chamar 2x com mesmo customer/payment_method é no-op.
+ * Roda na FASE EXTERNA, fora da transação (regra: nunca chamar o Stripe dentro
+ * de uma $transaction). Idempotente: chamar 2x com mesmo customer/payment_method
+ * é no-op.
  */
 async function applySetupIntentSucceeded(event: StripeEvent): Promise<void> {
   const intent = event.data.object as StripeSetupIntentLike
@@ -131,144 +133,141 @@ async function applyLocalMutations(
   eventCreated: Date,
   preResolved: StripeSubscriptionLike | null,
 ): Promise<void> {
-  await prisma.$transaction(
-    async (tx) => {
-      await markEventProcessedTx(tx, {
-        stripeEventId: event.id,
-        type: event.type,
-        payload: event as unknown as Prisma.InputJsonValue,
-      })
+  await runInBillingTransaction(async (tx) => {
+    await markEventProcessedTx(tx, {
+      stripeEventId: event.id,
+      type: event.type,
+      payload: event,
+    })
 
-      switch (event.type) {
-        case 'checkout.session.completed': {
-          const session = event.data.object as StripeCheckoutSession
-          if (session.mode !== 'subscription') return
-          if (!preResolved) return
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as StripeCheckoutSession
+        if (session.mode !== 'subscription') return
+        if (!preResolved) return
 
-          const customerId =
-            typeof session.customer === 'string'
-              ? session.customer
-              : session.customer?.id
-          if (!customerId) return
+        const customerId =
+          typeof session.customer === 'string'
+            ? session.customer
+            : session.customer?.id
+        if (!customerId) return
 
-          // Anti-spoofing: descobrir userId pelo `customerId` (vinculado ao
-          // user pelo nosso /billing/checkout antes desta session existir),
-          // NÃO pelo metadata. metadata pode ser forjado por insider com
-          // acesso ao Stripe Dashboard. customerId no DB é fonte de verdade.
-          const userId = await findUserIdByStripeCustomerIdTx(tx, customerId)
-          if (!userId) {
-            console.warn(
-              '[billing] checkout.session.completed sem user vinculado ao customerId',
-              { customerId, sessionId: session.id },
-            )
-            return
-          }
-
-          const fields = mapStripeSubscription(preResolved)
-          if (!fields) return
-
-          // Ordering check (igual aos outros cases): se já existe uma
-          // subscription local mais nova, descarta o checkout retroativo.
-          // Cenário: subscription.deleted chega ANTES do checkout.completed
-          // por causa de retry/rede; sem isso, o checkout reativa premium
-          // incorretamente.
-          const existingForCheckout = await findSubscriptionByStripeIdTx(
-            tx,
-            fields.stripeSubscriptionId,
+        // Anti-spoofing: descobrir userId pelo `customerId` (vinculado ao
+        // user pelo nosso /billing/checkout antes desta session existir),
+        // NÃO pelo metadata. metadata pode ser forjado por insider com
+        // acesso ao Stripe Dashboard. customerId no DB é fonte de verdade.
+        const userId = await findUserIdByStripeCustomerIdTx(tx, customerId)
+        if (!userId) {
+          console.warn(
+            '[billing] checkout.session.completed sem user vinculado ao customerId',
+            { customerId, sessionId: session.id },
           )
-          if (
-            existingForCheckout &&
-            isEventOlder(eventCreated, existingForCheckout.lastSyncedAt)
-          )
-            return
-
-          await upsertSubscriptionTx(tx, {
-            userId,
-            ...fields,
-            lastSyncedAt: eventCreated,
-          })
-
-          // Recalcula isPremium baseado em TODAS as subscriptions do user,
-          // não só na desta operação. User pode ter outra subscription
-          // ativa em paralelo (raro mas permitido pelo schema).
-          await recalculateUserPremiumTx(tx, userId)
           return
         }
 
-        case 'customer.subscription.created':
-        case 'customer.subscription.updated':
-        case 'customer.subscription.deleted': {
-          const sub = event.data.object as unknown as StripeSubscriptionLike
-          const fields = mapStripeSubscription(sub)
-          if (!fields) return
+        const fields = mapStripeSubscription(preResolved)
+        if (!fields) return
 
-          const existing = await findSubscriptionByStripeIdTx(
-            tx,
-            fields.stripeSubscriptionId,
-          )
-
-          // Ordering check: se evento é mais velho que último sync, descarta.
-          if (existing && isEventOlder(eventCreated, existing.lastSyncedAt))
-            return
-
-          // Anti-spoofing: priorizar lookup por customerId (DB) em vez de
-          // metadata. Se já houver subscription local, manter o userId dela.
-          let userId: string | null = existing?.userId ?? null
-          if (!userId) {
-            const customerId = extractCustomerId(sub)
-            if (!customerId) return // sem customer, sem vínculo possível
-            userId = await findUserIdByStripeCustomerIdTx(tx, customerId)
-          }
-          if (!userId) return // não conseguiu vincular ao user — ignora
-
-          await upsertSubscriptionTx(tx, {
-            userId,
-            ...fields,
-            lastSyncedAt: eventCreated,
-          })
-
-          await recalculateUserPremiumTx(tx, userId)
+        // Ordering check (igual aos outros cases): se já existe uma
+        // subscription local mais nova, descarta o checkout retroativo.
+        // Cenário: subscription.deleted chega ANTES do checkout.completed
+        // por causa de retry/rede; sem isso, o checkout reativa premium
+        // incorretamente.
+        const existingForCheckout = await findSubscriptionByStripeIdTx(
+          tx,
+          fields.stripeSubscriptionId,
+        )
+        if (
+          existingForCheckout &&
+          isEventOlder(eventCreated, existingForCheckout.lastSyncedAt)
+        )
           return
-        }
 
-        case 'invoice.payment_succeeded':
-        case 'invoice.payment_failed': {
-          if (!preResolved) return
-          const fields = mapStripeSubscription(preResolved)
-          if (!fields) return
+        await upsertSubscriptionTx(tx, {
+          userId,
+          ...fields,
+          lastSyncedAt: eventCreated,
+        })
 
-          const existing = await findSubscriptionByStripeIdTx(
-            tx,
-            fields.stripeSubscriptionId,
-          )
-          if (!existing) return
-
-          if (isEventOlder(eventCreated, existing.lastSyncedAt)) return
-
-          await upsertSubscriptionTx(tx, {
-            userId: existing.userId,
-            ...fields,
-            lastSyncedAt: eventCreated,
-          })
-
-          await recalculateUserPremiumTx(tx, existing.userId)
-          return
-        }
-
-        case 'setup_intent.succeeded': {
-          // Side-effect (atualizar default payment method no Stripe) roda na
-          // fase externa, em applyExternalEffects(). Aqui só registra como
-          // processado (markEventProcessedTx acima).
-          return
-        }
-
-        default:
-          // Evento não tratado: registro de idempotência foi feito, mas sem efeito.
-          return
+        // Recalcula isPremium baseado em TODAS as subscriptions do user,
+        // não só na desta operação. User pode ter outra subscription
+        // ativa em paralelo (raro mas permitido pelo schema).
+        await recalculateUserPremiumTx(tx, userId)
+        return
       }
-    },
-    { timeout: 10_000, maxWait: 2_000 },
-  )
+
+      case 'customer.subscription.created':
+      case 'customer.subscription.updated':
+      case 'customer.subscription.deleted': {
+        const sub = event.data.object as unknown as StripeSubscriptionLike
+        const fields = mapStripeSubscription(sub)
+        if (!fields) return
+
+        const existing = await findSubscriptionByStripeIdTx(
+          tx,
+          fields.stripeSubscriptionId,
+        )
+
+        // Ordering check: se evento é mais velho que último sync, descarta.
+        if (existing && isEventOlder(eventCreated, existing.lastSyncedAt))
+          return
+
+        // Anti-spoofing: priorizar lookup por customerId (DB) em vez de
+        // metadata. Se já houver subscription local, manter o userId dela.
+        let userId: string | null = existing?.userId ?? null
+        if (!userId) {
+          const customerId = extractCustomerId(sub)
+          if (!customerId) return // sem customer, sem vínculo possível
+          userId = await findUserIdByStripeCustomerIdTx(tx, customerId)
+        }
+        if (!userId) return // não conseguiu vincular ao user — ignora
+
+        await upsertSubscriptionTx(tx, {
+          userId,
+          ...fields,
+          lastSyncedAt: eventCreated,
+        })
+
+        await recalculateUserPremiumTx(tx, userId)
+        return
+      }
+
+      case 'invoice.payment_succeeded':
+      case 'invoice.payment_failed': {
+        if (!preResolved) return
+        const fields = mapStripeSubscription(preResolved)
+        if (!fields) return
+
+        const existing = await findSubscriptionByStripeIdTx(
+          tx,
+          fields.stripeSubscriptionId,
+        )
+        if (!existing) return
+
+        if (isEventOlder(eventCreated, existing.lastSyncedAt)) return
+
+        await upsertSubscriptionTx(tx, {
+          userId: existing.userId,
+          ...fields,
+          lastSyncedAt: eventCreated,
+        })
+
+        await recalculateUserPremiumTx(tx, existing.userId)
+        return
+      }
+
+      case 'setup_intent.succeeded': {
+        // Side-effect (atualizar default payment method no Stripe) roda na
+        // fase externa, em applyExternalEffects(). Aqui só registra como
+        // processado (markEventProcessedTx acima).
+        return
+      }
+
+      default:
+        // Evento não tratado: registro de idempotência foi feito, mas sem efeito.
+        return
+    }
+  })
 }
 
 /**
@@ -311,10 +310,7 @@ export async function processStripeWebhook(
   try {
     await applyEvent(event)
   } catch (err) {
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === 'P2002'
-    ) {
+    if (isDuplicateWebhookEventError(err)) {
       // Race com outra request paralela que registrou o evento entre o
       // short-circuit e o INSERT. Idempotência via DB resolve.
       return

@@ -4,6 +4,7 @@ import { STRIPE_API_VERSION, stripe } from '../../lib/stripe'
 import {
   findActiveSubscriptionByUserId,
   findUserById,
+  findUserIsPremium,
   hasAnyPreviousSubscription,
   setSubscriptionCancelAtPeriodEnd,
   updateUserStripeCustomerId,
@@ -156,6 +157,16 @@ export async function getSubscription(userId: string) {
     }
   }
   return sub
+}
+
+/**
+ * Contrato público do módulo billing para LEITURA do estado premium. Outros
+ * módulos (ex.: spots) consomem por aqui — não pelo repository — pra não
+ * acoplar na estrutura interna de dados do billing. O middleware requirePremium,
+ * por ser interno ao módulo, lê direto do repository.
+ */
+export async function getUserPremiumStatus(userId: string): Promise<boolean> {
+  return findUserIsPremium(userId)
 }
 
 export async function cancelSubscription(userId: string) {

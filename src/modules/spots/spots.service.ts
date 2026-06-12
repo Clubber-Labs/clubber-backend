@@ -5,7 +5,7 @@ import {
   type EnhancedCandidate,
   getSuggestionEnhancer,
 } from '../../lib/suggestion-ai'
-import { findUserIsPremium } from '../billing/billing.repository'
+import { getUserPremiumStatus } from '../billing/billing.service'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   findActiveParticipant,
@@ -227,7 +227,7 @@ export async function renewSpot(id: string, requesterId: string) {
     throw { statusCode: 409, message: 'Este rolê não está mais ativo' }
   }
 
-  const isPremium = await findUserIsPremium(requesterId)
+  const isPremium = await getUserPremiumStatus(requesterId)
   const limit = isPremium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA
   const quota = await consumeGenerationQuota(requesterId, limit)
   if (!quota.allowed) {
@@ -271,7 +271,7 @@ export async function generateSuggestions(
     }
   }
 
-  const isPremium = await findUserIsPremium(userId)
+  const isPremium = await getUserPremiumStatus(userId)
   const limit = isPremium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA
 
   // Rejeita excesso ANTES de chamar o Places (economia de custo). O teto real é

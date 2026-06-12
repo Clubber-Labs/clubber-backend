@@ -1,4 +1,4 @@
-import type { Prisma, SubscriptionStatus } from '@prisma/client'
+import { Prisma, type SubscriptionStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
 type TxClient = Prisma.TransactionClient
@@ -100,19 +100,51 @@ export async function isEventProcessed(stripeEventId: string) {
 }
 
 /**
- * Insere o evento como "processado". Deve rodar dentro da $transaction
- * do handler do webhook. Se duplicado, lança P2002 — o caller captura e
- * retorna 200 silencioso (idempotência via constraint do DB).
+ * Boundary da transação do billing. Mantém o `prisma.$transaction` (e a
+ * config de timeout/maxWait) dentro do repository — única camada que toca o
+ * client — para que o handler do webhook orquestre sem importar o Prisma.
+ * O `maxWait` curto + `timeout` de 10s pressupõem que nenhuma chamada externa
+ * (Stripe) roda dentro do callback (regra cumprida na fase externa do webhook).
+ */
+export async function runInBillingTransaction<T>(
+  fn: (tx: TxClient) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(fn, { timeout: 10_000, maxWait: 2_000 })
+}
+
+/**
+ * Insere o evento como "processado". Deve rodar dentro da transação do
+ * handler do webhook. Se duplicado, lança P2002 — o caller usa
+ * `isDuplicateWebhookEventError` e retorna 200 silencioso (idempotência via
+ * constraint do DB). Recebe o payload como `unknown` e faz o cast pro tipo do
+ * Prisma aqui, confinando o tipo do ORM ao repository.
  */
 export async function markEventProcessedTx(
   tx: TxClient,
   data: {
     stripeEventId: string
     type: string
-    payload: Prisma.InputJsonValue
+    payload: unknown
   },
 ) {
-  return tx.webhookEvent.create({ data })
+  return tx.webhookEvent.create({
+    data: {
+      stripeEventId: data.stripeEventId,
+      type: data.type,
+      payload: data.payload as Prisma.InputJsonValue,
+    },
+  })
+}
+
+/**
+ * Predicado de erro P2002 (unique constraint) usado pela idempotência do
+ * webhook. Encapsula o tipo de erro do Prisma para que o handler não precise
+ * importar o namespace do ORM só pra checar a corrida do INSERT.
+ */
+export function isDuplicateWebhookEventError(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+  )
 }
 
 /**
