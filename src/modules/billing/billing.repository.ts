@@ -97,9 +97,17 @@ export async function setSubscriptionCancelAtPeriodEnd(
 /**
  * Subscriptions "vencidas": status ainda ativo localmente, mas
  * currentPeriodEnd além da tolerância — sinal de webhook perdido (renovação
- * teria avançado o período; cancelamento teria mudado o status). Usa o índice
- * [status, currentPeriodEnd]. `limit` protege o tick do reconciler de um
- * backlog gigante; o restante fica pros próximos ticks.
+ * teria avançado o período; cancelamento teria mudado o status).
+ *
+ * O filtro de lastSyncedAt evita re-poll: uma PAST_DUE em retry de cobrança
+ * fica semanas com período vencido LEGITIMAMENTE — sem o filtro, seria
+ * re-consultada no Stripe a cada tick; com ele, no máximo 1x por janela de
+ * grace. Como webhooks aplicados também avançam lastSyncedAt, o critério vira
+ * "só re-consulta quem está MUDO há mais que o grace" — quem recebe eventos
+ * normalmente nem entra no lote.
+ *
+ * Usa o índice [status, currentPeriodEnd]. `limit` protege o tick do
+ * reconciler de um backlog gigante; o restante fica pros próximos ticks.
  */
 export async function findStaleActiveSubscriptions(
   cutoff: Date,
@@ -109,6 +117,7 @@ export async function findStaleActiveSubscriptions(
     where: {
       status: { in: ACTIVE_STATUSES },
       currentPeriodEnd: { lt: cutoff },
+      lastSyncedAt: { lt: cutoff },
     },
     orderBy: { currentPeriodEnd: 'asc' },
     take: limit,
