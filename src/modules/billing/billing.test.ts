@@ -318,8 +318,9 @@ describe('repository', () => {
     it('é no-op quando user não tem stripeCustomerId', async () => {
       const user = await makeUser()
 
-      await terminateBillingForUser(user.id)
+      const terminated = await terminateBillingForUser(user.id)
 
+      expect(terminated).toBeNull()
       expect(stripe.customers.del).not.toHaveBeenCalled()
     })
 
@@ -334,7 +335,9 @@ describe('repository', () => {
         deleted: true,
       } as never)
 
-      await terminateBillingForUser(user.id)
+      // Retorna o customerId encerrado: o caller usa pra reparar o ponteiro
+      // local se a anonimização não acontecer (corrida de reativação).
+      await expect(terminateBillingForUser(user.id)).resolves.toBe('cus_term')
 
       expect(stripe.customers.del).toHaveBeenCalledWith('cus_term')
     })
@@ -353,7 +356,9 @@ describe('repository', () => {
         } as any),
       )
 
-      await expect(terminateBillingForUser(user.id)).resolves.toBeUndefined()
+      // Customer já não existe = mesmo desfecho do del bem-sucedido: retorna
+      // o id pra o caller poder reparar o ponteiro local do mesmo jeito.
+      await expect(terminateBillingForUser(user.id)).resolves.toBe('cus_gone')
     })
 
     it('falha do gateway vira 502 — caller decide o retry', async () => {

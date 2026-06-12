@@ -57,6 +57,21 @@ export async function updateUserStripeCustomerId(
   })
 }
 
+/**
+ * Zera o vínculo com o gateway apenas se ainda aponta pro id esperado —
+ * condicional pra nunca apagar um vínculo recriado em paralelo por outro
+ * fluxo (ensureStripeCustomer).
+ */
+export async function clearUserStripeCustomerIdIfMatches(
+  userId: string,
+  stripeCustomerId: string,
+) {
+  return prisma.user.updateMany({
+    where: { id: userId, stripeCustomerId },
+    data: { stripeCustomerId: null },
+  })
+}
+
 /** Marca/desmarca o cancelamento ao fim do período numa subscription local. */
 export async function setSubscriptionCancelAtPeriodEnd(
   id: string,

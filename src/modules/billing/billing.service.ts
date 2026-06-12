@@ -2,6 +2,7 @@ import Stripe from 'stripe'
 import { env } from '../../lib/env'
 import { STRIPE_API_VERSION, stripe } from '../../lib/stripe'
 import {
+  clearUserStripeCustomerIdIfMatches,
   findActiveSubscriptionByUserId,
   findUserById,
   findUserIsPremium,
@@ -358,10 +359,17 @@ export async function createSetupIntent(userId: string) {
  * NÃO anonimiza a conta nesse caso — anonimizar sem cancelar deixaria o
  * gateway cobrando um titular que não existe mais. O reconciler de exclusão
  * tenta de novo no próximo tick.
+ *
+ * Retorna o customerId encerrado (null se não havia vínculo): o caller usa
+ * pra reparar o ponteiro local quando a anonimização NÃO acontece (corrida de
+ * reativação por login) — o Customer já morreu no gateway, então o ponteiro
+ * não pode sobrar. `resource_missing` retorna o id pelo mesmo motivo.
  */
-export async function terminateBillingForUser(userId: string): Promise<void> {
+export async function terminateBillingForUser(
+  userId: string,
+): Promise<string | null> {
   const user = await findUserById(userId)
-  if (!user?.stripeCustomerId) return
+  if (!user?.stripeCustomerId) return null
 
   try {
     await stripe.customers.del(user.stripeCustomerId)
@@ -370,8 +378,24 @@ export async function terminateBillingForUser(userId: string): Promise<void> {
       err instanceof Stripe.errors.StripeInvalidRequestError &&
       err.code === 'resource_missing'
     ) {
-      return
+      return user.stripeCustomerId
     }
-    wrapStripeError(err)
+    return wrapStripeError(err)
   }
+  return user.stripeCustomerId
+}
+
+/**
+ * Desfaz o vínculo local com um Customer que sabidamente não existe mais no
+ * Stripe. Usado pelo fluxo de exclusão de conta quando um login reativa a
+ * conta na janela entre o cancel no gateway e a tx de anonimização: sem o
+ * reparo, ensureStripeCustomer devolveria um ID morto e o próximo checkout
+ * quebraria no gateway. Condicional ao id esperado (não sobrescreve um
+ * vínculo recriado em paralelo).
+ */
+export async function unlinkStripeCustomer(
+  userId: string,
+  expectedCustomerId: string,
+): Promise<void> {
+  await clearUserStripeCustomerIdIfMatches(userId, expectedCustomerId)
 }

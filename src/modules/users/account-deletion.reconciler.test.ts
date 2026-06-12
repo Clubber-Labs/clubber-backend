@@ -1,3 +1,4 @@
+import Stripe from 'stripe'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { stripe } from '../../lib/stripe'
 import {
@@ -10,6 +11,7 @@ import {
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { reconcileAccountDeletions } from './account-deletion.reconciler'
+import { anonymizeAccount } from './users.service'
 
 // A anonimização encerra o billing no Stripe (terminateBillingForUser) antes
 // da tx local. Mock do singleton — sem rede em teste; contas sem
@@ -199,8 +201,14 @@ describe('reconcileAccountDeletions', () => {
       data: { stripeCustomerId: 'cus_fail' },
     })
     const sub = await makeSubscription(user.id, { status: 'ACTIVE' })
+    // Erro real do SDK (não Error genérico): em produção a falha de gateway
+    // atravessa o wrapStripeError e vira { statusCode: 502 } — o teste deve
+    // exercitar esse caminho, não o re-throw de erro desconhecido.
     vi.mocked(stripe.customers.del).mockRejectedValue(
-      new Error('stripe indisponível'),
+      new Stripe.errors.StripeAPIError({
+        message: 'stripe indisponível',
+        // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+      } as any),
     )
 
     const result = await reconcileAccountDeletions()
@@ -214,6 +222,37 @@ describe('reconcileAccountDeletions', () => {
     expect(reloaded?.accountStatus).toBe('PENDING_DELETION')
     expect(reloaded?.email).toBe(user.email)
     expect(reloaded?.stripeCustomerId).toBe('cus_fail')
+    expect(
+      await testPrisma.subscription.findUnique({ where: { id: sub.id } }),
+    ).not.toBeNull()
+  })
+
+  it('corrida de reativação: guard da tx vence, mas o ponteiro do Customer deletado é limpo', async () => {
+    // Simula o login vencendo a corrida: a conta foi listada como due, mas já
+    // voltou a ACTIVE quando a anonimização roda. O Customer é deletado no
+    // Stripe ANTES do guard — sem o reparo, o ponteiro morto sobraria e o
+    // próximo checkout usaria um Customer inexistente (500 no gateway).
+    const user = await makeUser({ isPremium: true })
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId: 'cus_race' },
+    })
+    const sub = await makeSubscription(user.id, { status: 'ACTIVE' })
+    vi.mocked(stripe.customers.del).mockResolvedValue({} as never)
+
+    const ok = await anonymizeAccount(user.id, { error: () => {} })
+
+    expect(ok).toBe(false)
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+    })
+    // Login venceu: nada de anonimização.
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.email).toBe(user.email)
+    // Reparo: ponteiro morto limpo — próximo checkout cria Customer novo.
+    expect(reloaded?.stripeCustomerId).toBeNull()
+    // Subscription local fica: o webhook customer.subscription.deleted a acha
+    // pelo stripeSubscriptionId (sem depender do ponteiro) e rebaixa isPremium.
     expect(
       await testPrisma.subscription.findUnique({ where: { id: sub.id } }),
     ).not.toBeNull()
