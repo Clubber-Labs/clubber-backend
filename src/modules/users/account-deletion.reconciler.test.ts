@@ -1,13 +1,28 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { stripe } from '../../lib/stripe'
 import {
   makeBlock,
   makeComment,
   makeEvent,
   makeFollow,
+  makeSubscription,
   makeUser,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { reconcileAccountDeletions } from './account-deletion.reconciler'
+
+// A anonimização encerra o billing no Stripe (terminateBillingForUser) antes
+// da tx local. Mock do singleton — sem rede em teste; contas sem
+// stripeCustomerId nem chegam a tocá-lo (no-op), então os testes antigos
+// seguem inalterados.
+vi.mock('../../lib/stripe', () => ({
+  STRIPE_API_VERSION: 'test',
+  stripe: { customers: { del: vi.fn() } },
+}))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+})
 
 function past(ms: number) {
   return new Date(Date.now() - ms)
@@ -142,5 +157,65 @@ describe('reconcileAccountDeletions', () => {
       where: { id: friend.id },
     })
     expect(reloaded?.followersCount).toBe(0)
+  })
+
+  it('encerra billing: deleta Customer no Stripe, limpa vínculo e remove subscriptions', async () => {
+    const user = await makeUser({
+      isPremium: true,
+      accountStatus: 'PENDING_DELETION',
+      scheduledDeletionAt: past(1000),
+    })
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId: 'cus_lgpd' },
+    })
+    await makeSubscription(user.id, { status: 'ACTIVE' })
+    vi.mocked(stripe.customers.del).mockResolvedValue({} as never)
+
+    const result = await reconcileAccountDeletions()
+    expect(result.anonymized).toBe(1)
+
+    // Customer deletado no gateway (cancela subscriptions + remove PII de lá).
+    expect(stripe.customers.del).toHaveBeenCalledWith('cus_lgpd')
+
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+    })
+    expect(reloaded?.accountStatus).toBe('ANONYMIZED')
+    expect(reloaded?.stripeCustomerId).toBeNull()
+    expect(reloaded?.isPremium).toBe(false)
+    expect(
+      await testPrisma.subscription.count({ where: { userId: user.id } }),
+    ).toBe(0)
+  })
+
+  it('falha no Stripe NÃO anonimiza: conta segue PENDING_DELETION pro retry do próximo tick', async () => {
+    const user = await makeUser({
+      accountStatus: 'PENDING_DELETION',
+      scheduledDeletionAt: past(1000),
+    })
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { stripeCustomerId: 'cus_fail' },
+    })
+    const sub = await makeSubscription(user.id, { status: 'ACTIVE' })
+    vi.mocked(stripe.customers.del).mockRejectedValue(
+      new Error('stripe indisponível'),
+    )
+
+    const result = await reconcileAccountDeletions()
+
+    expect(result.due).toBe(1)
+    expect(result.anonymized).toBe(0)
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+    })
+    // Nada parcial: PII intacta, billing intacto — tudo ou nada por tick.
+    expect(reloaded?.accountStatus).toBe('PENDING_DELETION')
+    expect(reloaded?.email).toBe(user.email)
+    expect(reloaded?.stripeCustomerId).toBe('cus_fail')
+    expect(
+      await testPrisma.subscription.findUnique({ where: { id: sub.id } }),
+    ).not.toBeNull()
   })
 })

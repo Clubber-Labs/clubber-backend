@@ -28,6 +28,7 @@ import {
   createSubscriptionIntent,
   getSubscription,
   resumeSubscription,
+  terminateBillingForUser,
 } from './billing.service'
 import { processStripeWebhook } from './billing.webhook'
 
@@ -38,7 +39,12 @@ import { processStripeWebhook } from './billing.webhook'
 vi.mock('../../lib/stripe', () => ({
   STRIPE_API_VERSION: '2026-05-27.dahlia',
   stripe: {
-    customers: { create: vi.fn(), retrieve: vi.fn(), update: vi.fn() },
+    customers: {
+      create: vi.fn(),
+      retrieve: vi.fn(),
+      update: vi.fn(),
+      del: vi.fn(),
+    },
     checkout: { sessions: { create: vi.fn() } },
     subscriptions: { create: vi.fn(), update: vi.fn(), retrieve: vi.fn() },
     setupIntents: { create: vi.fn() },
@@ -305,6 +311,67 @@ describe('repository', () => {
       const has = await hasAnyPreviousSubscription(user.id)
 
       expect(has).toBe(true)
+    })
+  })
+
+  describe('terminateBillingForUser', () => {
+    it('é no-op quando user não tem stripeCustomerId', async () => {
+      const user = await makeUser()
+
+      await terminateBillingForUser(user.id)
+
+      expect(stripe.customers.del).not.toHaveBeenCalled()
+    })
+
+    it('deleta o Customer no Stripe (cancela subscriptions + remove PII do gateway)', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_term' },
+      })
+      vi.mocked(stripe.customers.del).mockResolvedValue({
+        id: 'cus_term',
+        deleted: true,
+      } as never)
+
+      await terminateBillingForUser(user.id)
+
+      expect(stripe.customers.del).toHaveBeenCalledWith('cus_term')
+    })
+
+    it('é idempotente: resource_missing (Customer já deletado) não lança', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_gone' },
+      })
+      vi.mocked(stripe.customers.del).mockRejectedValue(
+        new Stripe.errors.StripeInvalidRequestError({
+          message: 'No such customer',
+          code: 'resource_missing',
+          // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+        } as any),
+      )
+
+      await expect(terminateBillingForUser(user.id)).resolves.toBeUndefined()
+    })
+
+    it('falha do gateway vira 502 — caller decide o retry', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_down' },
+      })
+      vi.mocked(stripe.customers.del).mockRejectedValue(
+        new Stripe.errors.StripeAPIError({
+          message: 'stripe down',
+          // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+        } as any),
+      )
+
+      await expect(terminateBillingForUser(user.id)).rejects.toMatchObject({
+        statusCode: 502,
+      })
     })
   })
 

@@ -85,6 +85,24 @@ const baseSchema = z.object({
   STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS: z
     .string()
     .default('localhost:3000,localhost:3333'),
+  // Retenção (minimização LGPD) dos webhook_events do billing: o payload
+  // guarda o evento Stripe inteiro (e-mail, nome, dados de cobrança). A
+  // idempotência só precisa de janela recente (Stripe reenvia por ~3 dias);
+  // além do prazo, expurgo no padrão dos demais reconcilers.
+  BILLING_WEBHOOK_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(90),
+  BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -304,6 +322,11 @@ export const env = {
     parsed.STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS.split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+  BILLING_WEBHOOK_RETENTION_DAYS: parsed.BILLING_WEBHOOK_RETENTION_DAYS,
+  BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS:
+    parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS,
+  BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED:
+    parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
   SENTRY_DSN: parsed.SENTRY_DSN,
   OTEL_ENABLED: parsed.OTEL_ENABLED,

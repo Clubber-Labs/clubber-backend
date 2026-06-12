@@ -1,6 +1,7 @@
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
+import { terminateBillingForUser } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
 import {
   findFollow,
@@ -282,6 +283,15 @@ export async function anonymizeAccount(
   // Chaves coletadas antes da tx (storage é externo/não-transacional). Os IDs de
   // follow para decrementar contadores são coletados DENTRO da tx (sem corrida).
   const storage = await findAnonymizationStorageKeys(userId)
+
+  // Billing primeiro, banco depois (LGPD): se o cancelamento no Stripe falhar,
+  // nada local muda — a conta segue PENDING_DELETION e o reconciler tenta de
+  // novo no próximo tick. A ordem inversa anonimizaria o titular deixando a
+  // cobrança viva no gateway. Mesma aceitação de corrida do storage acima: se
+  // um login reativar a conta entre o cancel e a tx, o guard da tx vence e o
+  // usuário só precisa reassinar.
+  await terminateBillingForUser(userId)
+
   const anonymized = await anonymizeUserTx(userId, now)
   if (!anonymized) return false
 

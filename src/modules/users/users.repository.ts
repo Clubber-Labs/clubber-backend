@@ -380,6 +380,11 @@ export async function anonymizeUserTx(
         // `location` recomputa para NULL sozinha quando locationGeohash é NULL).
         locationGeohash: null,
         locationUpdatedAt: null,
+        // Billing (LGPD): solta o vínculo com o gateway e o gate premium. O
+        // Customer no Stripe é deletado ANTES desta tx (terminateBillingForUser);
+        // com o ponteiro nulo, webhooks atrasados desse Customer não religam nada.
+        stripeCustomerId: null,
+        isPremium: false,
         isPrivate: true,
         accountStatus: 'ANONYMIZED',
         anonymizedAt: now,
@@ -420,6 +425,10 @@ export async function anonymizeUserTx(
     // na anonimização (o token de push re-identifica o device).
     await tx.deviceToken.deleteMany({ where: { userId } })
     await tx.notification.deleteMany({ where: { userId } })
+    // Histórico de assinaturas: vínculo de billing do titular — some na
+    // anonimização (minimização). O registro financeiro/contábil permanece no
+    // Stripe, que é quem tem a obrigação de guardá-lo.
+    await tx.subscription.deleteMany({ where: { userId } })
     await tx.block.deleteMany({ where: { blockerId: userId } })
     await tx.follow.deleteMany({
       where: { OR: [{ followerId: userId }, { followingId: userId }] },

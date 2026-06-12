@@ -346,3 +346,32 @@ export async function createSetupIntent(userId: string) {
     return wrapStripeError(err)
   }
 }
+
+/**
+ * Encerramento do billing na exclusão de conta (LGPD): deletar o Customer no
+ * Stripe cancela IMEDIATAMENTE todas as subscriptions dele e remove o PII
+ * (e-mail/nome) que mantínhamos no gateway — o pedido de exclusão vale também
+ * fora do nosso banco. Idempotente: `resource_missing` (Customer já deletado
+ * numa tentativa anterior) conta como sucesso.
+ *
+ * Falhas reais sobem (502 via wrapStripeError): o caller (anonymizeAccount)
+ * NÃO anonimiza a conta nesse caso — anonimizar sem cancelar deixaria o
+ * gateway cobrando um titular que não existe mais. O reconciler de exclusão
+ * tenta de novo no próximo tick.
+ */
+export async function terminateBillingForUser(userId: string): Promise<void> {
+  const user = await findUserById(userId)
+  if (!user?.stripeCustomerId) return
+
+  try {
+    await stripe.customers.del(user.stripeCustomerId)
+  } catch (err) {
+    if (
+      err instanceof Stripe.errors.StripeInvalidRequestError &&
+      err.code === 'resource_missing'
+    ) {
+      return
+    }
+    wrapStripeError(err)
+  }
+}

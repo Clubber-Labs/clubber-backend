@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
 import { testPrisma } from './prisma'
@@ -298,6 +299,26 @@ export async function makeSubscription(
       cancelAtPeriodEnd: overrides.cancelAtPeriodEnd ?? false,
       canceledAt: overrides.canceledAt ?? null,
       lastSyncedAt: overrides.lastSyncedAt ?? now,
+    },
+  })
+}
+
+/** Evento de webhook Stripe já processado (linha de idempotência do billing). */
+export async function makeWebhookEvent(
+  overrides: {
+    stripeEventId?: string
+    type?: string
+    processedAt?: Date
+    payload?: Prisma.InputJsonValue
+  } = {},
+) {
+  const id = uid()
+  return testPrisma.webhookEvent.create({
+    data: {
+      stripeEventId: overrides.stripeEventId ?? `evt_test_${id}`,
+      type: overrides.type ?? 'customer.subscription.updated',
+      processedAt: overrides.processedAt ?? new Date(),
+      payload: overrides.payload ?? {},
     },
   })
 }

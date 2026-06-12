@@ -100,6 +100,19 @@ export async function isEventProcessed(stripeEventId: string) {
 }
 
 /**
+ * Expurgo (retenção/minimização LGPD) dos eventos de webhook processados: o
+ * payload guarda o evento Stripe inteiro (e-mail, nome, dados de cobrança).
+ * A idempotência só precisa de uma janela recente — o Stripe reenvia eventos
+ * por no máximo alguns dias — então linhas além do prazo somem inteiras.
+ */
+export async function deleteWebhookEventsOlderThan(cutoff: Date) {
+  const { count } = await prisma.webhookEvent.deleteMany({
+    where: { processedAt: { lt: cutoff } },
+  })
+  return count
+}
+
+/**
  * Boundary da transação do billing. Mantém o `prisma.$transaction` (e a
  * config de timeout/maxWait) dentro do repository — única camada que toca o
  * client — para que o handler do webhook orquestre sem importar o Prisma.
