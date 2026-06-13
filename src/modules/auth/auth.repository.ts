@@ -9,6 +9,7 @@ export async function findUserByEmail(email: string) {
 const mfaSelect = {
   id: true,
   email: true,
+  role: true,
   mfaEnabled: true,
   mfaSecret: true,
   mfaRecoveryCodes: true,

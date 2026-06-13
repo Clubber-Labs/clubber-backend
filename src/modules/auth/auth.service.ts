@@ -77,10 +77,22 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
 }
 
 // ── Cadastro / gerenciamento do MFA (TOTP) ───────────────────────────────────
+// O MFA é um recurso do backoffice: só contas ADMIN podem cadastrar/gerenciar.
+// O usuário comum do app não tem painel administrativo, então não expõe o fluxo.
+
+function assertAdmin(role: string) {
+  if (role !== 'ADMIN') {
+    throw {
+      statusCode: 403,
+      message: 'MFA disponível apenas para contas administrativas',
+    }
+  }
+}
 
 export async function setupMfa(userId: string) {
   const user = await findUserMfaById(userId)
   if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  assertAdmin(user.role)
   if (user.mfaEnabled) {
     throw {
       statusCode: 409,
@@ -98,6 +110,7 @@ export async function setupMfa(userId: string) {
 export async function enableMfa(userId: string, code: string) {
   const user = await findUserMfaById(userId)
   if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  assertAdmin(user.role)
   if (user.mfaEnabled) {
     throw { statusCode: 409, message: 'MFA já está ativo.' }
   }
@@ -119,6 +132,7 @@ export async function enableMfa(userId: string, code: string) {
 export async function disableMfa(userId: string, code: string) {
   const user = await findUserMfaById(userId)
   if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  assertAdmin(user.role)
   if (!user.mfaEnabled) return { mfaEnabled: false } // idempotente
   const ok = await verifyMfaCode(userId, user, code)
   if (!ok) throw { statusCode: 401, message: 'Código inválido.' }

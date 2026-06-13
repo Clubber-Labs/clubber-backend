@@ -12,7 +12,9 @@ function authHeader(userId: string) {
 }
 
 function totpCode(secret: string): string {
-  return new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secret) }).generate()
+  return new OTPAuth.TOTP({
+    secret: OTPAuth.Secret.fromBase32(secret),
+  }).generate()
 }
 
 beforeAll(async () => {
@@ -167,6 +169,11 @@ describe('GET /auth/me (removido)', () => {
 })
 
 describe('MFA (TOTP)', () => {
+  // MFA é recurso do backoffice: só contas ADMIN cadastram/gerenciam.
+  function makeAdmin() {
+    return makeUser({ role: 'ADMIN' })
+  }
+
   async function enrollMfa(userId: string) {
     const setup = await app.inject({
       method: 'POST',
@@ -184,7 +191,7 @@ describe('MFA (TOTP)', () => {
   }
 
   it('setup retorna otpauthUrl + qrCode + secret', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     const res = await app.inject({
       method: 'POST',
       url: '/auth/mfa/setup',
@@ -202,8 +209,18 @@ describe('MFA (TOTP)', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('enable com código válido ativa o MFA e devolve recovery codes', async () => {
+  it('setup negado para usuário comum → 403', async () => {
     const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/setup',
+      headers: authHeader(user.id),
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('enable com código válido ativa o MFA e devolve recovery codes', async () => {
+    const user = await makeAdmin()
     const { recoveryCodes } = await enrollMfa(user.id)
     expect(recoveryCodes).toHaveLength(10)
     const reloaded = await testPrisma.user.findUnique({
@@ -216,7 +233,7 @@ describe('MFA (TOTP)', () => {
   })
 
   it('enable com código inválido → 401', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     await app.inject({
       method: 'POST',
       url: '/auth/mfa/setup',
@@ -232,7 +249,7 @@ describe('MFA (TOTP)', () => {
   })
 
   it('login sem código quando MFA ativo → mfaRequired, sem token', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     await enrollMfa(user.id)
     const res = await app.inject({
       method: 'POST',
@@ -244,19 +261,23 @@ describe('MFA (TOTP)', () => {
   })
 
   it('login com TOTP válido → token', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     const { secret } = await enrollMfa(user.id)
     const res = await app.inject({
       method: 'POST',
       url: '/auth/login',
-      body: { email: user.email, password: 'senha123', mfaCode: totpCode(secret) },
+      body: {
+        email: user.email,
+        password: 'senha123',
+        mfaCode: totpCode(secret),
+      },
     })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toHaveProperty('token')
   })
 
   it('login com código MFA inválido → 401', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     await enrollMfa(user.id)
     const res = await app.inject({
       method: 'POST',
@@ -267,7 +288,7 @@ describe('MFA (TOTP)', () => {
   })
 
   it('código de recuperação funciona e é consumido (uso único)', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     const { recoveryCodes } = await enrollMfa(user.id)
     const code = recoveryCodes[0]
 
@@ -288,7 +309,7 @@ describe('MFA (TOTP)', () => {
   })
 
   it('disable com código válido desativa o MFA (volta a logar sem código)', async () => {
-    const user = await makeUser()
+    const user = await makeAdmin()
     const { secret } = await enrollMfa(user.id)
 
     const off = await app.inject({
