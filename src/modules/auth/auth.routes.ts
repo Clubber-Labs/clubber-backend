@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import { login } from './auth.controller'
 import { loginBodySchema } from './auth.schema'
 
@@ -17,12 +18,7 @@ export async function authRoutes(app: FastifyInstance) {
     '/auth/login',
     {
       schema: { body: loginBodySchema },
-      config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: '1 minute',
-        },
-      },
+      config: { rateLimit: rateLimit(10) },
     },
     login,
   )

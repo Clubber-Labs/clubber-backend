@@ -92,10 +92,12 @@ app.register(fastifyCors, {
   credentials: true,
 })
 
-app.register(fastifyRateLimit, {
-  global: false,
-  redis: redis ?? undefined,
-})
+if (env.RATE_LIMIT_ENABLED) {
+  app.register(fastifyRateLimit, {
+    global: false,
+    redis: redis ?? undefined,
+  })
+}
 
 app.register(fastifyMultipart, {
   limits: {

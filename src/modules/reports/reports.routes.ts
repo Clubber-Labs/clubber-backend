@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteReport,
   deleteReportTarget,
@@ -27,10 +28,7 @@ import {
 } from './reports.schema'
 
 const createReportRouteConfig = {
-  rateLimit: {
-    max: 20,
-    timeWindow: '1 minute',
-  },
+  rateLimit: rateLimit(20),
 }
 
 export async function reportsRoutes(app: FastifyInstance) {

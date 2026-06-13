@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteEventHandler,
   getEvent,
@@ -56,7 +57,7 @@ export async function eventsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticateOptional],
       // Mais pesado que a lista/heatmap (window function + hidratação completa).
       // Limite generoso: cobre panning com debounce, barra abuso/scripts.
-      config: { rateLimit: { max: 240, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(240) },
     },
     getEventsViewport,
   )
@@ -66,7 +67,7 @@ export async function eventsRoutes(app: FastifyInstance) {
     {
       schema: { querystring: searchEventsQuerySchema },
       onRequest: [app.authenticateOptional],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     getEventsSearch,
   )

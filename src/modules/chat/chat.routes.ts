@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteConversation,
   deleteMessageHandler,
@@ -53,7 +54,7 @@ export async function chatRoutes(app: FastifyInstance) {
     {
       schema: { body: createConversationSchema },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     postConversation,
   )
@@ -114,7 +115,7 @@ export async function chatRoutes(app: FastifyInstance) {
     {
       schema: { params: conversationParamSchema, body: sendMessageSchema },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(60) },
     },
     postMessage,
   )
@@ -138,7 +139,7 @@ export async function chatRoutes(app: FastifyInstance) {
         ].join('\n'),
       },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     postMessageImage,
   )
@@ -164,7 +165,7 @@ export async function chatRoutes(app: FastifyInstance) {
         ].join('\n'),
       },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     postMessageAudio,
   )
@@ -190,7 +191,7 @@ export async function chatRoutes(app: FastifyInstance) {
         ].join('\n'),
       },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     postVideoUploadSignature,
   )
@@ -216,7 +217,7 @@ export async function chatRoutes(app: FastifyInstance) {
         ].join('\n'),
       },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     postMessageVideo,
   )
@@ -244,7 +245,7 @@ export async function chatRoutes(app: FastifyInstance) {
     {
       schema: { params: messageParamSchema, body: editMessageSchema },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(60) },
     },
     patchMessage,
   )
@@ -263,7 +264,7 @@ export async function chatRoutes(app: FastifyInstance) {
     {
       schema: { params: messageParamSchema, body: messageReactionSchema },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(120) },
     },
     postMessageReaction,
   )

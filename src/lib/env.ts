@@ -13,6 +13,16 @@ const baseSchema = z.object({
     .string()
     .regex(/^rediss?:\/\//, 'REDIS_URL deve começar com redis:// ou rediss://')
     .optional(),
+  // Rate limiting (@fastify/rate-limit). Master switch + ajuste global. Os
+  // defaults preservam o comportamento atual (ligado, fator 1, janela de 1 min).
+  // Para testes de carga: RATE_LIMIT_ENABLED=false desliga todo o throttling, ou
+  // RATE_LIMIT_MAX_FACTOR alto relaxa os limites medindo throughput puro.
+  RATE_LIMIT_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  RATE_LIMIT_MAX_FACTOR: z.coerce.number().positive().default(1),
+  RATE_LIMIT_WINDOW: z.string().default('1 minute'),
   STORAGE_DRIVER: z.enum(['cloudinary', 'local']).optional(),
   UPLOADS_DIR: z.string().optional(),
   // Envio de e-mail (recuperação de senha). Driver `log` (default) só loga o
@@ -307,6 +317,9 @@ export const env = {
   NODE_ENV: parsed.NODE_ENV,
   PUBLIC_URL: parsed.PUBLIC_URL,
   REDIS_URL: parsed.REDIS_URL,
+  RATE_LIMIT_ENABLED: parsed.RATE_LIMIT_ENABLED,
+  RATE_LIMIT_MAX_FACTOR: parsed.RATE_LIMIT_MAX_FACTOR,
+  RATE_LIMIT_WINDOW: parsed.RATE_LIMIT_WINDOW,
   STORAGE_DRIVER,
   UPLOADS_DIR: path.resolve(
     parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads'),
