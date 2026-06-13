@@ -1,10 +1,13 @@
-import type { Prisma } from '@prisma/client'
+import type { Prisma, ReportStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
-import type {
-  CreateReportBody,
-  ListReportsQuery,
-  ResolveReportBody,
-} from './reports.schema'
+import type { CreateReportBody, ListReportsQuery } from './reports.schema'
+
+// Resolução escrevível: REVIEWED + qualquer RESOLVED_* (inclui os de moderação,
+// SUSPENDED/BANNED, que vêm do fluxo de moderate-user, não do PATCH público).
+type ResolutionUpdate = {
+  status: Exclude<ReportStatus, 'PENDING'>
+  resolutionNote?: string
+}
 
 const reportInclude = {
   reporter: {
@@ -252,7 +255,7 @@ export async function findReportById(id: string) {
 export async function updateReportResolution(
   id: string,
   reviewerId: string,
-  data: ResolveReportBody,
+  data: ResolutionUpdate,
 ) {
   const isResolved = data.status.startsWith('RESOLVED')
 

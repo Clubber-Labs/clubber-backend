@@ -1,5 +1,6 @@
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
+import * as moderationDenylist from '../../lib/moderation-denylist'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import {
   terminateBillingForUser,
@@ -12,10 +13,12 @@ import {
 } from '../follows/follows.repository'
 import {
   anonymizeUserTx,
+  clearExpiredSuspension,
   createUser,
   findAccountState,
   findAllUsers,
   findAnonymizationStorageKeys,
+  findModerationState,
   findOwnUserById,
   findUserAvatarKey,
   findUserByEmail,
@@ -25,6 +28,9 @@ import {
   setAccountActive,
   setAccountDeactivated,
   setAccountPendingDeletion,
+  setUserBanned,
+  setUserSuspended,
+  setUserUnsuspended,
   updateUser,
   updateUserWithPreferences,
 } from './users.repository'
@@ -341,4 +347,78 @@ export async function changeUserAvatar(
     await deleteUploaded(uploaded.key, logger)
     throw err
   }
+}
+
+// ── Moderação (suspensão/banimento) ──────────────────────────────────────────
+// Os endpoints chamadores já passam por assertAdmin; estas funções garantem as
+// invariantes do alvo e mantêm a denylist Redis em sincronia com o banco.
+
+type ModerationTarget = Awaited<ReturnType<typeof findModerationState>>
+
+function assertModeratable(target: ModerationTarget, requesterId: string) {
+  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (target.id === requesterId) {
+    throw { statusCode: 400, message: 'Não é possível moderar a própria conta' }
+  }
+  if (target.role === 'ADMIN') {
+    throw {
+      statusCode: 403,
+      message: 'Não é possível moderar um administrador',
+    }
+  }
+}
+
+export async function suspendUser(
+  userId: string,
+  requesterId: string,
+  days: number,
+  reason?: string,
+) {
+  const target = await findModerationState(userId)
+  assertModeratable(target, requesterId)
+  const suspendedUntil = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  const updated = await setUserSuspended(userId, suspendedUntil, reason)
+  await moderationDenylist.block(userId)
+  return updated
+}
+
+export async function banUser(
+  userId: string,
+  requesterId: string,
+  reason?: string,
+) {
+  const target = await findModerationState(userId)
+  assertModeratable(target, requesterId)
+  const updated = await setUserBanned(userId, reason)
+  await moderationDenylist.block(userId)
+  return updated
+}
+
+/** Levanta suspensão/ban. Idempotente: conta já ACTIVE só garante o unblock. */
+export async function unsuspendUser(userId: string) {
+  const target = await findModerationState(userId)
+  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (
+    target.accountStatus !== 'SUSPENDED' &&
+    target.accountStatus !== 'BANNED'
+  ) {
+    await moderationDenylist.unblock(userId)
+    return target
+  }
+  const updated = await setUserUnsuspended(userId)
+  await moderationDenylist.unblock(userId)
+  return updated
+}
+
+/**
+ * Auto-cura de suspensão vencida no login (espelha reactivateOnLogin). Retorna
+ * true se a conta foi reativada. Mantém a denylist em sincronia.
+ */
+export async function clearExpiredSuspensionOnLogin(
+  userId: string,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const res = await clearExpiredSuspension(userId, now)
+  if (res.count > 0) await moderationDenylist.unblock(userId)
+  return res.count > 0
 }

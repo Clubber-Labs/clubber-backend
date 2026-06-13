@@ -25,6 +25,12 @@ enum AccountStatus {
   DEACTIVATED
   PENDING_DELETION
   ANONYMIZED
+  // Estados impostos pela moderação (distintos do ciclo de vida self-service
+  // acima). SUSPENDED é temporário (expira em suspendedUntil); BANNED é
+  // permanente. Ambos ficam fora de VISIBLE_AS_USER/AUTHOR → conteúdo e perfil
+  // somem; e bloqueiam login (não são reativados por reactivateOnLogin).
+  SUSPENDED
+  BANNED
 }
 
 model User {
@@ -64,6 +70,12 @@ model User {
   deactivatedAt         DateTime?
   scheduledDeletionAt   DateTime?
   anonymizedAt          DateTime?
+  // Moderação: marcadores do estado SUSPENDED/BANNED. suspendedUntil null em
+  // BANNED (permanente); preenchido em SUSPENDED (o reconciler expira quando
+  // vence). suspensionReason guarda o motivo (audit + exibição no painel).
+  suspendedAt           DateTime?
+  suspendedUntil        DateTime?
+  suspensionReason      String?
   events                Event[]
   attendances           EventAttendance[]
   posts                 Post[]
@@ -114,6 +126,8 @@ model User {
 
   // Predicado do reconciler: PENDING_DELETION com scheduledDeletionAt vencido.
   @@index([accountStatus, scheduledDeletionAt])
+  // Alvo do reconciler de expiração de suspensão (SUSPENDED + suspendedUntil <= now).
+  @@index([accountStatus, suspendedUntil])
   @@map("users")
 }
 
@@ -502,6 +516,9 @@ enum ReportStatus {
   REVIEWED
   RESOLVED_INVALID
   RESOLVED_REMOVED
+  // Resolução com ação sobre o usuário denunciado (módulo de moderação).
+  RESOLVED_SUSPENDED
+  RESOLVED_BANNED
 }
 
 model Report {
@@ -679,6 +696,9 @@ enum AccountLifecycleAction {
   DEACTIVATED
   DELETION_SCHEDULED
   REACTIVATED
+  SUSPENDED
+  BANNED
+  UNSUSPENDED
 }
 
 // Log append-only do ciclo de vida da conta. Guarda o "motivo de saída"

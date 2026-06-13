@@ -21,6 +21,10 @@ import { shutdownInstrumentation } from './instrumentation'
 import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
 import { buildLoggerOptions } from './lib/logger'
+import {
+  isBlocked,
+  rebuildFromDb as rebuildModerationDenylist,
+} from './lib/moderation-denylist'
 import { redis } from './lib/redis'
 import { genReqId } from './lib/request-id'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
@@ -63,6 +67,7 @@ import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
+import { startSuspensionReconciler } from './modules/users/suspension.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
 import { metricsPlugin } from './plugins/metrics'
 import { requestIdPlugin } from './plugins/request-id'
@@ -118,6 +123,12 @@ app.decorate(
   'authenticate',
   async (request: FastifyRequest, _reply: FastifyReply) => {
     const payload = await request.jwtVerify<{ sub: string }>()
+    // Moderação: JWT não expira, então um token de conta suspensa/banida ainda
+    // verifica — a denylist barra a sessão existente na hora (401 → o mobile
+    // desloga via interceptor).
+    if (await isBlocked(payload.sub)) {
+      throw { statusCode: 401, message: 'Sessão inválida' }
+    }
     request.user = payload
   },
 )
@@ -127,6 +138,9 @@ app.decorate(
   async (request: FastifyRequest, _reply: FastifyReply) => {
     if (request.headers.authorization) {
       const payload = await request.jwtVerify<{ sub: string }>()
+      if (await isBlocked(payload.sub)) {
+        throw { statusCode: 401, message: 'Sessão inválida' }
+      }
       request.user = payload
     }
   },
@@ -205,6 +219,14 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   if (env.NODE_ENV !== 'test' && env.ACCOUNT_DELETION_ENABLED) {
     startAccountDeletionReconciler(env.ACCOUNT_DELETION_INTERVAL_MS)
   }
+  if (env.NODE_ENV !== 'test' && env.SUSPENSION_RECONCILE_ENABLED) {
+    startSuspensionReconciler(env.SUSPENSION_RECONCILE_INTERVAL_MS)
+  }
+  // Repopula a denylist de moderação a partir do banco (sobrevive a restart /
+  // flush do Redis). Best-effort: falha não impede o boot.
+  rebuildModerationDenylist().catch((err) => {
+    app.log.error({ err }, 'falha ao reconstruir a denylist de moderação')
+  })
   if (
     env.NODE_ENV !== 'test' &&
     env.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED

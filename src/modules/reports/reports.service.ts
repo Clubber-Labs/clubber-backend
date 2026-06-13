@@ -13,6 +13,7 @@ import { deleteComment } from '../comments/comments.repository'
 import { resolveCommentEventId } from '../comments/comments.service'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { deleteEvent, findEventImageKeys } from '../events/events.repository'
+import { banUser, suspendUser, unsuspendUser } from '../users/users.service'
 import {
   createCommentReport,
   createEventReport,
@@ -35,6 +36,7 @@ import {
 import type {
   CreateReportBody,
   ListReportsQuery,
+  ModerateUserBody,
   ResolveReportBody,
 } from './reports.schema'
 
@@ -258,7 +260,7 @@ export async function removeReportTarget(
     throw {
       statusCode: 400,
       message:
-        'Remoção de usuário exige fluxo próprio de suspensão ou banimento',
+        'Denúncia de usuário: use POST /reports/:id/moderate-user (suspender/banir)',
     }
   }
 
@@ -299,4 +301,59 @@ export async function removeReport(reportId: string, requesterId: string) {
   }
 
   await deleteReportById(reportId)
+}
+
+/**
+ * Pune o usuário alvo de uma denúncia (suspende ou bane) e fecha a denúncia.
+ * É o "fluxo próprio" que o removeReportTarget delega para usuário. A punição
+ * (suspendUser/banUser) e a resolução são feitas em sequência; o estado da
+ * conta é a fonte da verdade, então uma falha na resolução não desfaz a punição
+ * (o moderador reabre a denúncia se preciso).
+ */
+export async function moderateReportedUser(
+  reportId: string,
+  requesterId: string,
+  body: ModerateUserBody,
+) {
+  await assertAdmin(requesterId)
+  const report = await findReportById(reportId)
+  if (!report) {
+    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+  }
+  if (!report.targetUserId) {
+    throw {
+      statusCode: 400,
+      message: 'Esta denúncia não é sobre um usuário',
+    }
+  }
+
+  if (body.action === 'SUSPEND') {
+    // O schema garante days definido quando action=SUSPEND.
+    await suspendUser(
+      report.targetUserId,
+      requesterId,
+      body.days as number,
+      body.reason,
+    )
+  } else {
+    await banUser(report.targetUserId, requesterId, body.reason)
+  }
+
+  const note =
+    body.reason ??
+    (body.action === 'SUSPEND'
+      ? `Usuário suspenso por ${body.days} dia(s) pela moderação`
+      : 'Usuário banido pela moderação')
+
+  return updateReportResolution(reportId, requesterId, {
+    status:
+      body.action === 'SUSPEND' ? 'RESOLVED_SUSPENDED' : 'RESOLVED_BANNED',
+    resolutionNote: note,
+  })
+}
+
+/** Levanta a punição (suspensão/ban) de um usuário — não atado a denúncia. */
+export async function liftUserModeration(userId: string, requesterId: string) {
+  await assertAdmin(requesterId)
+  return unsuspendUser(userId)
 }

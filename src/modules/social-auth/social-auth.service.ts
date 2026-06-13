@@ -1,6 +1,9 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type SocialProvider } from '@prisma/client'
+import { unblock } from '../../lib/moderation-denylist'
 import {
+  clearExpiredSuspension,
+  findModerationState,
   findOwnUserById,
   findUserByEmail,
   findUserByUsername,
@@ -68,6 +71,22 @@ async function loadUserAndDecorate(userId: string) {
   // email por placeholder, então nem `existing` nem `linkable` resolvem aqui.
   if (user.accountStatus === 'ANONYMIZED') {
     throw { statusCode: 401, message: 'Sessão inválida' }
+  }
+  // Moderação: conta punida não loga (sessão existente é barrada na denylist do
+  // authenticate). suspendedUntil só é buscado no caso raro de estar SUSPENDED.
+  if (user.accountStatus === 'BANNED') {
+    throw { statusCode: 403, message: 'Esta conta foi banida permanentemente.' }
+  }
+  if (user.accountStatus === 'SUSPENDED') {
+    const state = await findModerationState(user.id)
+    if (state?.suspendedUntil && state.suspendedUntil > new Date()) {
+      throw {
+        statusCode: 403,
+        message: `Esta conta está suspensa até ${state.suspendedUntil.toISOString()}.`,
+      }
+    }
+    const res = await clearExpiredSuspension(user.id, new Date())
+    if (res.count > 0) await unblock(user.id)
   }
   // Espelha o shape de getMe: achata _count em eventsCount e expõe hasPassword
   // (derivado, sem vazar o hash) pra o cliente decidir o fluxo de exclusão.

@@ -12,12 +12,15 @@ import {
   patchReport,
   postCommentReport,
   postEventReport,
+  postLiftUserModeration,
   postMessageReport,
+  postModerateUser,
   postUserReport,
 } from './reports.controller'
 import {
   createReportSchema,
   listReportsQuerySchema,
+  moderateUserSchema,
   reportCommentParamSchema,
   reportEventParamSchema,
   reportMessageParamSchema,
@@ -73,6 +76,26 @@ export async function reportsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     deleteReportTarget,
+  )
+
+  // Moderação do usuário denunciado: suspender (com prazo) ou banir (permanente).
+  api.post(
+    '/reports/:id/moderate-user',
+    {
+      schema: { params: reportParamSchema, body: moderateUserSchema },
+      onRequest: [app.authenticate],
+    },
+    postModerateUser,
+  )
+
+  // Levanta a punição de um usuário (não atado a denúncia).
+  api.post(
+    '/moderation/users/:userId/unsuspend',
+    {
+      schema: { params: reportUserParamSchema },
+      onRequest: [app.authenticate],
+    },
+    postLiftUserModeration,
   )
 
   api.delete(

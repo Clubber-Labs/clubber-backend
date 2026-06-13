@@ -8,6 +8,7 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import { errorHandler } from '../lib/error-handler'
+import { isBlocked } from '../lib/moderation-denylist'
 import { redis } from '../lib/redis'
 import { genReqId } from '../lib/request-id'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
@@ -66,6 +67,9 @@ export function buildApp() {
     'authenticate',
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const payload = await request.jwtVerify<{ sub: string }>()
+      if (await isBlocked(payload.sub)) {
+        throw { statusCode: 401, message: 'Sessão inválida' }
+      }
       request.user = payload
     },
   )
@@ -75,6 +79,9 @@ export function buildApp() {
     async (request: FastifyRequest, _reply: FastifyReply) => {
       if (request.headers.authorization) {
         const payload = await request.jwtVerify<{ sub: string }>()
+        if (await isBlocked(payload.sub)) {
+          throw { statusCode: 401, message: 'Sessão inválida' }
+        }
         request.user = payload
       }
     },

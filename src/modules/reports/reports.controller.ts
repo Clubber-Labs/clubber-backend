@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type {
   CreateReportBody,
   ListReportsQuery,
+  ModerateUserBody,
   ReportCommentParams,
   ReportEventParams,
   ReportMessageParams,
@@ -11,7 +12,9 @@ import type {
 } from './reports.schema'
 import {
   getReport,
+  liftUserModeration,
   listReports,
+  moderateReportedUser,
   removeReport,
   removeReportTarget,
   reportComment,
@@ -107,4 +110,27 @@ export async function deleteReportTarget(
   const { id } = request.params as ReportParams
   const report = await removeReportTarget(id, request.user.sub)
   return reply.send(report)
+}
+
+export async function postModerateUser(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ReportParams
+  const body = request.body as ModerateUserBody
+  const report = await moderateReportedUser(id, request.user.sub, body)
+  request.log.info(
+    { moderatorId: request.user.sub, reportId: id, action: body.action },
+    'Moderator acted on reported user',
+  )
+  return reply.send(report)
+}
+
+export async function postLiftUserModeration(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { userId } = request.params as ReportUserParams
+  const user = await liftUserModeration(userId, request.user.sub)
+  return reply.send(user)
 }
