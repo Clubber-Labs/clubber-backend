@@ -108,6 +108,11 @@ model User {
   deviceTokens  DeviceToken[]
   notifications Notification[]
 
+  // Spots (rolês sugeridos, distintos de Event)
+  spotsCreated        Spot[]                @relation("spotsCreated")
+  spotGenerationUsage SpotGenerationUsage[]
+  spotDiscoveryUsage  SpotDiscoveryUsage[]
+
   // Predicado do reconciler: PENDING_DELETION com scheduledDeletionAt vencido.
   @@index([accountStatus, scheduledDeletionAt])
   @@map("users")
@@ -190,6 +195,7 @@ model Conversation {
 
   participants ConversationParticipant[]
   messages     Message[]
+  spot         Spot?
 
   @@index([lastMessageAt])
   @@map("conversations")
@@ -354,9 +360,9 @@ model Event {
   latitude    Float
   longitude   Float
   address     String?
-  category    EventCategory
-  isPublic    Boolean       @default(true)
-  isFeatured  Boolean       @default(false)
+  categories  EventCategory[]
+  isPublic    Boolean         @default(true)
+  isFeatured  Boolean         @default(false)
   maxCapacity Int?
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -386,6 +392,7 @@ model Event {
   @@index([date])
   @@index([isPublic, date])
   @@index([isFeatured, date, id])
+  @@index([categories], type: Gin)
   @@map("events")
 }
 
@@ -421,9 +428,9 @@ model EventSeries {
   latitude    Float?
   longitude   Float?
   address     String?
-  category    EventCategory?
+  categories  EventCategory[]
   maxCapacity Int?
-  isPublic    Boolean        @default(true)
+  isPublic    Boolean         @default(true)
   durationMs  Int?
 
   events Event[]
@@ -750,6 +757,9 @@ model AccountLifecycleLog {
 
 enum NotificationType {
   EVENT_NEARBY
+  SPOT_NEARBY
+  SPOT_JOIN
+  SPOT_RENEWAL
   FOLLOW_REQUEST
   FOLLOW_ACCEPTED
   NEW_FOLLOWER
@@ -813,6 +823,7 @@ model Notification {
   eventId   String?
   postId    String?
   commentId String?
+  spotId    String?
   title     String
   body      String
   data      Json?
@@ -826,4 +837,77 @@ model Notification {
   // heap scan no desempate de createdAt igual. Btree serve via scan reverso.
   @@index([userId, createdAt, id])
   @@map("notifications")
+}
+
+enum SpotVisibility {
+  PUBLIC
+  FRIENDS
+}
+
+// Spot = rolê sugerido, ancorado num estabelecimento real (placeId do Google
+// Places), com janela de tempo (startsAt/endsAt) e um grupo de chat criado junto.
+// Distinto de Event: mais leve, efêmero, e o "ser membro" É participar do chat
+// (conversationId). FRIENDS = visível só para follow mútuo do criador.
+// A coluna `location` geography é GERADA via SQL cru, fora do schema — igual a
+// events.location (ver migration).
+model Spot {
+  id          String          @id @default(uuid())
+  title       String
+  description String?
+  categories  EventCategory[]
+  visibility  SpotVisibility  @default(PUBLIC)
+  placeId     String
+  latitude    Float
+  longitude   Float
+  startsAt    DateTime
+  endsAt      DateTime
+  canceledAt  DateTime?
+  // Marcado quando o lembrete de renovação é enviado; zerado ao renovar
+  // (re-arma o lembrete para a nova janela). NULL = ainda não lembrado.
+  renewalNotifiedAt DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  creatorId String
+  creator   User   @relation("spotsCreated", fields: [creatorId], references: [id])
+
+  conversationId String       @unique
+  conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([creatorId])
+  // Lembrete: spots ativos vencendo ainda não lembrados.
+  @@index([renewalNotifiedAt, endsAt, canceledAt], map: "spots_renewal_reminder_idx")
+  @@index([categories], type: Gin)
+  @@map("spots")
+}
+
+// Quota diária de geração de sugestões de spot (botão "gerar"). Uma linha por
+// (usuário, dia); `count` é consumido de forma atômica. Free = 5, premium = 25
+// (o limite é regra de negócio no service, não no schema). A renovação de spot
+// no lifecycle consome desta MESMA quota.
+model SpotGenerationUsage {
+  userId    String
+  day       DateTime @db.Date
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+  @@map("spot_generation_usage")
+}
+
+// Cap diário de notificações de DESCOBERTA (SPOT_NEARBY fora da preferência,
+// alcance premium): limita quantas o usuário recebe por dia (anti-spam). Mesma
+// forma do SpotGenerationUsage, consumido em lote de forma atômica.
+model SpotDiscoveryUsage {
+  userId    String
+  day       DateTime @db.Date
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, day])
+  @@map("spot_discovery_usage")
 }

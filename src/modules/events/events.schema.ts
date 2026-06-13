@@ -38,6 +38,14 @@ export const categoryFilter = z
   })
   .pipe(z.array(eventCategorySchema).optional())
 
+// Categorias que o evento POSSUI (mín. 1, sem duplicatas). Distinto do
+// categoryFilter acima, que é o filtro de busca por categoria na listagem.
+export const eventCategoriesInput = z
+  .array(eventCategorySchema)
+  .min(1, 'Informe ao menos uma categoria')
+  .max(5, 'Máximo de 5 categorias')
+  .transform((list) => Array.from(new Set(list)))
+
 export const createEventSchema = z
   .object({
     title: z.string().min(3),
@@ -47,7 +55,7 @@ export const createEventSchema = z
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
     address: z.string().optional(),
-    category: eventCategorySchema,
+    categories: eventCategoriesInput,
     isPublic: z.boolean().default(true),
     maxCapacity: z.number().optional(),
     canceledAt: z.coerce.date().optional(),
@@ -86,7 +94,7 @@ export const updateEventSchema = z
     endDate: z.coerce.date().nullable().optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
-    category: eventCategorySchema.optional(),
+    categories: eventCategoriesInput.optional(),
     isPublic: z.boolean().optional(),
     canceledAt: z.coerce.date().nullable().optional(),
   })

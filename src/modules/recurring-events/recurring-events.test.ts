@@ -19,7 +19,7 @@ function baseEventBody(overrides: Record<string, unknown> = {}) {
     date: new Date(Date.now() + DAY).toISOString(),
     latitude: -25.43,
     longitude: -49.27,
-    category: 'SPORTS',
+    categories: ['SPORTS'],
     isPublic: true,
     ...overrides,
   }
@@ -399,7 +399,7 @@ describe('reconcileRecurringSeries (reposição de horizonte)', () => {
     // Edição pontual da ocorrência mais recente.
     await testPrisma.event.update({
       where: { id: last.id },
-      data: { title: 'EDITADO', category: 'NIGHTLIFE' },
+      data: { title: 'EDITADO', categories: ['NIGHTLIFE'] },
     })
 
     await reconcileRecurringSeries(new Date(start.getTime() + 7 * DAY))
@@ -414,7 +414,7 @@ describe('reconcileRecurringSeries (reposição de horizonte)', () => {
     // As geradas seguem o TEMPLATE da série, não a edição da ocorrência.
     for (const g of generated) {
       expect(g.title).toBe('Original')
-      expect(g.category).toBe('SPORTS')
+      expect(g.categories).toEqual(['SPORTS'])
     }
   })
 

@@ -57,7 +57,7 @@ export async function createRecurringEvent(
     latitude: data.latitude,
     longitude: data.longitude,
     address: data.address ?? null,
-    category: data.category,
+    categories: data.categories,
     isPublic: data.isPublic,
     maxCapacity: data.maxCapacity ?? null,
     authorId,

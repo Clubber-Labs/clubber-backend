@@ -28,6 +28,7 @@ import {
   createSubscriptionIntent,
   getSubscription,
   resumeSubscription,
+  terminateBillingForUser,
 } from './billing.service'
 import { processStripeWebhook } from './billing.webhook'
 
@@ -38,7 +39,12 @@ import { processStripeWebhook } from './billing.webhook'
 vi.mock('../../lib/stripe', () => ({
   STRIPE_API_VERSION: '2026-05-27.dahlia',
   stripe: {
-    customers: { create: vi.fn(), retrieve: vi.fn(), update: vi.fn() },
+    customers: {
+      create: vi.fn(),
+      retrieve: vi.fn(),
+      update: vi.fn(),
+      del: vi.fn(),
+    },
     checkout: { sessions: { create: vi.fn() } },
     subscriptions: { create: vi.fn(), update: vi.fn(), retrieve: vi.fn() },
     setupIntents: { create: vi.fn() },
@@ -306,6 +312,93 @@ describe('repository', () => {
 
       expect(has).toBe(true)
     })
+
+    it('retorna false quando só existe INCOMPLETE (PaymentSheet aberta e abandonada)', async () => {
+      // createSubscriptionIntent cria a subscription como default_incomplete
+      // ANTES do pagamento; o webhook persiste a linha como INCOMPLETE. Quem
+      // desistiu da sheet nunca pagou nem trialou — não pode queimar o trial.
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'INCOMPLETE' })
+
+      const has = await hasAnyPreviousSubscription(user.id)
+
+      expect(has).toBe(false)
+    })
+
+    it('retorna false quando só existe INCOMPLETE_EXPIRED', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'INCOMPLETE_EXPIRED' })
+
+      const has = await hasAnyPreviousSubscription(user.id)
+
+      expect(has).toBe(false)
+    })
+  })
+
+  describe('terminateBillingForUser', () => {
+    it('é no-op quando user não tem stripeCustomerId', async () => {
+      const user = await makeUser()
+
+      const terminated = await terminateBillingForUser(user.id)
+
+      expect(terminated).toBeNull()
+      expect(stripe.customers.del).not.toHaveBeenCalled()
+    })
+
+    it('deleta o Customer no Stripe (cancela subscriptions + remove PII do gateway)', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_term' },
+      })
+      vi.mocked(stripe.customers.del).mockResolvedValue({
+        id: 'cus_term',
+        deleted: true,
+      } as never)
+
+      // Retorna o customerId encerrado: o caller usa pra reparar o ponteiro
+      // local se a anonimização não acontecer (corrida de reativação).
+      await expect(terminateBillingForUser(user.id)).resolves.toBe('cus_term')
+
+      expect(stripe.customers.del).toHaveBeenCalledWith('cus_term')
+    })
+
+    it('é idempotente: resource_missing (Customer já deletado) não lança', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_gone' },
+      })
+      vi.mocked(stripe.customers.del).mockRejectedValue(
+        new Stripe.errors.StripeInvalidRequestError({
+          message: 'No such customer',
+          code: 'resource_missing',
+          // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+        } as any),
+      )
+
+      // Customer já não existe = mesmo desfecho do del bem-sucedido: retorna
+      // o id pra o caller poder reparar o ponteiro local do mesmo jeito.
+      await expect(terminateBillingForUser(user.id)).resolves.toBe('cus_gone')
+    })
+
+    it('falha do gateway vira 502 — caller decide o retry', async () => {
+      const user = await makeUser()
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_down' },
+      })
+      vi.mocked(stripe.customers.del).mockRejectedValue(
+        new Stripe.errors.StripeAPIError({
+          message: 'stripe down',
+          // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+        } as any),
+      )
+
+      await expect(terminateBillingForUser(user.id)).rejects.toMatchObject({
+        statusCode: 502,
+      })
+    })
   })
 
   describe('isEventProcessed + markEventProcessedTx', () => {
@@ -463,9 +556,9 @@ describe('service', () => {
 
     it('aplica trial_period_days=7 quando user nunca teve subscription', async () => {
       const user = await makeUser()
-      // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_a',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',
@@ -486,12 +579,36 @@ describe('service', () => {
       )
     })
 
+    it('aplica trial quando a única subscription anterior é INCOMPLETE (sheet abandonada)', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, { status: 'INCOMPLETE' })
+      vi.mocked(stripe.customers.create).mockResolvedValue({
+        id: 'cus_a',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+      vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
+        url: 'https://x',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
+      } as any)
+
+      await createCheckoutSession(user.id)
+
+      expect(stripe.checkout.sessions.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subscription_data: expect.objectContaining({
+            trial_period_days: 7,
+          }),
+        }),
+        expect.anything(),
+      )
+    })
+
     it('NÃO aplica trial quando user já teve subscription (mitigação trial abuse)', async () => {
       const user = await makeUser()
       await makeSubscription(user.id, { status: 'CANCELED' })
-      // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_a',
+        // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
       } as any)
       vi.mocked(stripe.checkout.sessions.create).mockResolvedValue({
         url: 'https://x',
@@ -1118,7 +1235,7 @@ describe('routes E2E', () => {
       expect(res.statusCode).toBe(401)
     })
 
-    it('POST /billing/checkout retorna 200 com token válido', async () => {
+    it('POST /billing/checkout retorna 201 com token válido', async () => {
       const user = await makeUser()
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_e2e',

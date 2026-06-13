@@ -9,6 +9,7 @@ export type CreateNotificationInput = {
   eventId?: string | null
   postId?: string | null
   commentId?: string | null
+  spotId?: string | null
   title: string
   body: string
   data?: Prisma.InputJsonValue
@@ -133,6 +134,34 @@ export async function findNotificationsForEvent(
   if (userIds.length === 0) return []
   return prisma.notification.findMany({
     where: { userId: { in: userIds }, eventId, type },
+  })
+}
+
+/**
+ * Usuários (entre os passados) que JÁ têm a notificação desta dedupeKey.
+ * Genérico (a chave já codifica tipo+alvos) — serve pro fan-out de spot
+ * (NEARBY por spotId, JOIN por spotId+actor) sem acoplar a colunas específicas.
+ */
+export async function findExistingUserIdsByDedupeKey(
+  userIds: string[],
+  dedupeKey: string,
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const rows = await prisma.notification.findMany({
+    where: { userId: { in: userIds }, dedupeKey },
+    select: { userId: true },
+  })
+  return new Set(rows.map((r) => r.userId))
+}
+
+/** Linhas completas das notificações desta dedupeKey para os usuários dados (foreground). */
+export async function findNotificationsByDedupeKey(
+  userIds: string[],
+  dedupeKey: string,
+) {
+  if (userIds.length === 0) return []
+  return prisma.notification.findMany({
+    where: { userId: { in: userIds }, dedupeKey },
   })
 }
 

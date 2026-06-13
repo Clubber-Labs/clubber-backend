@@ -271,7 +271,7 @@ export async function findPublicEvents(
         }),
         ...(spatialIdFilter ? [{ id: { in: spatialIdFilter } }] : []),
         ...(filters.category && filters.category.length > 0
-          ? [{ category: { in: filters.category } }]
+          ? [{ categories: { hasSome: filters.category } }]
           : []),
         ...(filters.dateFrom || filters.dateTo
           ? [
@@ -354,7 +354,7 @@ export async function findEventForFanout(id: string) {
       title: true,
       latitude: true,
       longitude: true,
-      category: true,
+      categories: true,
       authorId: true,
       isPublic: true,
       canceledAt: true,
@@ -532,7 +532,7 @@ export async function findEventsForMap(
       }),
       ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
       ...(query.category && query.category.length > 0
-        ? [{ category: { in: query.category } }]
+        ? [{ categories: { hasSome: query.category } }]
         : []),
       ...(query.dateFrom || query.dateTo
         ? [
@@ -697,7 +697,7 @@ export async function findEventsInViewport(
       }),
       ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
       ...(query.category && query.category.length > 0
-        ? [{ category: { in: query.category } }]
+        ? [{ categories: { hasSome: query.category } }]
         : []),
     ],
   }

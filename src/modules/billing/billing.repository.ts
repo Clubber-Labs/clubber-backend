@@ -1,4 +1,4 @@
-import type { Prisma, SubscriptionStatus } from '@prisma/client'
+import { Prisma, type SubscriptionStatus } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
 type TxClient = Prisma.TransactionClient
@@ -17,18 +17,44 @@ export async function findActiveSubscriptionByUserId(userId: string) {
 }
 
 /**
- * True se o usuário já teve qualquer subscription (ativa, expirada, cancelada).
- * Usado pra decidir se concede trial novo (não concede se já teve).
- * Mitigação parcial de trial abuse — ver "Trial abuse" no plano.
+ * True se o usuário já teve uma subscription que VALEU algo — política de
+ * produto: um trial por usuário. Quem chegou a TRIALING/ACTIVE (e depois
+ * PAST_DUE/CANCELED/UNPAID) não ganha trial de novo, mesmo voltando após
+ * cancelar.
+ *
+ * INCOMPLETE e INCOMPLETE_EXPIRED ficam de fora: o fluxo PaymentSheet cria a
+ * subscription como `default_incomplete` ANTES do pagamento, então abrir a
+ * sheet e desistir gera uma linha INCOMPLETE sem o usuário nunca ter pago nem
+ * trialado — contar isso queimava o trial de quem só abandonou a sheet.
  */
 export async function hasAnyPreviousSubscription(userId: string) {
-  const count = await prisma.subscription.count({ where: { userId } })
+  const count = await prisma.subscription.count({
+    where: {
+      userId,
+      status: { notIn: ['INCOMPLETE', 'INCOMPLETE_EXPIRED'] },
+    },
+  })
   return count > 0
 }
 
 /** Busca o user por id (camada de billing — service não toca Prisma). */
 export async function findUserById(userId: string) {
   return prisma.user.findUnique({ where: { id: userId } })
+}
+
+/**
+ * Fonte de verdade de leitura do estado premium. O billing é dono do conceito
+ * (escreve via recalculateUserPremiumTx); consumidores de fora — o middleware
+ * requirePremium e o módulo spots — leem por aqui em vez de reimplementar a
+ * query contra a coluna. Se "premium" passar a depender de mais de um sinal,
+ * muda só neste ponto.
+ */
+export async function findUserIsPremium(userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { isPremium: true },
+  })
+  return user?.isPremium ?? false
 }
 
 /** Vincula o Customer do Stripe ao user. */
@@ -39,6 +65,21 @@ export async function updateUserStripeCustomerId(
   return prisma.user.update({
     where: { id: userId },
     data: { stripeCustomerId },
+  })
+}
+
+/**
+ * Zera o vínculo com o gateway apenas se ainda aponta pro id esperado —
+ * condicional pra nunca apagar um vínculo recriado em paralelo por outro
+ * fluxo (ensureStripeCustomer).
+ */
+export async function clearUserStripeCustomerIdIfMatches(
+  userId: string,
+  stripeCustomerId: string,
+) {
+  return prisma.user.updateMany({
+    where: { id: userId, stripeCustomerId },
+    data: { stripeCustomerId: null },
   })
 }
 
@@ -53,6 +94,76 @@ export async function setSubscriptionCancelAtPeriodEnd(
   })
 }
 
+/**
+ * Subscriptions "vencidas": status ainda ativo localmente, mas
+ * currentPeriodEnd além da tolerância — sinal de webhook perdido (renovação
+ * teria avançado o período; cancelamento teria mudado o status).
+ *
+ * O filtro de lastSyncedAt evita re-poll: uma PAST_DUE em retry de cobrança
+ * fica semanas com período vencido LEGITIMAMENTE — sem o filtro, seria
+ * re-consultada no Stripe a cada tick; com ele, no máximo 1x por janela de
+ * grace. Como webhooks aplicados também avançam lastSyncedAt, o critério vira
+ * "só re-consulta quem está MUDO há mais que o grace" — quem recebe eventos
+ * normalmente nem entra no lote.
+ *
+ * Usa o índice [status, currentPeriodEnd]. `limit` protege o tick do
+ * reconciler de um backlog gigante; o restante fica pros próximos ticks.
+ */
+export async function findStaleActiveSubscriptions(
+  cutoff: Date,
+  limit: number,
+) {
+  return prisma.subscription.findMany({
+    where: {
+      status: { in: ACTIVE_STATUSES },
+      currentPeriodEnd: { lt: cutoff },
+      lastSyncedAt: { lt: cutoff },
+    },
+    orderBy: { currentPeriodEnd: 'asc' },
+    take: limit,
+    select: { stripeSubscriptionId: true, userId: true },
+  })
+}
+
+/**
+ * Cancela localmente uma subscription que não existe mais no gateway
+ * (resource_missing no re-sync). lastSyncedAt avança junto: eventos de
+ * webhook mais velhos que o sync são descartados pelo ordering check.
+ */
+export async function markSubscriptionCanceledTx(
+  tx: TxClient,
+  stripeSubscriptionId: string,
+  canceledAt: Date,
+) {
+  return tx.subscription.update({
+    where: { stripeSubscriptionId },
+    data: { status: 'CANCELED', canceledAt, lastSyncedAt: canceledAt },
+  })
+}
+
+/**
+ * Reads tx-aware usados pelo handler do webhook dentro da $transaction.
+ * Mantêm o Prisma confinado ao repository mesmo no caminho transacional — o
+ * webhook orquestra, mas não toca o client direto.
+ */
+export async function findUserIdByStripeCustomerIdTx(
+  tx: TxClient,
+  stripeCustomerId: string,
+) {
+  const user = await tx.user.findUnique({
+    where: { stripeCustomerId },
+    select: { id: true },
+  })
+  return user?.id ?? null
+}
+
+export async function findSubscriptionByStripeIdTx(
+  tx: TxClient,
+  stripeSubscriptionId: string,
+) {
+  return tx.subscription.findUnique({ where: { stripeSubscriptionId } })
+}
+
 export async function isEventProcessed(stripeEventId: string) {
   const row = await prisma.webhookEvent.findUnique({
     where: { stripeEventId },
@@ -62,19 +173,64 @@ export async function isEventProcessed(stripeEventId: string) {
 }
 
 /**
- * Insere o evento como "processado". Deve rodar dentro da $transaction
- * do handler do webhook. Se duplicado, lança P2002 — o caller captura e
- * retorna 200 silencioso (idempotência via constraint do DB).
+ * Expurgo (retenção/minimização LGPD) dos eventos de webhook processados: o
+ * payload guarda o evento Stripe inteiro (e-mail, nome, dados de cobrança).
+ * A idempotência só precisa de uma janela recente — o Stripe reenvia eventos
+ * por no máximo alguns dias — então linhas além do prazo somem inteiras.
+ */
+export async function deleteWebhookEventsOlderThan(cutoff: Date) {
+  const { count } = await prisma.webhookEvent.deleteMany({
+    where: { processedAt: { lt: cutoff } },
+  })
+  return count
+}
+
+/**
+ * Boundary da transação do billing. Mantém o `prisma.$transaction` (e a
+ * config de timeout/maxWait) dentro do repository — única camada que toca o
+ * client — para que o handler do webhook orquestre sem importar o Prisma.
+ * O `maxWait` curto + `timeout` de 10s pressupõem que nenhuma chamada externa
+ * (Stripe) roda dentro do callback (regra cumprida na fase externa do webhook).
+ */
+export async function runInBillingTransaction<T>(
+  fn: (tx: TxClient) => Promise<T>,
+): Promise<T> {
+  return prisma.$transaction(fn, { timeout: 10_000, maxWait: 2_000 })
+}
+
+/**
+ * Insere o evento como "processado". Deve rodar dentro da transação do
+ * handler do webhook. Se duplicado, lança P2002 — o caller usa
+ * `isDuplicateWebhookEventError` e retorna 200 silencioso (idempotência via
+ * constraint do DB). Recebe o payload como `unknown` e faz o cast pro tipo do
+ * Prisma aqui, confinando o tipo do ORM ao repository.
  */
 export async function markEventProcessedTx(
   tx: TxClient,
   data: {
     stripeEventId: string
     type: string
-    payload: Prisma.InputJsonValue
+    payload: unknown
   },
 ) {
-  return tx.webhookEvent.create({ data })
+  return tx.webhookEvent.create({
+    data: {
+      stripeEventId: data.stripeEventId,
+      type: data.type,
+      payload: data.payload as Prisma.InputJsonValue,
+    },
+  })
+}
+
+/**
+ * Predicado de erro P2002 (unique constraint) usado pela idempotência do
+ * webhook. Encapsula o tipo de erro do Prisma para que o handler não precise
+ * importar o namespace do ORM só pra checar a corrida do INSERT.
+ */
+export function isDuplicateWebhookEventError(err: unknown): boolean {
+  return (
+    err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002'
+  )
 }
 
 /**

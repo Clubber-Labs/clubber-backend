@@ -100,7 +100,7 @@ function buildBaseWhere(query: FeedQuery, now: Date): Prisma.EventWhereInput[] {
   ]
 
   if (query.category && query.category.length > 0) {
-    conditions.push({ category: { in: query.category } })
+    conditions.push({ categories: { hasSome: query.category } })
   }
 
   if (query.dateFrom || query.dateTo) {
@@ -194,7 +194,7 @@ export async function findDiscoveryCandidateIds(
 
   const discoveryOr: Prisma.EventWhereInput[] = []
   if (preferredCategories.length > 0) {
-    discoveryOr.push({ category: { in: preferredCategories } })
+    discoveryOr.push({ categories: { hasSome: preferredCategories } })
   }
   if (nearIds.length > 0) {
     discoveryOr.push({ id: { in: nearIds } })
@@ -432,17 +432,20 @@ export async function findUserPreferredCategories(
     return result.slice(0, PREFERRED_CATEGORIES_LIMIT)
   }
 
+  // Evento tem N categorias: unnest expande cada uma numa linha, então um
+  // evento de 2 categorias conta para as duas no ranking do histórico.
   const rows = await prisma.$queryRaw<{ category: EventCategory }[]>(
     Prisma.sql`
-      SELECT e.category
+      SELECT cat AS category
       FROM events e
       LEFT JOIN event_attendances a
         ON a."eventId" = e.id
         AND a."userId" = ${userId}
         AND a.type IN ('CONFIRMED', 'INTERESTED')
+      CROSS JOIN LATERAL unnest(e.categories) AS cat
       WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
-      GROUP BY e.category
-      ORDER BY COUNT(*) DESC, e.category ASC
+      GROUP BY cat
+      ORDER BY COUNT(*) DESC, cat ASC
     `,
   )
 

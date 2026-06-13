@@ -48,6 +48,8 @@ const baseSchema = z.object({
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
   GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_PLACES_API_KEY: z.string().optional(),
+  ANTHROPIC_API_KEY: z.string().optional(),
   FACEBOOK_APP_ID: z.string().optional(),
   FACEBOOK_APP_SECRET: z.string().optional(),
   FEATURED_RECONCILE_INTERVAL_MS: z.coerce
@@ -93,6 +95,38 @@ const baseSchema = z.object({
   STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS: z
     .string()
     .default('localhost:3000,localhost:3333'),
+  // Retenção (minimização LGPD) dos webhook_events do billing: o payload
+  // guarda o evento Stripe inteiro (e-mail, nome, dados de cobrança). A
+  // idempotência só precisa de janela recente (Stripe reenvia por ~3 dias);
+  // além do prazo, expurgo no padrão dos demais reconcilers.
+  BILLING_WEBHOOK_RETENTION_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(90),
+  BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Rede de segurança pra webhook perdido: re-sincroniza do Stripe (fonte de
+  // verdade) subscriptions "ativas" com currentPeriodEnd vencido além do
+  // grace. Sem isso, um customer.subscription.deleted perdido deixa o usuário
+  // premium pra sempre. Grace acomoda a janela de renovação/retry do gateway.
+  BILLING_SYNC_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
+  BILLING_SYNC_GRACE_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(6 * 3600000),
+  BILLING_SYNC_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   LOG_LEVEL: z
     .enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal', 'silent'])
     .default('info'),
@@ -134,6 +168,18 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Lifecycle de spots: lembrete de renovação + limpeza no vencimento.
+  SPOT_LIFECYCLE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  SPOT_LIFECYCLE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Antecedência do lembrete de renovação antes do endsAt (default 1h).
+  SPOT_RENEWAL_LEAD_MS: z.coerce.number().int().positive().default(3600000),
   // Notificações (push + in-app). Master switch da feature — OFF por padrão
   // (opt-in). Quando ligada, a fila de fan-out e os gatilhos passam a publicar.
   NOTIFICATIONS_ENABLED: z
@@ -285,6 +331,8 @@ export const env = {
   PASSWORD_RESET_CLEANUP_INTERVAL_MS: parsed.PASSWORD_RESET_CLEANUP_INTERVAL_MS,
   PASSWORD_RESET_CLEANUP_ENABLED: parsed.PASSWORD_RESET_CLEANUP_ENABLED,
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
+  GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
+  ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY,
   FACEBOOK_APP_ID: parsed.FACEBOOK_APP_ID,
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
@@ -300,6 +348,14 @@ export const env = {
     parsed.STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS.split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+  BILLING_WEBHOOK_RETENTION_DAYS: parsed.BILLING_WEBHOOK_RETENTION_DAYS,
+  BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS:
+    parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_INTERVAL_MS,
+  BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED:
+    parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED,
+  BILLING_SYNC_INTERVAL_MS: parsed.BILLING_SYNC_INTERVAL_MS,
+  BILLING_SYNC_GRACE_MS: parsed.BILLING_SYNC_GRACE_MS,
+  BILLING_SYNC_ENABLED: parsed.BILLING_SYNC_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
   SENTRY_DSN: parsed.SENTRY_DSN,
   OTEL_ENABLED: parsed.OTEL_ENABLED,
@@ -313,6 +369,9 @@ export const env = {
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
+  SPOT_LIFECYCLE_INTERVAL_MS: parsed.SPOT_LIFECYCLE_INTERVAL_MS,
+  SPOT_LIFECYCLE_ENABLED: parsed.SPOT_LIFECYCLE_ENABLED,
+  SPOT_RENEWAL_LEAD_MS: parsed.SPOT_RENEWAL_LEAD_MS,
   NOTIFICATIONS_ENABLED: parsed.NOTIFICATIONS_ENABLED,
   EXPO_ACCESS_TOKEN: parsed.EXPO_ACCESS_TOKEN,
   NOTIFY_RETENTION_DAYS: parsed.NOTIFY_RETENTION_DAYS,

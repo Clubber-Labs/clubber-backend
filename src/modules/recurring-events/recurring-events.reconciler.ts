@@ -36,7 +36,7 @@ export async function reconcileRecurringSeries(now = new Date()) {
       s.title === null ||
       s.latitude === null ||
       s.longitude === null ||
-      s.category === null
+      s.categories.length === 0
     ) {
       continue
     }
@@ -64,7 +64,7 @@ export async function reconcileRecurringSeries(now = new Date()) {
         latitude: s.latitude,
         longitude: s.longitude,
         address: s.address,
-        category: s.category,
+        categories: s.categories,
         isPublic: s.isPublic,
         maxCapacity: s.maxCapacity,
         authorId: s.authorId,

@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 /**
  * Lista canônica de categorias de evento. Compartilhada entre a criação/edição
- * de eventos (Event.category) e as preferências de perfil
+ * de eventos (Event.categories[]) e as preferências de perfil
  * (UserCategoryPreference.category). Espelha o enum `EventCategory` do Prisma.
  *
  * Os valores são identificadores estáveis em inglês/maiúsculas, seguindo a
