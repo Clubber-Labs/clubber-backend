@@ -20,6 +20,7 @@ import type { LoginBody } from './auth.schema'
 export type LoginResult =
   | { status: 'ok'; user: { id: string } }
   | { status: 'mfa_required' }
+  | { status: 'mfa_setup_required'; user: { id: string } }
 
 type MfaState = {
   mfaSecret: string | null
@@ -67,6 +68,11 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
     if (!ok) {
       throw { statusCode: 401, message: 'Código de verificação inválido' }
     }
+  } else if (user.role === 'ADMIN') {
+    // MFA é obrigatório no backoffice: admin sem segundo fator cadastrado não
+    // recebe sessão — precisa matricular o MFA antes (o controller emite um
+    // token de matrícula de curta duração só para o fluxo de cadastro).
+    return { status: 'mfa_setup_required', user }
   }
 
   // Logar dentro da janela de carência reativa a conta (cancela exclusão

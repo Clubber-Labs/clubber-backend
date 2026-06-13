@@ -32,12 +32,18 @@ export async function authRoutes(app: FastifyInstance) {
     login,
   )
 
-  // ── MFA (TOTP) — todas autenticadas (a conta já logada gerencia o próprio MFA)
-  api.post('/auth/mfa/setup', { onRequest: [app.authenticate] }, postMfaSetup)
+  // ── MFA (TOTP) — só ADMIN (gating de role no service).
+  // setup/enable aceitam o token de matrícula (admin logando sem MFA ainda) OU
+  // um token de sessão normal. disable exige sessão plena (não o de matrícula).
+  api.post(
+    '/auth/mfa/setup',
+    { onRequest: [app.authenticateMfaSetup] },
+    postMfaSetup,
+  )
 
   api.post(
     '/auth/mfa/enable',
-    { schema: { body: mfaCodeSchema }, onRequest: [app.authenticate] },
+    { schema: { body: mfaCodeSchema }, onRequest: [app.authenticateMfaSetup] },
     postMfaEnable,
   )
 

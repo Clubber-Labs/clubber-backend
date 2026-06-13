@@ -11,6 +11,12 @@ function authHeader(userId: string) {
   return { authorization: `Bearer ${app.jwt.sign({ sub: userId })}` }
 }
 
+// Token de matrícula de MFA (escopo restrito ao cadastro do segundo fator).
+function enrollmentHeader(userId: string) {
+  const token = app.jwt.sign({ sub: userId, mfaEnrollment: true })
+  return { authorization: `Bearer ${token}` }
+}
+
 function totpCode(secret: string): string {
   return new OTPAuth.TOTP({
     secret: OTPAuth.Secret.fromBase32(secret),
@@ -308,7 +314,7 @@ describe('MFA (TOTP)', () => {
     expect(reuse.statusCode).toBe(401)
   })
 
-  it('disable com código válido desativa o MFA (volta a logar sem código)', async () => {
+  it('disable com código válido desativa o MFA (admin volta a exigir matrícula)', async () => {
     const user = await makeAdmin()
     const { secret } = await enrollMfa(user.id)
 
@@ -327,11 +333,102 @@ describe('MFA (TOTP)', () => {
     expect(reloaded?.mfaEnabled).toBe(false)
     expect(reloaded?.mfaSecret).toBeNull()
 
+    // MFA é obrigatório para ADMIN: ao desativar, o próximo login do admin
+    // volta a exigir matrícula (não emite sessão direto).
     const login = await app.inject({
       method: 'POST',
       url: '/auth/login',
       body: { email: user.email, password: 'senha123' },
     })
-    expect(login.json()).toHaveProperty('token')
+    expect(login.json().mfaSetupRequired).toBe(true)
+  })
+
+  // ── MFA obrigatório para ADMIN (matrícula forçada) ─────────────────────────
+
+  it('admin sem MFA → login exige matrícula (mfaSetupRequired + enrollmentToken, sem token)', async () => {
+    const user = await makeAdmin()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.mfaSetupRequired).toBe(true)
+    expect(typeof body.enrollmentToken).toBe('string')
+    expect(body.token).toBeUndefined()
+  })
+
+  it('token de matrícula cadastra o MFA e o login com código emite a sessão', async () => {
+    const user = await makeAdmin()
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+    const enrollHeader = {
+      authorization: `Bearer ${login.json().enrollmentToken}`,
+    }
+
+    const setup = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/setup',
+      headers: enrollHeader,
+    })
+    expect(setup.statusCode).toBe(200)
+    const { secret } = setup.json()
+
+    const enable = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/enable',
+      headers: enrollHeader,
+      body: { code: totpCode(secret) },
+    })
+    expect(enable.statusCode).toBe(200)
+    expect(enable.json().recoveryCodes).toHaveLength(10)
+
+    const session = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: {
+        email: user.email,
+        password: 'senha123',
+        mfaCode: totpCode(secret),
+      },
+    })
+    expect(session.statusCode).toBe(200)
+    expect(session.json()).toHaveProperty('token')
+  })
+
+  it('token de matrícula não autoriza rota normal (GET /users/me → 401)', async () => {
+    const user = await makeAdmin()
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: enrollmentHeader(user.id),
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('token de matrícula não desativa o MFA (disable exige sessão plena → 401)', async () => {
+    const user = await makeAdmin()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/disable',
+      headers: enrollmentHeader(user.id),
+      body: { code: '000000' },
+    })
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('usuário comum sem MFA loga normalmente (não força matrícula)', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
   })
 })
