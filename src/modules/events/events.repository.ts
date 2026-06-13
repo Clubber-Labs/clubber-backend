@@ -182,17 +182,20 @@ async function normalizeSharedList(
   const needFallback = events.filter(
     (e) => e.seriesId !== null && e.images.length === 0,
   )
-  if (needFallback.length > 0) {
-    const seriesIds = [
-      ...new Set(needFallback.map((e) => e.seriesId as string)),
-    ]
-    const anchorImages = await findSeriesAnchorImages(seriesIds)
-    for (const e of needFallback) {
-      const imgs = anchorImages.get(e.seriesId as string)
-      if (imgs) e.images = imgs
-    }
+  if (needFallback.length === 0) {
+    return events.map((e) => normalizeShared(e, now))
   }
-  return events.map((e) => normalizeShared(e, now))
+  const seriesIds = [...new Set(needFallback.map((e) => e.seriesId as string))]
+  const anchorImages = await findSeriesAnchorImages(seriesIds)
+  // Sem mutar o resultado do Prisma (convenção do projeto): quando a ocorrência
+  // herda as imagens da âncora, normaliza uma cópia rasa com `images` trocado.
+  return events.map((e) => {
+    const imgs =
+      e.seriesId !== null && e.images.length === 0
+        ? anchorImages.get(e.seriesId)
+        : undefined
+    return normalizeShared(imgs ? { ...e, images: imgs } : e, now)
+  })
 }
 
 // Filtro que colapsa séries nas listagens: mantém só a ocorrência ÂNCORA de
@@ -203,15 +206,24 @@ async function normalizeSharedList(
 async function seriesAnchorFilter(
   baseWhere: Prisma.EventWhereInput,
 ): Promise<Prisma.EventWhereInput> {
-  const grouped = await prisma.event.groupBy({
-    by: ['seriesId'],
+  // Resolve a âncora de cada série (a de menor data — única graças ao unique
+  // (seriesId, date)) para o ID do evento e devolve um único `id IN (...)`. Evita
+  // um OR de N condições compostas (seriesId, date), que cresceria até o teto de
+  // eventos do filtro (ex.: MAP_BBOX_FETCH_CAP) em áreas densas.
+  const seriesEvents = await prisma.event.findMany({
     where: { AND: [baseWhere, { seriesId: { not: null } }] },
-    _min: { date: true },
+    select: { id: true, seriesId: true, date: true },
   })
-  const anchors = grouped
-    .filter((g) => g.seriesId !== null && g._min.date !== null)
-    .map((g) => ({ seriesId: g.seriesId as string, date: g._min.date as Date }))
-  return { OR: [{ seriesId: null }, ...anchors] }
+  const anchorBySeries = new Map<string, { id: string; date: Date }>()
+  for (const e of seriesEvents) {
+    const seriesId = e.seriesId as string
+    const current = anchorBySeries.get(seriesId)
+    if (!current || e.date < current.date) {
+      anchorBySeries.set(seriesId, { id: e.id, date: e.date })
+    }
+  }
+  const anchorIds = [...anchorBySeries.values()].map((a) => a.id)
+  return { OR: [{ seriesId: null }, { id: { in: anchorIds } }] }
 }
 
 export async function findPublicEvents(
