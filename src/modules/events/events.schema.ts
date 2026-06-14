@@ -149,7 +149,9 @@ export const viewportQuerySchema = z
     category: categoryFilter,
     status: statusFilter,
     friendsOnly: booleanQuery.default(false),
-    limit: z.coerce.number().int().min(1).max(300).default(200),
+    // Mapa: pins + preview leve. Teto menor que a lista — menos hidratação e
+    // payload por request (o detalhe completo vem do GET /events/:id).
+    limit: z.coerce.number().int().min(1).max(150).default(100),
   })
   .refine((q) => q.bboxNorth > q.bboxSouth, {
     message: 'bboxNorth deve ser maior que bboxSouth',

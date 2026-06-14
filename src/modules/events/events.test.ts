@@ -4,6 +4,7 @@ import { redis as nullableRedis } from '../../lib/redis'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
+  makeComment,
   makeEvent,
   makeFollow,
   makeInvite,
@@ -1357,6 +1358,32 @@ describe('GET /events/map/events (viewport)', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json().data).toEqual([])
+  })
+
+  it('payload enxuto do mapa: recentComments=[] mesmo com comentários', async () => {
+    const author = await makeUser()
+    const commenter = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    await makeComment(commenter.id, event.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}`,
+    })
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    // O mapa dropa a hidratação de comentários (vêm do GET /events/:id), mas o
+    // contador permanece — prova que o comentário existe e só não foi hidratado.
+    expect(found.recentComments).toEqual([])
+    expect(found._count.comments).toBe(1)
+  })
+
+  it('rejeita limit acima do teto do mapa (151 → 400)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/map/events?${BBOX_IN}&limit=151`,
+    })
+    expect(res.statusCode).toBe(400)
   })
 
   it('funciona anônimo (sem token): friendAttendances vazio', async () => {
