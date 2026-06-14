@@ -1,12 +1,13 @@
 import fastifyJwt from '@fastify/jwt'
 import fastifyMultipart from '@fastify/multipart'
 import { fastifyRateLimit } from '@fastify/rate-limit'
-import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
+import { fastify } from 'fastify'
 import {
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { registerAuthDecorators } from '../lib/auth-decorators'
 import { env } from '../lib/env'
 import { errorHandler } from '../lib/error-handler'
 import { redis } from '../lib/redis'
@@ -65,23 +66,7 @@ export function buildApp() {
     secret: process.env.JWT_SECRET ?? 'test_secret',
   })
 
-  app.decorate(
-    'authenticate',
-    async (request: FastifyRequest, _reply: FastifyReply) => {
-      const payload = await request.jwtVerify<{ sub: string }>()
-      request.user = payload
-    },
-  )
-
-  app.decorate(
-    'authenticateOptional',
-    async (request: FastifyRequest, _reply: FastifyReply) => {
-      if (request.headers.authorization) {
-        const payload = await request.jwtVerify<{ sub: string }>()
-        request.user = payload
-      }
-    },
-  )
+  registerAuthDecorators(app)
 
   app.register(healthRoutes)
   app.register(authRoutes)

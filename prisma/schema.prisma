@@ -45,6 +45,12 @@ model User {
   isPremium      Boolean  @default(false)
   stripeCustomerId String? @unique
   role           UserRole @default(USER)
+  // MFA (TOTP). mfaSecret é o segredo base32 CIFRADO em repouso (AES-256-GCM com
+  // chave derivada do JWT_SECRET); só é populado durante/após o cadastro.
+  // mfaRecoveryCodes guarda hashes (uso único) dos códigos de recuperação.
+  mfaEnabled       Boolean  @default(false)
+  mfaSecret        String?
+  mfaRecoveryCodes String[] @default([])
   followersCount Int      @default(0)
   followingCount Int      @default(0)
   createdAt      DateTime @default(now())

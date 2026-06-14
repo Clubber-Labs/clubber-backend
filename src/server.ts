@@ -10,7 +10,7 @@ import { fastifyRateLimit } from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import { fastifySwagger } from '@fastify/swagger'
 import ScalarApiReference from '@scalar/fastify-api-reference'
-import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
+import { fastify } from 'fastify'
 import {
   jsonSchemaTransform,
   serializerCompiler,
@@ -18,6 +18,7 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import { shutdownInstrumentation } from './instrumentation'
+import { registerAuthDecorators } from './lib/auth-decorators'
 import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
 import { buildLoggerOptions } from './lib/logger'
@@ -122,23 +123,7 @@ app.register(fastifyJwt, {
   secret: env.JWT_SECRET,
 })
 
-app.decorate(
-  'authenticate',
-  async (request: FastifyRequest, _reply: FastifyReply) => {
-    const payload = await request.jwtVerify<{ sub: string }>()
-    request.user = payload
-  },
-)
-
-app.decorate(
-  'authenticateOptional',
-  async (request: FastifyRequest, _reply: FastifyReply) => {
-    if (request.headers.authorization) {
-      const payload = await request.jwtVerify<{ sub: string }>()
-      request.user = payload
-    }
-  },
-)
+registerAuthDecorators(app)
 
 app.register(fastifySwagger, {
   openapi: {
