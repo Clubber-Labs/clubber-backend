@@ -169,6 +169,12 @@ docker stats   # CPU por réplica durante o teste
 > `grafana-image-renderer`, permitindo exportar os painéis em PNG via `GET /render/d-solo/...`
 > (latência p50/p95/p99, throughput, erro, in-flight, processo) para a janela exata do teste.
 >
-> **Ressalva:** numa única máquina (gerador + réplicas + banco + LB juntos) o ganho de
-> *throughput absoluto* é limitado pelo host; a validação do alvo de 10.000 usuários do
-> RNF01.4 exige nós físicos independentes + balanceador gerenciado (AWS ELB + Auto Scaling).
+> **Condições do ensaio / ressalva:** esta medição roda **na máquina do desenvolvedor**, com
+> **todos os componentes na mesma máquina** (gerador k6 + réplicas + Postgres + Redis + nginx +
+> observabilidade), sem isolamento de recursos nem nuvem. É uma **validação de escala reduzida**:
+> o objetivo é provar o *mecanismo* (a arquitetura escala?) e a *tendência* de ganho ao adicionar
+> réplicas — não o número absoluto. Como os componentes disputam a mesma CPU/memória, os valores
+> são um **limite inferior conservador** (latência inflada, vazão limitada pelo host); em nós
+> dedicados na nuvem tende a ir melhor. A validação do alvo de 10.000 usuários do RNF01.4 exige
+> nós físicos independentes + balanceador gerenciado (AWS ELB + Auto Scaling), no deploy de
+> produção. **Registre as specs da máquina** (CPU/RAM/SO) ao anotar os números na tabela acima.
