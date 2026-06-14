@@ -1,28 +1,17 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeUser } from '../../test/factories'
+import {
+  makeConsentAuditLog,
+  makeUser,
+  makeUserConsent,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
 function token(userId: string) {
   return app.jwt.sign({ sub: userId })
-}
-
-async function makeConsentAuditLog(
-  userId: string,
-  action: 'GRANTED' | 'UPDATED' | 'REVOKED' | 'EXPORTED' = 'GRANTED',
-) {
-  return testPrisma.consentAuditLog.create({
-    data: {
-      userId,
-      action,
-      changedFields: [{ field: 'analytics', from: null, to: true }],
-      consentVersion: '1.0',
-      ipAddress: '192.168.1.1',
-    },
-  })
 }
 
 beforeAll(async () => {
@@ -219,20 +208,7 @@ describe('GET /admin/consent/stats', () => {
     const admin = await makeUser({ role: 'ADMIN' })
     const user = await makeUser()
 
-    await testPrisma.userConsent.create({
-      data: {
-        userId: user.id,
-        essentialAccepted: true,
-        locationPrecise: false,
-        socialFeed: false,
-        socialVisibility: false,
-        pushNotifications: false,
-        marketing: false,
-        analytics: false,
-        surveys: false,
-        consentVersion: '1.0',
-      },
-    })
+    await makeUserConsent(user.id)
     await makeConsentAuditLog(user.id, 'GRANTED')
     await makeConsentAuditLog(user.id, 'REVOKED')
     await makeConsentAuditLog(user.id, 'EXPORTED')

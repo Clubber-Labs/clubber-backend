@@ -15,10 +15,7 @@ export async function findUserRoleById(id: string) {
 }
 
 export async function findUserById(id: string) {
-  return prisma.user.findUnique({
-    where: { id },
-    select: { id: true, name: true, lastname: true },
-  })
+  return prisma.user.findUnique({ where: { id }, select: { id: true } })
 }
 
 export async function findConsentAuditLogs(filter: AuditFilter) {

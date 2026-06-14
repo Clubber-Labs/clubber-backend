@@ -4,34 +4,38 @@ import type {
   AdminConsentUserParam,
 } from './admin-consent.schema'
 import {
-  getStats,
+  getConsentStats,
   listAuditLogs,
   listUserAuditLogs,
 } from './admin-consent.service'
 
 export async function getAuditLogsHandler(
-  request: FastifyRequest,
+  request: FastifyRequest<{ Querystring: AdminConsentAuditQuery }>,
   reply: FastifyReply,
 ) {
-  const query = request.query as AdminConsentAuditQuery
-  const result = await listAuditLogs(request.user.sub, query)
+  const result = await listAuditLogs(request.user.sub, request.query)
   return reply.send(result)
 }
 
 export async function getUserAuditLogsHandler(
-  request: FastifyRequest,
+  request: FastifyRequest<{
+    Params: AdminConsentUserParam
+    Querystring: Omit<AdminConsentAuditQuery, 'userId'>
+  }>,
   reply: FastifyReply,
 ) {
-  const { userId } = request.params as AdminConsentUserParam
-  const query = request.query as Omit<AdminConsentAuditQuery, 'userId'>
-  const result = await listUserAuditLogs(request.user.sub, userId, query)
+  const result = await listUserAuditLogs(
+    request.user.sub,
+    request.params.userId,
+    request.query,
+  )
   return reply.send(result)
 }
 
-export async function getStatsHandler(
+export async function getConsentStatsHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const result = await getStats(request.user.sub)
+  const result = await getConsentStats(request.user.sub)
   return reply.send(result)
 }

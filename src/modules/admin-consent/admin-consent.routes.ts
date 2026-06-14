@@ -1,12 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import {
-  serializerCompiler,
-  validatorCompiler,
-  type ZodTypeProvider,
-} from 'fastify-type-provider-zod'
-import {
   getAuditLogsHandler,
-  getStatsHandler,
+  getConsentStatsHandler,
   getUserAuditLogsHandler,
 } from './admin-consent.controller'
 import {
@@ -14,15 +9,12 @@ import {
   adminConsentAuditResponseSchema,
   adminConsentStatsSchema,
   adminConsentUserParamSchema,
+  type AdminConsentAuditQuery,
+  type AdminConsentUserParam,
 } from './admin-consent.schema'
 
 export async function adminConsentRoutes(app: FastifyInstance) {
-  app.setValidatorCompiler(validatorCompiler)
-  app.setSerializerCompiler(serializerCompiler)
-
-  const api = app.withTypeProvider<ZodTypeProvider>()
-
-  api.get(
+  app.get<{ Querystring: AdminConsentAuditQuery }>(
     '/admin/consent/audit',
     {
       schema: {
@@ -34,7 +26,10 @@ export async function adminConsentRoutes(app: FastifyInstance) {
     getAuditLogsHandler,
   )
 
-  api.get(
+  app.get<{
+    Params: AdminConsentUserParam
+    Querystring: Omit<AdminConsentAuditQuery, 'userId'>
+  }>(
     '/admin/consent/audit/:userId',
     {
       schema: {
@@ -47,12 +42,12 @@ export async function adminConsentRoutes(app: FastifyInstance) {
     getUserAuditLogsHandler,
   )
 
-  api.get(
+  app.get(
     '/admin/consent/stats',
     {
       schema: { response: { 200: adminConsentStatsSchema } },
       onRequest: [app.authenticate],
     },
-    getStatsHandler,
+    getConsentStatsHandler,
   )
 }

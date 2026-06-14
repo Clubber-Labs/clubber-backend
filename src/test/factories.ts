@@ -400,6 +400,29 @@ export async function makeAnalyticsMetric(
   })
 }
 
+export async function makeConsentAuditLog(
+  userId: string,
+  action: 'GRANTED' | 'UPDATED' | 'REVOKED' | 'EXPORTED' = 'GRANTED',
+) {
+  return testPrisma.consentAuditLog.create({
+    data: {
+      userId,
+      action,
+      changedFields: [{ field: 'analytics', from: null, to: true }],
+      consentVersion: '1.0',
+      ipAddress: '192.168.1.1',
+    },
+  })
+}
+
+export async function makeUserConsent(userId: string) {
+  return testPrisma.userConsent.upsert({
+    where: { userId },
+    create: { userId, analytics: true, marketing: false, consentVersion: '1.0' },
+    update: { analytics: true },
+  })
+}
+
 /**
  * Cria um spot já publicado: a conversa GROUP aberta (criador como ADMIN) + o
  * spot ligado a ela. Janela ativa por padrão (começou há 1h, termina em 3h).

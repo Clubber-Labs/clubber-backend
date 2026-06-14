@@ -21,9 +21,9 @@ function buildAuditPage(
   limit: number,
 ) {
   const hasMore = rows.length > limit
-  if (hasMore) rows.pop()
+  const page = rows.slice(0, limit)
 
-  const data = rows.map((log) => ({
+  const data = page.map((log) => ({
     id: log.id,
     userId: log.userId,
     userName: `${log.user.name} ${log.user.lastname}`,
@@ -36,7 +36,7 @@ function buildAuditPage(
     },
   }))
 
-  const nextCursor = hasMore ? (rows[rows.length - 1]?.id ?? null) : null
+  const nextCursor = hasMore ? (page[page.length - 1]?.id ?? null) : null
 
   return { data, nextCursor }
 }
@@ -49,12 +49,7 @@ export async function listAuditLogs(
 
   const rows = await findConsentAuditLogs({
     userId: query.userId,
-    action: query.action as
-      | 'GRANTED'
-      | 'UPDATED'
-      | 'REVOKED'
-      | 'EXPORTED'
-      | undefined,
+    action: query.action,
     startDate: query.startDate,
     endDate: query.endDate,
     cursor: query.cursor,
@@ -78,12 +73,7 @@ export async function listUserAuditLogs(
 
   const rows = await findConsentAuditLogs({
     userId: targetUserId,
-    action: query.action as
-      | 'GRANTED'
-      | 'UPDATED'
-      | 'REVOKED'
-      | 'EXPORTED'
-      | undefined,
+    action: query.action,
     startDate: query.startDate,
     endDate: query.endDate,
     cursor: query.cursor,
@@ -93,7 +83,7 @@ export async function listUserAuditLogs(
   return buildAuditPage(rows, query.limit)
 }
 
-export async function getStats(actingUserId: string) {
+export async function getConsentStats(actingUserId: string) {
   await assertAdmin(actingUserId)
   return getConsentAuditStats()
 }
