@@ -10,7 +10,7 @@ import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
 
-function token(userId: string) {
+function token(app: FastifyInstance, userId: string) {
   return app.jwt.sign({ sub: userId })
 }
 
@@ -36,7 +36,7 @@ describe('GET /admin/consent/audit', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/consent/audit',
-      headers: { authorization: `Bearer ${token(user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
     })
     expect(res.statusCode).toBe(403)
   })
@@ -50,7 +50,7 @@ describe('GET /admin/consent/audit', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/consent/audit',
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -75,7 +75,7 @@ describe('GET /admin/consent/audit', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/admin/consent/audit?userId=${userA.id}`,
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -93,7 +93,7 @@ describe('GET /admin/consent/audit', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/consent/audit?action=REVOKED',
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -113,7 +113,7 @@ describe('GET /admin/consent/audit', () => {
     const page1 = await app.inject({
       method: 'GET',
       url: '/admin/consent/audit?limit=2',
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(page1.statusCode).toBe(200)
@@ -124,7 +124,7 @@ describe('GET /admin/consent/audit', () => {
     const page2 = await app.inject({
       method: 'GET',
       url: `/admin/consent/audit?limit=2&cursor=${body1.nextCursor}`,
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(page2.statusCode).toBe(200)
@@ -151,7 +151,7 @@ describe('GET /admin/consent/audit/:userId', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/admin/consent/audit/${target.id}`,
-      headers: { authorization: `Bearer ${token(caller.id)}` },
+      headers: { authorization: `Bearer ${token(app, caller.id)}` },
     })
     expect(res.statusCode).toBe(403)
   })
@@ -161,7 +161,7 @@ describe('GET /admin/consent/audit/:userId', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/consent/audit/00000000-0000-0000-0000-000000000000',
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
     expect(res.statusCode).toBe(404)
   })
@@ -175,7 +175,7 @@ describe('GET /admin/consent/audit/:userId', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/admin/consent/audit/${user.id}`,
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(res.statusCode).toBe(200)
@@ -199,7 +199,7 @@ describe('GET /admin/consent/stats', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/consent/stats',
-      headers: { authorization: `Bearer ${token(user.id)}` },
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
     })
     expect(res.statusCode).toBe(403)
   })
@@ -216,7 +216,7 @@ describe('GET /admin/consent/stats', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/admin/consent/stats',
-      headers: { authorization: `Bearer ${token(admin.id)}` },
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
 
     expect(res.statusCode).toBe(200)

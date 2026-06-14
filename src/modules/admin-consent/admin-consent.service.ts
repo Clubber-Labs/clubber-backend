@@ -28,7 +28,7 @@ function buildAuditPage(
     userId: log.userId,
     userName: `${log.user.name} ${log.user.lastname}`,
     action: log.action,
-    timestamp: log.createdAt,
+    timestamp: log.createdAt.toISOString(),
     ipAddress: log.ipAddress ?? null,
     metadata: {
       changedFields: log.changedFields,

@@ -18,7 +18,7 @@ export const adminConsentAuditEntrySchema = z.object({
   userId: z.string(),
   userName: z.string(),
   action: z.enum(['GRANTED', 'UPDATED', 'REVOKED', 'EXPORTED']),
-  timestamp: z.date(),
+  timestamp: z.string(),
   ipAddress: z.string().nullable(),
   metadata: z.unknown(),
 })

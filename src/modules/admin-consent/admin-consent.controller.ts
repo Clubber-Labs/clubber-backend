@@ -10,25 +10,21 @@ import {
 } from './admin-consent.service'
 
 export async function getAuditLogsHandler(
-  request: FastifyRequest<{ Querystring: AdminConsentAuditQuery }>,
+  request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const result = await listAuditLogs(request.user.sub, request.query)
+  const query = request.query as AdminConsentAuditQuery
+  const result = await listAuditLogs(request.user.sub, query)
   return reply.send(result)
 }
 
 export async function getUserAuditLogsHandler(
-  request: FastifyRequest<{
-    Params: AdminConsentUserParam
-    Querystring: Omit<AdminConsentAuditQuery, 'userId'>
-  }>,
+  request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const result = await listUserAuditLogs(
-    request.user.sub,
-    request.params.userId,
-    request.query,
-  )
+  const { userId } = request.params as AdminConsentUserParam
+  const query = request.query as Omit<AdminConsentAuditQuery, 'userId'>
+  const result = await listUserAuditLogs(request.user.sub, userId, query)
   return reply.send(result)
 }
 
