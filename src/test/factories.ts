@@ -418,7 +418,12 @@ export async function makeConsentAuditLog(
 export async function makeUserConsent(userId: string) {
   return testPrisma.userConsent.upsert({
     where: { userId },
-    create: { userId, analytics: true, marketing: false, consentVersion: '1.0' },
+    create: {
+      userId,
+      analytics: true,
+      marketing: false,
+      consentVersion: '1.0',
+    },
     update: { analytics: true },
   })
 }
