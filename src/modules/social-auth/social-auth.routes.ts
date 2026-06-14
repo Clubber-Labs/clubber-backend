@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import { postSocialLogin } from './social-auth.controller'
 import { socialLoginBodySchema } from './social-auth.schema'
 
@@ -17,12 +18,7 @@ export async function socialAuthRoutes(app: FastifyInstance) {
     '/auth/social',
     {
       schema: { body: socialLoginBodySchema },
-      config: {
-        rateLimit: {
-          max: 20,
-          timeWindow: '1 minute',
-        },
-      },
+      config: { rateLimit: rateLimit(20) },
     },
     postSocialLogin,
   )

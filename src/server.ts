@@ -92,10 +92,18 @@ app.register(fastifyCors, {
   credentials: true,
 })
 
-app.register(fastifyRateLimit, {
-  global: false,
-  redis: redis ?? undefined,
-})
+if (env.RATE_LIMIT_ENABLED) {
+  app.register(fastifyRateLimit, {
+    global: false,
+    redis: redis ?? undefined,
+  })
+} else if (env.NODE_ENV === 'production') {
+  // Rede de segurança: load test em staging/prod que esqueça de reverter o
+  // toggle deixaria todo o throttling desligado em silêncio.
+  app.log.warn(
+    'RATE_LIMIT_ENABLED=false em produção — todo o throttling está desligado',
+  )
+}
 
 app.register(fastifyMultipart, {
   limits: {
