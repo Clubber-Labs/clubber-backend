@@ -285,6 +285,7 @@ export async function makeSubscription(
     currentPeriodEnd?: Date
     cancelAtPeriodEnd?: boolean
     canceledAt?: Date | null
+    defaultPaymentMethodId?: string | null
     lastSyncedAt?: Date
   } = {},
 ) {
@@ -304,6 +305,7 @@ export async function makeSubscription(
       currentPeriodEnd: periodEnd,
       cancelAtPeriodEnd: overrides.cancelAtPeriodEnd ?? false,
       canceledAt: overrides.canceledAt ?? null,
+      defaultPaymentMethodId: overrides.defaultPaymentMethodId ?? null,
       lastSyncedAt: overrides.lastSyncedAt ?? now,
     },
   })

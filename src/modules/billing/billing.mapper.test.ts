@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   extractCustomerId,
+  extractSetupIntentRefs,
   isEventOlder,
   mapStatus,
   mapStripeSubscription,
@@ -131,6 +132,24 @@ describe('mapStripeSubscription', () => {
     expect(fields.canceledAt).toBeNull()
     expect(fields.trialEndsAt).toBeNull()
   })
+
+  it('mapeia default_payment_method (string, objeto, ausente) → defaultPaymentMethodId', () => {
+    expect(
+      mapStripeSubscription(makeSub({ default_payment_method: 'pm_str' }))
+        ?.defaultPaymentMethodId,
+    ).toBe('pm_str')
+    expect(
+      mapStripeSubscription(
+        makeSub({ default_payment_method: { id: 'pm_obj' } }),
+      )?.defaultPaymentMethodId,
+    ).toBe('pm_obj')
+    // Trial do PaymentSheet nasce sem cartão → null (o gate do premium).
+    expect(
+      mapStripeSubscription(makeSub({ default_payment_method: null }))
+        ?.defaultPaymentMethodId,
+    ).toBeNull()
+    expect(mapStripeSubscription(makeSub())?.defaultPaymentMethodId).toBeNull()
+  })
 })
 
 describe('extractCustomerId', () => {
@@ -147,6 +166,29 @@ describe('extractCustomerId', () => {
   it('retorna null quando customer ausente (payload anômalo)', () => {
     expect(extractCustomerId(makeSub({ customer: null }))).toBeNull()
     expect(extractCustomerId(makeSub({ customer: undefined }))).toBeNull()
+  })
+})
+
+describe('extractSetupIntentRefs', () => {
+  it('extrai customer + payment_method (string e objeto)', () => {
+    expect(
+      extractSetupIntentRefs({ customer: 'cus_1', payment_method: 'pm_1' }),
+    ).toEqual({ customerId: 'cus_1', paymentMethodId: 'pm_1' })
+    expect(
+      extractSetupIntentRefs({
+        customer: { id: 'cus_2' },
+        payment_method: { id: 'pm_2' },
+      }),
+    ).toEqual({ customerId: 'cus_2', paymentMethodId: 'pm_2' })
+  })
+
+  it('retorna null se faltar customer ou payment_method', () => {
+    expect(
+      extractSetupIntentRefs({ customer: null, payment_method: 'pm_1' }),
+    ).toBeNull()
+    expect(
+      extractSetupIntentRefs({ customer: 'cus_1', payment_method: null }),
+    ).toBeNull()
   })
 })
 

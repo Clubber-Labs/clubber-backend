@@ -3,35 +3,57 @@ import { prisma } from '../../lib/prisma'
 
 type TxClient = Prisma.TransactionClient
 
+// Statuses que o reconciler de sync considera "vivos" e re-sincroniza quando
+// vencidos — inclui TRIALING órfão de propósito (o re-sync confirma o cancel no
+// fim do trial). NÃO é o mesmo que "premium" — ver PREMIUM_GRANTING_OR.
 const ACTIVE_STATUSES: SubscriptionStatus[] = ['TRIALING', 'ACTIVE', 'PAST_DUE']
 
+// Predicado "premium-granting": subscription que de fato entrega valor.
+// ACTIVE/PAST_DUE implicam cobrança (o cartão existiu); TRIALING só conta com
+// cartão confirmado (defaultPaymentMethodId) — um trial órfão (PaymentSheet
+// aberto e abandonado, sem cartão) NÃO concede premium. Fonte única usada por
+// recalculateUserPremiumTx E findActiveSubscriptionByUserId pra não divergirem.
+const PREMIUM_GRANTING_OR: Prisma.SubscriptionWhereInput[] = [
+  { status: { in: ['ACTIVE', 'PAST_DUE'] } },
+  { status: 'TRIALING', defaultPaymentMethodId: { not: null } },
+]
+
 /**
- * Subscription "ativa" do user — status que entrega valor (com isPremium=true).
- * Quando há histórico (canceladas + nova ativa), retorna a mais recente por startedAt.
+ * Subscription "ativa" do user = a que concede premium (MESMA regra de
+ * recalculateUserPremiumTx, via PREMIUM_GRANTING_OR). Um trial órfão (sem
+ * cartão) NÃO entra: senão o guard 409 travaria o retry de quem abandonou a
+ * sheet e o GET /billing/subscription mostraria uma assinatura que não vale
+ * nada. Com histórico (canceladas + nova ativa), retorna a mais recente por
+ * startedAt.
  */
 export async function findActiveSubscriptionByUserId(userId: string) {
   return prisma.subscription.findFirst({
-    where: { userId, status: { in: ACTIVE_STATUSES } },
+    where: { userId, OR: PREMIUM_GRANTING_OR },
     orderBy: { startedAt: 'desc' },
   })
 }
 
 /**
  * True se o usuário já teve uma subscription que VALEU algo — política de
- * produto: um trial por usuário. Quem chegou a TRIALING/ACTIVE (e depois
- * PAST_DUE/CANCELED/UNPAID) não ganha trial de novo, mesmo voltando após
- * cancelar.
+ * produto: um trial por usuário. Quem já usou um trial REAL ou pagou não ganha
+ * trial de novo, mesmo voltando após cancelar.
  *
- * INCOMPLETE e INCOMPLETE_EXPIRED ficam de fora: o fluxo PaymentSheet cria a
- * subscription como `default_incomplete` ANTES do pagamento, então abrir a
- * sheet e desistir gera uma linha INCOMPLETE sem o usuário nunca ter pago nem
- * trialado — contar isso queimava o trial de quem só abandonou a sheet.
+ * "Valeu algo" = teve cartão confirmado (defaultPaymentMethodId) OU chegou a um
+ * status de cobrança (ACTIVE/PAST_DUE/UNPAID). De fora ficam:
+ * - INCOMPLETE/INCOMPLETE_EXPIRED: sheet sem trial aberta e abandonada.
+ * - TRIALING/CANCELED ÓRFÃO (sem cartão): o trial do PaymentSheet nasce
+ *   `trialing` sem cartão; abrir e fechar a sheet — ou nem abrir — deixa um
+ *   órfão. Contá-lo queimaria o trial de quem nunca chegou a usá-lo, que é
+ *   justamente o que esta função sempre quis evitar.
  */
 export async function hasAnyPreviousSubscription(userId: string) {
   const count = await prisma.subscription.count({
     where: {
       userId,
-      status: { notIn: ['INCOMPLETE', 'INCOMPLETE_EXPIRED'] },
+      OR: [
+        { defaultPaymentMethodId: { not: null } },
+        { status: { in: ['ACTIVE', 'PAST_DUE', 'UNPAID'] } },
+      ],
     },
   })
   return count > 0
@@ -240,19 +262,46 @@ export function isDuplicateWebhookEventError(err: unknown): boolean {
  * evento isolado deixa o estado incorreto quando outra subscription
  * ainda está ativa.
  *
- * isPremium = true se existe pelo menos uma subscription com status em
- * (TRIALING, ACTIVE, PAST_DUE).
+ * isPremium = true se existe ao menos uma subscription que entrega valor:
+ * - ACTIVE/PAST_DUE: implicam cobrança (paga ou tentada) — o cartão existiu.
+ * - TRIALING: SÓ conta com método de pagamento anexado. O PaymentSheet cria a
+ *   subscription como trial ANTES de coletar o cartão (default_incomplete +
+ *   trial_period_days nasce 'trialing' sem cartão); sem esse gate, abrir a
+ *   sheet e abandonar — ou nem abrir — já daria premium grátis por 7 dias. O
+ *   defaultPaymentMethodId é gravado quando o SetupIntent conclui.
  */
 export async function recalculateUserPremiumTx(tx: TxClient, userId: string) {
+  // Mesma regra de findActiveSubscriptionByUserId — ver PREMIUM_GRANTING_OR.
   const activeCount = await tx.subscription.count({
-    where: {
-      userId,
-      status: { in: ACTIVE_STATUSES },
-    },
+    where: { userId, OR: PREMIUM_GRANTING_OR },
   })
   return tx.user.update({
     where: { id: userId },
     data: { isPremium: activeCount > 0 },
+  })
+}
+
+/**
+ * Carimba o método de pagamento coletado (via SetupIntent do trial) nas
+ * subscriptions TRIALING ainda sem cartão do user — o sinal que destrava o
+ * premium do trial (ver recalculateUserPremiumTx). updateMany + filtro
+ * `defaultPaymentMethodId: null` torna idempotente: reentregas do webhook não
+ * sobrescrevem nem afetam linhas já carimbadas. Retorna a contagem afetada.
+ *
+ * updateMany (e não um stripeSubscriptionId específico) é intencional: o
+ * setup_intent não referencia a subscription, e um user que chamou subscribe
+ * em buckets de minuto distintos pode ter mais de uma TRIALING órfã — todas
+ * são carimbadas. Inofensivo: ele vira premium de um jeito ou de outro, e as
+ * órfãs sem cobrança real cancelam no fim do trial (missing_payment_method).
+ */
+export async function setTrialingPaymentMethodTx(
+  tx: TxClient,
+  userId: string,
+  paymentMethodId: string,
+) {
+  return tx.subscription.updateMany({
+    where: { userId, status: 'TRIALING', defaultPaymentMethodId: null },
+    data: { defaultPaymentMethodId: paymentMethodId },
   })
 }
 
@@ -266,6 +315,7 @@ type UpsertSubscriptionInput = {
   currentPeriodEnd: Date
   cancelAtPeriodEnd: boolean
   canceledAt: Date | null
+  defaultPaymentMethodId: string | null
   lastSyncedAt: Date
 }
 
@@ -284,6 +334,11 @@ export async function upsertSubscriptionTx(
       currentPeriodEnd: data.currentPeriodEnd,
       cancelAtPeriodEnd: data.cancelAtPeriodEnd,
       canceledAt: data.canceledAt,
+      // "Sticky": o cartão entra pelo SetupIntent (setTrialingPaymentMethodTx) e
+      // o payload da subscription em trial traz default_payment_method=null. Um
+      // `update` posterior com null NÃO pode zerar o cartão já registrado e
+      // revogar o premium — `?? undefined` mantém a coluna intacta nesse caso.
+      defaultPaymentMethodId: data.defaultPaymentMethodId ?? undefined,
       lastSyncedAt: data.lastSyncedAt,
     },
   })

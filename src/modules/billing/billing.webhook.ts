@@ -2,6 +2,7 @@ import { env } from '../../lib/env'
 import { stripe } from '../../lib/stripe'
 import {
   extractCustomerId,
+  extractSetupIntentRefs,
   isEventOlder,
   mapStripeSubscription,
   type StripeCheckoutSession,
@@ -18,6 +19,7 @@ import {
   markEventProcessedTx,
   recalculateUserPremiumTx,
   runInBillingTransaction,
+  setTrialingPaymentMethodTx,
   upsertSubscriptionTx,
 } from './billing.repository'
 
@@ -81,17 +83,13 @@ async function preResolveSubscription(
  * é no-op.
  */
 async function applySetupIntentSucceeded(event: StripeEvent): Promise<void> {
-  const intent = event.data.object as StripeSetupIntentLike
-  const customerId =
-    typeof intent.customer === 'string' ? intent.customer : intent.customer?.id
-  const paymentMethodId =
-    typeof intent.payment_method === 'string'
-      ? intent.payment_method
-      : intent.payment_method?.id
-  if (!customerId || !paymentMethodId) return
+  const refs = extractSetupIntentRefs(
+    event.data.object as StripeSetupIntentLike,
+  )
+  if (!refs) return
 
-  await stripe.customers.update(customerId, {
-    invoice_settings: { default_payment_method: paymentMethodId },
+  await stripe.customers.update(refs.customerId, {
+    invoice_settings: { default_payment_method: refs.paymentMethodId },
   })
 }
 
@@ -257,9 +255,36 @@ async function applyLocalMutations(
       }
 
       case 'setup_intent.succeeded': {
-        // Side-effect (atualizar default payment method no Stripe) roda na
-        // fase externa, em applyExternalEffects(). Aqui só registra como
-        // processado (markEventProcessedTx acima).
+        // O side-effect externo (default payment method no Customer) já rodou
+        // em applyExternalEffects(). Aqui, na transação: o SetupIntent concluir
+        // é o sinal de que o cartão entrou no trial — carimba o
+        // defaultPaymentMethodId na subscription TRIALING e recalcula o premium
+        // (sem o cartão, um trial não vale premium — ver recalculateUserPremiumTx).
+        //
+        // Sem ordering check (ao contrário dos outros cases): a mutação é
+        // additive-only — só preenche defaultPaymentMethodId onde está null, sem
+        // tocar status. Replay atrasado é idempotente (a 2ª passada filtra a
+        // linha já carimbada → 0 linhas); e se o trial já virou CANCELED, o
+        // filtro status:'TRIALING' não o toca.
+        const refs = extractSetupIntentRefs(
+          event.data.object as StripeSetupIntentLike,
+        )
+        if (!refs) return
+
+        const userId = await findUserIdByStripeCustomerIdTx(tx, refs.customerId)
+        if (!userId) {
+          // Cartão confirmado mas sem user vinculado (Customer de outro
+          // ambiente, deletado antes do evento, etc.): logar — senão "paguei e
+          // não virei premium" vira um silêncio difícil de diagnosticar.
+          console.warn(
+            '[billing] setup_intent.succeeded sem user vinculado ao customerId',
+            { customerId: refs.customerId },
+          )
+          return
+        }
+
+        await setTrialingPaymentMethodTx(tx, userId, refs.paymentMethodId)
+        await recalculateUserPremiumTx(tx, userId)
         return
       }
 

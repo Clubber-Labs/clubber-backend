@@ -614,6 +614,11 @@ model Subscription {
   currentPeriodEnd     DateTime
   cancelAtPeriodEnd    Boolean            @default(false)
   canceledAt           DateTime?
+  // Método de pagamento (id do PaymentMethod no Stripe). Null = sem cartão. Um
+  // trial criado pelo PaymentSheet nasce sem cartão; só vira premium quando o
+  // SetupIntent conclui e grava o método aqui. "Sticky": eventos posteriores
+  // sem o campo não zeram (ver upsertSubscriptionTx).
+  defaultPaymentMethodId String?
   startedAt            DateTime           @default(now())
   // Timestamp do último evento Stripe aplicado. Comparado com event.created
   // pra descartar eventos fora de ordem (Stripe não garante ordering).
