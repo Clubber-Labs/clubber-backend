@@ -33,3 +33,20 @@ export async function updateUserMfa(
     select: { id: true, mfaEnabled: true },
   })
 }
+
+// Consome um código de recuperação de forma ATÔMICA. O array_remove + o filtro
+// `${hash} = ANY(...)` no mesmo UPDATE adquirem o lock da linha e afetam 0
+// linhas se o código já tinha sido consumido — fechando a corrida de dois
+// logins concorrentes com o mesmo código (o read-check-write em dois roundtrips
+// deixava ambos passarem). Retorna true só para quem de fato removeu o hash.
+export async function consumeRecoveryCode(
+  id: string,
+  hash: string,
+): Promise<boolean> {
+  const affected = await prisma.$executeRaw`
+    UPDATE "users"
+    SET "mfaRecoveryCodes" = array_remove("mfaRecoveryCodes", ${hash})
+    WHERE "id" = ${id} AND ${hash} = ANY("mfaRecoveryCodes")
+  `
+  return affected > 0
+}

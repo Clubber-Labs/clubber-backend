@@ -11,6 +11,7 @@ import {
 } from '../../lib/mfa'
 import { reactivateOnLogin } from '../users/users.repository'
 import {
+  consumeRecoveryCode,
   findUserByEmail,
   findUserMfaById,
   updateUserMfa,
@@ -22,9 +23,10 @@ export type LoginResult =
   | { status: 'mfa_required' }
   | { status: 'mfa_setup_required'; user: { id: string } }
 
+// O recovery code é consumido direto no banco (consumeRecoveryCode), então só
+// precisamos do segredo TOTP cifrado aqui.
 type MfaState = {
   mfaSecret: string | null
-  mfaRecoveryCodes: string[]
 }
 
 // Valida o segundo fator — TOTP ou um código de recuperação (uso único, que é
@@ -34,17 +36,16 @@ async function verifyMfaCode(
   state: MfaState,
   code: string,
 ): Promise<boolean> {
-  if (state.mfaSecret && verifyTotp(decryptSecret(state.mfaSecret), code)) {
-    return true
+  if (state.mfaSecret) {
+    try {
+      if (verifyTotp(decryptSecret(state.mfaSecret), code)) return true
+    } catch {
+      // Segredo indecifrável (JWT_SECRET rotacionado / dado corrompido): trata
+      // como falha de verificação, não erro de servidor — segue pro recovery.
+    }
   }
-  const hash = hashRecoveryCode(code)
-  if (state.mfaRecoveryCodes.includes(hash)) {
-    await updateUserMfa(userId, {
-      mfaRecoveryCodes: state.mfaRecoveryCodes.filter((h) => h !== hash),
-    })
-    return true
-  }
-  return false
+  // Recovery code: consumo atômico no banco (uso único, à prova de corrida).
+  return consumeRecoveryCode(userId, hashRecoveryCode(code))
 }
 
 export async function validateLogin(data: LoginBody): Promise<LoginResult> {
@@ -72,6 +73,9 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
     // MFA é obrigatório no backoffice: admin sem segundo fator cadastrado não
     // recebe sessão — precisa matricular o MFA antes (o controller emite um
     // token de matrícula de curta duração só para o fluxo de cadastro).
+    // Retornamos antes do reactivateOnLogin de propósito: um admin
+    // DEACTIVATED/PENDING_DELETION só é reativado quando completa o 2º fator e
+    // loga de fato — o token de matrícula não concede acesso a mais nada.
     return { status: 'mfa_setup_required', user }
   }
 
@@ -123,7 +127,15 @@ export async function enableMfa(userId: string, code: string) {
   if (!user.mfaSecret) {
     throw { statusCode: 400, message: 'Inicie o cadastro do MFA primeiro.' }
   }
-  if (!verifyTotp(decryptSecret(user.mfaSecret), code)) {
+  let codeValid: boolean
+  try {
+    codeValid = verifyTotp(decryptSecret(user.mfaSecret), code)
+  } catch {
+    // Segredo pendente indecifrável (ex.: JWT_SECRET rotacionado entre setup e
+    // enable) → trata como código inválido, não deixa virar 500.
+    codeValid = false
+  }
+  if (!codeValid) {
     throw { statusCode: 401, message: 'Código inválido.' }
   }
   const recoveryCodes = generateRecoveryCodes()

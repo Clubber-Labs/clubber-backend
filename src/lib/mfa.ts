@@ -95,7 +95,8 @@ export function decryptSecret(payload: string): string {
 // ── Códigos de recuperação (uso único, guardados como hash) ──────────────────
 
 export function generateRecoveryCodes(n = 10): string[] {
-  return Array.from({ length: n }, () => randomBytes(5).toString('hex'))
+  // 10 bytes = 80 bits de entropia (20 hex chars — cabe no max(20) do schema).
+  return Array.from({ length: n }, () => randomBytes(10).toString('hex'))
 }
 
 export function hashRecoveryCode(code: string): string {

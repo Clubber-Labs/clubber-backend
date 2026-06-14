@@ -225,6 +225,28 @@ describe('MFA (TOTP)', () => {
     expect(res.statusCode).toBe(403)
   })
 
+  it('enable negado para usuário comum → 403', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/enable',
+      headers: authHeader(user.id),
+      body: { code: '000000' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('disable negado para usuário comum → 403', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/disable',
+      headers: authHeader(user.id),
+      body: { code: '000000' },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
   it('enable com código válido ativa o MFA e devolve recovery codes', async () => {
     const user = await makeAdmin()
     const { recoveryCodes } = await enrollMfa(user.id)
@@ -312,6 +334,30 @@ describe('MFA (TOTP)', () => {
       body: { email: user.email, password: 'senha123', mfaCode: code },
     })
     expect(reuse.statusCode).toBe(401)
+  })
+
+  it('código de recuperação é à prova de corrida (2 logins paralelos → 1 token)', async () => {
+    const user = await makeAdmin()
+    const { recoveryCodes } = await enrollMfa(user.id)
+    const code = recoveryCodes[0]
+
+    // Dois logins simultâneos com o MESMO código: o consumo atômico no banco
+    // garante que só um seja aceito (o outro vê o código já removido).
+    const [a, b] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        body: { email: user.email, password: 'senha123', mfaCode: code },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/auth/login',
+        body: { email: user.email, password: 'senha123', mfaCode: code },
+      }),
+    ])
+
+    const statuses = [a.statusCode, b.statusCode].sort()
+    expect(statuses).toEqual([200, 401])
   })
 
   it('disable com código válido desativa o MFA (admin volta a exigir matrícula)', async () => {
@@ -430,5 +476,24 @@ describe('MFA (TOTP)', () => {
     })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toHaveProperty('token')
+  })
+
+  it('endpoints de MFA têm rate limit (429 após 5 no mesmo minuto)', async () => {
+    const user = await makeAdmin()
+    const headers = authHeader(user.id)
+    for (let i = 0; i < 5; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/auth/mfa/setup',
+        headers,
+      })
+      expect(res.statusCode).toBe(200)
+    }
+    const blocked = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/setup',
+      headers,
+    })
+    expect(blocked.statusCode).toBe(429)
   })
 })

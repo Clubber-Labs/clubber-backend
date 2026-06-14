@@ -35,21 +35,36 @@ export async function authRoutes(app: FastifyInstance) {
   // ── MFA (TOTP) — só ADMIN (gating de role no service).
   // setup/enable aceitam o token de matrícula (admin logando sem MFA ainda) OU
   // um token de sessão normal. disable exige sessão plena (não o de matrícula).
+  // Throttle agressivo: o código TOTP tem só 6 dígitos — sem rate limit, quem
+  // detém um JWT (matrícula ou sessão) poderia brute-forçá-lo no enable/disable.
+  const mfaRateLimit = { max: 5, timeWindow: '1 minute' }
+
   api.post(
     '/auth/mfa/setup',
-    { onRequest: [app.authenticateMfaSetup] },
+    {
+      onRequest: [app.authenticateMfaSetup],
+      config: { rateLimit: mfaRateLimit },
+    },
     postMfaSetup,
   )
 
   api.post(
     '/auth/mfa/enable',
-    { schema: { body: mfaCodeSchema }, onRequest: [app.authenticateMfaSetup] },
+    {
+      schema: { body: mfaCodeSchema },
+      onRequest: [app.authenticateMfaSetup],
+      config: { rateLimit: mfaRateLimit },
+    },
     postMfaEnable,
   )
 
   api.post(
     '/auth/mfa/disable',
-    { schema: { body: mfaCodeSchema }, onRequest: [app.authenticate] },
+    {
+      schema: { body: mfaCodeSchema },
+      onRequest: [app.authenticate],
+      config: { rateLimit: mfaRateLimit },
+    },
     postMfaDisable,
   )
 }
