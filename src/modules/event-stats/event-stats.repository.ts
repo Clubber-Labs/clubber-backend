@@ -1,9 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
 
-// Inclui os _count de engajamento no mesmo SELECT da autorização: evita uma
-// segunda query para a mesma row e fecha a janela TOCTOU (o evento poderia ser
-// deletado entre a checagem de existência e um findUniqueOrThrow → P2025/500).
 export async function findEventForStats(eventId: string) {
   return prisma.event.findUnique({
     where: { id: eventId },
@@ -11,9 +8,6 @@ export async function findEventForStats(eventId: string) {
       id: true,
       authorId: true,
       author: { select: { isPremium: true } },
-      _count: {
-        select: { reactions: true, comments: true, posts: true, invites: true },
-      },
     },
   })
 }
@@ -26,23 +20,52 @@ export async function countAttendanceByType(eventId: string) {
   })
 }
 
-export type AttendanceTimelineRow = {
+export async function createEventAnalyticsMetric(
+  eventId: string,
+  type: 'VIEW' | 'SHARE',
+  occurredAt: Date,
+) {
+  return prisma.eventAnalyticsMetric.create({
+    data: { eventId, type, occurredAt },
+  })
+}
+
+export async function countAnalyticsMetricByType(eventId: string) {
+  return prisma.eventAnalyticsMetric.groupBy({
+    by: ['type'],
+    where: { eventId },
+    _count: { _all: true },
+  })
+}
+
+export type EventStatsTimelineRow = {
   day: Date
-  type: 'INTERESTED' | 'CONFIRMED'
+  metric: 'VIEW' | 'SHARE' | 'CONFIRMED'
   count: number
 }
 
-// Coberto por @@index([eventId, createdAt]) de event_attendances.
-export async function findAttendanceTimeline(eventId: string) {
-  return prisma.$queryRaw<AttendanceTimelineRow[]>(Prisma.sql`
-    SELECT
-      DATE_TRUNC('day', a."createdAt")::date AS day,
-      a.type::text AS type,
-      COUNT(*)::int AS count
-    FROM event_attendances a
-    WHERE a."eventId" = ${eventId}
-      AND a.type IN ('INTERESTED', 'CONFIRMED')
-    GROUP BY 1, 2
-    ORDER BY 1
+export async function findEventStatsTimeline(eventId: string) {
+  return prisma.$queryRaw<EventStatsTimelineRow[]>(Prisma.sql`
+    SELECT day, metric, count FROM (
+      SELECT
+        DATE_TRUNC('day', m."occurredAt")::date AS day,
+        m.type::text AS metric,
+        COUNT(*)::int AS count
+      FROM event_analytics_metrics m
+      WHERE m."eventId" = ${eventId}
+      GROUP BY 1, 2
+
+      UNION ALL
+
+      SELECT
+        DATE_TRUNC('day', a."createdAt")::date AS day,
+        'CONFIRMED' AS metric,
+        COUNT(*)::int AS count
+      FROM event_attendances a
+      WHERE a."eventId" = ${eventId}
+        AND a.type = 'CONFIRMED'
+      GROUP BY 1, 2
+    ) sub
+    ORDER BY day ASC
   `)
 }

@@ -1,12 +1,14 @@
 import fastifyJwt from '@fastify/jwt'
 import fastifyMultipart from '@fastify/multipart'
 import { fastifyRateLimit } from '@fastify/rate-limit'
-import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
+import { fastify } from 'fastify'
 import {
   serializerCompiler,
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { registerAuthDecorators } from '../lib/auth-decorators'
+import { env } from '../lib/env'
 import { errorHandler } from '../lib/error-handler'
 import { redis } from '../lib/redis'
 import { genReqId } from '../lib/request-id'
@@ -51,34 +53,23 @@ export function buildApp() {
   app.register(requestIdPlugin)
   app.register(metricsPlugin)
 
-  app.register(fastifyRateLimit, {
-    global: false,
-    redis: redis ?? undefined,
-  })
+  if (env.RATE_LIMIT_ENABLED) {
+    app.register(fastifyRateLimit, {
+      global: false,
+      redis: redis ?? undefined,
+    })
+  }
 
   app.register(fastifyMultipart, { limits: { fileSize: 5 * 1024 * 1024 } })
 
   app.register(fastifyJwt, {
     secret: process.env.JWT_SECRET ?? 'test_secret',
+    // Paridade com o server de produção: tokens de sessão expiram (o enrollment
+    // de MFA sobrescreve com seu próprio expiresIn no jwtSign).
+    sign: { expiresIn: process.env.JWT_EXPIRES_IN ?? '7d' },
   })
 
-  app.decorate(
-    'authenticate',
-    async (request: FastifyRequest, _reply: FastifyReply) => {
-      const payload = await request.jwtVerify<{ sub: string }>()
-      request.user = payload
-    },
-  )
-
-  app.decorate(
-    'authenticateOptional',
-    async (request: FastifyRequest, _reply: FastifyReply) => {
-      if (request.headers.authorization) {
-        const payload = await request.jwtVerify<{ sub: string }>()
-        request.user = payload
-      }
-    },
-  )
+  registerAuthDecorators(app)
 
   app.register(healthRoutes)
   app.register(authRoutes)
