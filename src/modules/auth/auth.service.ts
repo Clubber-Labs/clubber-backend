@@ -11,13 +11,14 @@ import {
 } from '../../lib/mfa'
 import { reactivateOnLogin } from '../users/users.repository'
 import {
+  claimRefreshToken,
   consumeRecoveryCode,
-  findRefreshTokenByHash,
+  findUserAccountStatus,
   findUserByEmail,
   findUserMfaById,
+  linkRefreshTokenSuccessor,
   revokeAllRefreshTokensForUser,
   revokeRefreshTokenByHash,
-  revokeRefreshTokenById,
   updateUserMfa,
 } from './auth.repository'
 import type { LoginBody } from './auth.schema'
@@ -93,33 +94,47 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
 
 // ── Refresh token: rotação, reuso e revogação ────────────────────────────────
 
-// Valida o refresh apresentado e autoriza a rotação. Detecção de reuso: se o
-// token já está revogado (alguém reapresentou um token rotacionado), assume
+// Valida e autoriza a rotação reivindicando o refresh de forma ATÔMICA (revoga
+// no mesmo passo da validação — ver claimRefreshToken). Detecção de reuso: se o
+// token já estava revogado (reapresentação de um token rotacionado), assume
 // comprometimento e revoga TODA a família do usuário, negando a troca.
 export async function rotateRefreshToken(
   rawToken: string,
 ): Promise<{ userId: string; previousTokenId: string }> {
-  const record = await findRefreshTokenByHash(hashRefreshToken(rawToken))
+  const { record, claimed } = await claimRefreshToken(
+    hashRefreshToken(rawToken),
+  )
   if (!record) {
     throw { statusCode: 401, message: 'Refresh token inválido' }
   }
-  if (record.revokedAt) {
+  if (!claimed) {
+    // Não venceu a reivindicação: já estava revogado (reuso) ou expirado/concorrência.
+    if (record.revokedAt) {
+      await revokeAllRefreshTokensForUser(record.userId)
+      throw { statusCode: 401, message: 'Refresh token inválido' }
+    }
+    const expired = record.expiresAt.getTime() <= Date.now()
+    throw {
+      statusCode: 401,
+      message: expired ? 'Refresh token expirado' : 'Refresh token inválido',
+    }
+  }
+  // Defesa em profundidade: conta anonimizada é terminal e não renova sessão —
+  // espelha o bloqueio explícito do login (validateLogin).
+  const user = await findUserAccountStatus(record.userId)
+  if (user?.accountStatus === 'ANONYMIZED') {
     await revokeAllRefreshTokensForUser(record.userId)
     throw { statusCode: 401, message: 'Refresh token inválido' }
-  }
-  if (record.expiresAt.getTime() <= Date.now()) {
-    await revokeRefreshTokenById(record.id)
-    throw { statusCode: 401, message: 'Refresh token expirado' }
   }
   return { userId: record.userId, previousTokenId: record.id }
 }
 
-// Marca o refresh antigo como revogado e encadeia o sucessor (rotação).
+// Encadeia o sucessor na cadeia de rotação (o antigo já foi revogado no claim).
 export async function markRefreshTokenRotated(
   previousTokenId: string,
   replacedByTokenId: string,
 ) {
-  await revokeRefreshTokenById(previousTokenId, replacedByTokenId)
+  await linkRefreshTokenSuccessor(previousTokenId, replacedByTokenId)
 }
 
 // Logout: revoga o refresh apresentado (restrito ao dono autenticado).

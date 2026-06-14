@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import * as OTPAuth from 'otpauth'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import { makeRefreshToken, makeUser } from '../../test/factories'
@@ -8,6 +9,12 @@ let app: FastifyInstance
 
 function authHeader(userId: string) {
   return { authorization: `Bearer ${app.jwt.sign({ sub: userId })}` }
+}
+
+function totpCode(secret: string): string {
+  return new OTPAuth.TOTP({
+    secret: OTPAuth.Secret.fromBase32(secret),
+  }).generate()
 }
 
 async function loginTokens(email: string) {
@@ -143,13 +150,23 @@ describe('POST /auth/refresh', () => {
     expect(res.statusCode).toBe(401)
   })
 
-  it('refresh inexistente → 401', async () => {
+  it('refresh inexistente (mas com formato válido) → 401', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/auth/refresh',
-      body: { refreshToken: 'nao-existe' },
+      // 43 chars (passa o schema) mas não corresponde a nenhum hash.
+      body: { refreshToken: 'x'.repeat(43) },
     })
     expect(res.statusCode).toBe(401)
+  })
+
+  it('refresh com formato inválido (curto) → 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      body: { refreshToken: 'curto' },
+    })
+    expect(res.statusCode).toBe(400)
   })
 })
 
@@ -227,6 +244,50 @@ describe('revogação cruzada', () => {
       body: { email: user.email, code, newPassword: 'novaSenha1' },
     })
     expect(reset.statusCode).toBe(200)
+
+    const after = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      body: { refreshToken },
+    })
+    expect(after.statusCode).toBe(401)
+  })
+
+  it('disable de MFA revoga as sessões do admin', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    // Matricula o MFA.
+    const setup = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/setup',
+      headers: authHeader(admin.id),
+    })
+    const { secret } = setup.json()
+    await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/enable',
+      headers: authHeader(admin.id),
+      body: { code: totpCode(secret) },
+    })
+    // Login com TOTP → sessão com refresh token.
+    const login = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: {
+        email: admin.email,
+        password: 'senha123',
+        mfaCode: totpCode(secret),
+      },
+    })
+    const { refreshToken } = login.json() as { refreshToken: string }
+
+    // Desativa o MFA → deve revogar as sessões.
+    const off = await app.inject({
+      method: 'POST',
+      url: '/auth/mfa/disable',
+      headers: authHeader(admin.id),
+      body: { code: totpCode(secret) },
+    })
+    expect(off.statusCode).toBe(200)
 
     const after = await app.inject({
       method: 'POST',

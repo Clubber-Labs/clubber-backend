@@ -20,6 +20,14 @@ export async function findUserMfaById(id: string) {
   return prisma.user.findUnique({ where: { id }, select: mfaSelect })
 }
 
+// Status da conta para a guarda do refresh (conta ANONYMIZED não renova sessão).
+export async function findUserAccountStatus(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    select: { accountStatus: true },
+  })
+}
+
 export async function updateUserMfa(
   id: string,
   data: {
@@ -47,22 +55,30 @@ export async function createRefreshToken(data: {
   return prisma.refreshToken.create({ data, select: { id: true } })
 }
 
-export async function findRefreshTokenByHash(tokenHash: string) {
-  return prisma.refreshToken.findUnique({ where: { tokenHash } })
+// Reivindica o refresh para rotação de forma ATÔMICA: lê o registro e tenta
+// revogá-lo numa só passada. O `updateMany` condicional (`revokedAt: null` +
+// não expirado) é a porta atômica — entre N requisições concorrentes com o mesmo
+// token, só UMA recebe `count > 0`. Isso fecha a corrida de "validar e só depois
+// revogar" (duas trocas paralelas gerariam duas famílias válidas). `record`
+// (lido antes do update) serve pra distinguir reuso (já revogado) de expirado.
+export async function claimRefreshToken(tokenHash: string) {
+  const record = await prisma.refreshToken.findUnique({ where: { tokenHash } })
+  if (!record) return { record: null, claimed: false }
+  const result = await prisma.refreshToken.updateMany({
+    where: { tokenHash, revokedAt: null, expiresAt: { gt: new Date() } },
+    data: { revokedAt: new Date() },
+  })
+  return { record, claimed: result.count > 0 }
 }
 
-// Revoga um refresh específico e (opcionalmente) registra o sucessor na cadeia
-// de rotação.
-export async function revokeRefreshTokenById(
+// Encadeia o sucessor na cadeia de rotação (o antigo já foi revogado no claim).
+export async function linkRefreshTokenSuccessor(
   id: string,
-  replacedByTokenId?: string,
+  replacedByTokenId: string,
 ) {
   return prisma.refreshToken.update({
     where: { id },
-    data: {
-      revokedAt: new Date(),
-      replacedByTokenId: replacedByTokenId ?? null,
-    },
+    data: { replacedByTokenId },
   })
 }
 
