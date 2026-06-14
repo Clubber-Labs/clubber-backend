@@ -143,6 +143,11 @@ Para evidenciar o **RNF05.1** (escalabilidade horizontal), a aplicação foi con
 Postgres/Redis. O cenário `06-cluster-scale.js` aplica uma taxa de chegada fixa ao endpoint
 geoespacial e é rodado com 1, 2 e 3 réplicas para comparar o ganho.
 
+**Pré-requisito adicional:** o serviço `api` usa `env_file: .env.local`. Garanta que esse
+arquivo exista na raiz do backend com os segredos de dev (Stripe, Cloudinary etc.) que o
+`env.ts` exige no boot — copie de `.env.example` e preencha. Sem ele o `docker compose` falha
+na subida (`env file .env.local: no such file or directory`).
+
 ```bash
 # sobe o cluster (perfil `cluster`); o override evita conflito de porta do Redis
 docker compose -f docker-compose.yml -f load-tests/docker-compose.cluster-override.yml \

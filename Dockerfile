@@ -16,6 +16,10 @@ RUN pnpm install --frozen-lockfile
 # Código + gera o Prisma Client + compila (tsc -> dist).
 COPY . .
 RUN pnpm db:generate && pnpm build
+# Remove as devDependencies (TypeScript, Vitest, Biome, prisma CLI...) — a imagem
+# final só roda `node dist/server.js`. O @prisma/client (prod) e o engine já
+# gerado em node_modules/.prisma permanecem.
+RUN pnpm prune --prod
 
 # ── runtime ───────────────────────────────────────────────────────────────────
 FROM node:24-slim AS runtime
@@ -28,5 +32,12 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package.json ./package.json
+# Roda como usuário não-root (boa prática); só o diretório de uploads precisa ser
+# gravável pelo app (STORAGE_DRIVER=local).
+RUN addgroup --system appgroup \
+  && adduser --system --ingroup appgroup appuser \
+  && mkdir -p /app/uploads \
+  && chown -R appuser:appgroup /app/uploads
+USER appuser
 EXPOSE 3333
 CMD ["node", "dist/server.js"]
