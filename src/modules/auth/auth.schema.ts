@@ -13,5 +13,11 @@ export const mfaCodeSchema = z.object({
   code: z.string().min(6).max(20),
 })
 
+// Rotação do refresh token (/auth/refresh) e logout (revoga o apresentado).
+export const refreshBodySchema = z.object({
+  refreshToken: z.string().min(1),
+})
+
 export type LoginBody = z.infer<typeof loginBodySchema>
 export type MfaCodeBody = z.infer<typeof mfaCodeSchema>
+export type RefreshBody = z.infer<typeof refreshBodySchema>

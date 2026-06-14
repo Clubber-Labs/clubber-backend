@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { assertImageMimetype } from '../../lib/uploads'
+import { issueSession } from '../auth/auth.session'
 import type {
   CreateUserBody,
   DeleteAccountBody,
@@ -70,9 +71,12 @@ export async function getUser(request: FastifyRequest, reply: FastifyReply) {
 
 export async function postUser(request: FastifyRequest, reply: FastifyReply) {
   const user = await registerUser(request.body as CreateUserBody)
-  const token = await reply.jwtSign({ sub: user.id })
+  const { token, refreshToken } = await issueSession(reply, user.id, {
+    userAgent: request.headers['user-agent'] ?? null,
+    ip: request.ip,
+  })
   request.log.info({ userId: user.id }, 'User registered an account')
-  return reply.status(201).send({ user, token })
+  return reply.status(201).send({ user, token, refreshToken })
 }
 
 export async function putUser(request: FastifyRequest, reply: FastifyReply) {

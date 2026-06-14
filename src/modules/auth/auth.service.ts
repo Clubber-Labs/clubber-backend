@@ -12,11 +12,16 @@ import {
 import { reactivateOnLogin } from '../users/users.repository'
 import {
   consumeRecoveryCode,
+  findRefreshTokenByHash,
   findUserByEmail,
   findUserMfaById,
+  revokeAllRefreshTokensForUser,
+  revokeRefreshTokenByHash,
+  revokeRefreshTokenById,
   updateUserMfa,
 } from './auth.repository'
 import type { LoginBody } from './auth.schema'
+import { hashRefreshToken } from './auth.session'
 
 export type LoginResult =
   | { status: 'ok'; user: { id: string } }
@@ -84,6 +89,47 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
   await reactivateOnLogin(user.id)
 
   return { status: 'ok', user }
+}
+
+// ── Refresh token: rotação, reuso e revogação ────────────────────────────────
+
+// Valida o refresh apresentado e autoriza a rotação. Detecção de reuso: se o
+// token já está revogado (alguém reapresentou um token rotacionado), assume
+// comprometimento e revoga TODA a família do usuário, negando a troca.
+export async function rotateRefreshToken(
+  rawToken: string,
+): Promise<{ userId: string; previousTokenId: string }> {
+  const record = await findRefreshTokenByHash(hashRefreshToken(rawToken))
+  if (!record) {
+    throw { statusCode: 401, message: 'Refresh token inválido' }
+  }
+  if (record.revokedAt) {
+    await revokeAllRefreshTokensForUser(record.userId)
+    throw { statusCode: 401, message: 'Refresh token inválido' }
+  }
+  if (record.expiresAt.getTime() <= Date.now()) {
+    await revokeRefreshTokenById(record.id)
+    throw { statusCode: 401, message: 'Refresh token expirado' }
+  }
+  return { userId: record.userId, previousTokenId: record.id }
+}
+
+// Marca o refresh antigo como revogado e encadeia o sucessor (rotação).
+export async function markRefreshTokenRotated(
+  previousTokenId: string,
+  replacedByTokenId: string,
+) {
+  await revokeRefreshTokenById(previousTokenId, replacedByTokenId)
+}
+
+// Logout: revoga o refresh apresentado (restrito ao dono autenticado).
+export async function revokeRefreshTokenForUser(rawToken: string, userId: string) {
+  await revokeRefreshTokenByHash(hashRefreshToken(rawToken), userId)
+}
+
+// Logout-all: encerra todas as sessões do usuário.
+export async function revokeAllSessions(userId: string) {
+  await revokeAllRefreshTokensForUser(userId)
 }
 
 // ── Cadastro / gerenciamento do MFA (TOTP) ───────────────────────────────────
@@ -159,5 +205,7 @@ export async function disableMfa(userId: string, code: string) {
     mfaSecret: null,
     mfaRecoveryCodes: [],
   })
+  // Desligar o 2º fator encerra as sessões: força relogar já sem MFA exigido.
+  await revokeAllRefreshTokensForUser(userId)
   return { mfaEnabled: false }
 }

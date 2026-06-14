@@ -6,16 +6,26 @@ const baseSchema = z.object({
   JWT_SECRET: z.string().min(1, 'JWT_SECRET não configurado'),
   // Validade do token de SESSÃO. Antes os tokens eram emitidos sem `exp` e
   // valiam para sempre — um token vazado dava acesso permanente, sem rotação.
-  // Aceita o formato do `ms`/jsonwebtoken (ex.: '15m', '7d'). O ideal é encurtar
-  // (ex.: 15m) assim que houver fluxo de refresh token; 7d é um meio-termo que já
-  // fecha o "token eterno" sem deslogar o app a cada poucos minutos.
+  // Aceita o formato do `ms`/jsonwebtoken (ex.: '15m', '7d'). Curto de propósito:
+  // o access expira rápido e o refresh token (abaixo) renova a sessão de forma
+  // transparente. Em ambiente já implantado, manter um valor alto via env até o
+  // app com refresh estar publicado, e só então baixar pra 15m.
   JWT_EXPIRES_IN: z
     .string()
     .regex(
       /^\d+[smhd]$|^\d+$/,
       "JWT_EXPIRES_IN inválido (ex.: '15m', '1h', '7d' ou segundos)",
     )
-    .default('7d'),
+    .default('15m'),
+  // Vida do refresh token (sessão longa, rotativo e revogável no banco). O usuário
+  // fica logado até esse prazo de inatividade; cada uso rotaciona e renova a janela.
+  REFRESH_TOKEN_EXPIRES_IN: z
+    .string()
+    .regex(
+      /^\d+[smhd]$|^\d+$/,
+      "REFRESH_TOKEN_EXPIRES_IN inválido (ex.: '30d', '90d' ou segundos)",
+    )
+    .default('90d'),
   // CSV de origens permitidas no CORS (ex.: 'https://app.connectai.app,https://admin...').
   // Em produção é OBRIGATÓRIO definir (sem ele o boot falha) — não refletimos
   // qualquer Origin com credentials em prod. Em dev/test, vazio = reflete a
@@ -348,6 +358,7 @@ export const env = {
   DATABASE_URL: parsed.DATABASE_URL,
   JWT_SECRET: parsed.JWT_SECRET,
   JWT_EXPIRES_IN: parsed.JWT_EXPIRES_IN,
+  REFRESH_TOKEN_EXPIRES_IN: parsed.REFRESH_TOKEN_EXPIRES_IN,
   // CSV -> lista limpa, ou `undefined` quando não há origens configuradas.
   // CORS_ALLOWED_ORIGINS="" (string vazia, como no .env.example) precisa cair em
   // `undefined` — não em `[]`. Senão `origin: [] ?? true` no server.ts ficaria

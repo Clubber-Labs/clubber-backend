@@ -3,6 +3,7 @@ import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { getMailer } from '../../lib/mailer'
+import { revokeAllRefreshTokensForUser } from '../auth/auth.repository'
 import { reactivateOnLogin } from '../users/users.repository'
 import {
   consumeCodeAndSetPassword,
@@ -102,6 +103,10 @@ export async function resetPassword({
   // requisição já consumiu este código (corrida), retorna false → erro genérico.
   const ok = await consumeCodeAndSetPassword(record.id, user.id, passwordHash)
   if (!ok) throw INVALID_RESET
+
+  // Trocar a senha encerra TODAS as sessões: se alguém entrou com a senha antiga,
+  // o reset (tipicamente "esqueci a senha") o expulsa de todos os dispositivos.
+  await revokeAllRefreshTokensForUser(user.id)
 
   // Como no login: reativa contas DEACTIVATED/PENDING_DELETION e cancela a
   // exclusão agendada. No-op para contas ACTIVE. Idempotente — seguro fora da tx.

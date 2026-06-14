@@ -7,11 +7,14 @@ import {
 import { rateLimit } from '../../lib/rate-limit'
 import {
   login,
+  logout,
+  logoutAll,
   postMfaDisable,
   postMfaEnable,
   postMfaSetup,
+  refresh,
 } from './auth.controller'
-import { loginBodySchema, mfaCodeSchema } from './auth.schema'
+import { loginBodySchema, mfaCodeSchema, refreshBodySchema } from './auth.schema'
 
 export async function authRoutes(app: FastifyInstance) {
   app.setValidatorCompiler(validatorCompiler)
@@ -26,6 +29,38 @@ export async function authRoutes(app: FastifyInstance) {
       config: { rateLimit: rateLimit(10) },
     },
     login,
+  )
+
+  // ── Sessão: rotação do refresh token + logout ────────────────────────────
+  // /auth/refresh é público (o access já pode ter expirado) mas com rate-limit:
+  // o refresh é opaco e de alta entropia, mas limitar corta brute-force/abuso.
+  api.post(
+    '/auth/refresh',
+    {
+      schema: { body: refreshBodySchema },
+      config: { rateLimit: rateLimit(30) },
+    },
+    refresh,
+  )
+
+  // logout/logout-all exigem sessão válida (access token).
+  api.post(
+    '/auth/logout',
+    {
+      schema: { body: refreshBodySchema },
+      onRequest: [app.authenticate],
+      config: { rateLimit: rateLimit(30) },
+    },
+    logout,
+  )
+
+  api.post(
+    '/auth/logout-all',
+    {
+      onRequest: [app.authenticate],
+      config: { rateLimit: rateLimit(30) },
+    },
+    logoutAll,
   )
 
   // ── MFA (TOTP) — só ADMIN (gating de role no service).

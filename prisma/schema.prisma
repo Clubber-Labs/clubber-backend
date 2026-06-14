@@ -83,6 +83,7 @@ model User {
   eventInvitesReceived  EventInvite[]     @relation("invited")
   socialAccounts        SocialAccount[]
   passwordResetCodes    PasswordResetCode[]
+  refreshTokens         RefreshToken[]
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
@@ -143,6 +144,27 @@ model PasswordResetCode {
   // Busca o código vigente de um usuário (não usado e não expirado).
   @@index([userId, usedAt, expiresAt], map: "password_reset_codes_user_active_idx")
   @@map("password_reset_codes")
+}
+
+// Refresh token de sessão longa (rotativo, revogável). Guarda só o HASH do token
+// bruto (SHA-256) — o valor em claro nunca toca o banco. `replacedByTokenId` liga
+// a cadeia de rotação: ao renovar, o antigo é revogado e aponta para o novo;
+// reapresentar um token já revogado dispara revogação de toda a família (reuso).
+model RefreshToken {
+  id                String    @id @default(uuid())
+  userId            String
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash         String    @unique
+  expiresAt         DateTime
+  revokedAt         DateTime?
+  replacedByTokenId String?
+  userAgent         String?
+  ip                String?
+  createdAt         DateTime  @default(now())
+
+  // Lista/revoga as sessões de um usuário e separa as ainda válidas.
+  @@index([userId, revokedAt, expiresAt], map: "refresh_tokens_user_active_idx")
+  @@map("refresh_tokens")
 }
 
 enum EventCategory {

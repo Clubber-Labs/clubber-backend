@@ -1,7 +1,27 @@
+import { createHash, randomBytes } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
 import { testPrisma } from './prisma'
+
+// Cria um refresh token persistido (hash) e devolve o valor BRUTO p/ usar nas
+// requisições. Permite forjar estado (expirado/revogado) nos testes de rotação.
+export async function makeRefreshToken(
+  userId: string,
+  overrides: { expiresAt?: Date; revokedAt?: Date | null } = {},
+) {
+  const raw = randomBytes(32).toString('base64url')
+  const tokenHash = createHash('sha256').update(raw).digest('hex')
+  const record = await testPrisma.refreshToken.create({
+    data: {
+      userId,
+      tokenHash,
+      expiresAt: overrides.expiresAt ?? new Date(Date.now() + 90 * 86_400_000),
+      revokedAt: overrides.revokedAt ?? null,
+    },
+  })
+  return { raw, record }
+}
 
 let counter = 0
 function uid() {
