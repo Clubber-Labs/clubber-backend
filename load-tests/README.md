@@ -132,3 +132,37 @@ Preencher com os valores extraídos dos summaries:
 - Volume de dados (`EVENTS=` usado no `seed-loadtest.ts`).
 - Os SLOs usados como threshold estão em cada script e em `lib/helpers.js`
   (`DEFAULT_THRESHOLDS`: p95 < 500 ms, erro < 1%).
+
+---
+
+## Escala horizontal (cluster)
+
+Para evidenciar o **RNF05.1** (escalabilidade horizontal), a aplicação foi containerizada
+(`Dockerfile`) e o `docker-compose.yml` ganhou um **perfil `cluster`**: N réplicas da API
+(1 vCPU cada) atrás de um **load balancer** (nginx, *round-robin*), compartilhando o mesmo
+Postgres/Redis. O cenário `06-cluster-scale.js` aplica uma taxa de chegada fixa ao endpoint
+geoespacial e é rodado com 1, 2 e 3 réplicas para comparar o ganho.
+
+```bash
+# sobe o cluster (perfil `cluster`); o override evita conflito de porta do Redis
+docker compose -f docker-compose.yml -f load-tests/docker-compose.cluster-override.yml \
+  --profile cluster up --build --scale api=1 -d      # depois --scale api=2, api=3
+
+# aplica a carga apontando para o LB (não para uma réplica)
+k6 run -e K6_BASE_URL=http://localhost:3333 -e RATE=600 load-tests/06-cluster-scale.js
+docker stats   # CPU por réplica durante o teste
+```
+
+| Réplicas | RPS sustentado | p95 | Erro % | CPU por réplica |
+|----------|----------------|-----|--------|-----------------|
+| 1 | | | | |
+| 2 | | | | |
+| 3 | | | | |
+
+> **Captura das figuras (Grafana):** o `docker-compose.observability.yml` inclui o
+> `grafana-image-renderer`, permitindo exportar os painéis em PNG via `GET /render/d-solo/...`
+> (latência p50/p95/p99, throughput, erro, in-flight, processo) para a janela exata do teste.
+>
+> **Ressalva:** numa única máquina (gerador + réplicas + banco + LB juntos) o ganho de
+> *throughput absoluto* é limitado pelo host; a validação do alvo de 10.000 usuários do
+> RNF01.4 exige nós físicos independentes + balanceador gerenciado (AWS ELB + Auto Scaling).

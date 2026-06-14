@@ -32,6 +32,61 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── Cluster de teste de carga (Seção 4.1.15 / RNF05.1) ──────────────────────
+  # Sobe SÓ com o profile `cluster`; o fluxo normal (`up -d postgres redis`,
+  # launch.sh) não é afetado. Demonstra escalabilidade horizontal: N réplicas da
+  # API atrás do nginx, compartilhando o mesmo Postgres/Redis.
+  #   docker compose --profile cluster up --build --scale api=3 -d
+  api:
+    build:
+      context: .
+    profiles: ["cluster"]
+    # Reusa todos os segredos de dev (Stripe etc., exigidos no boot)...
+    env_file:
+      - .env.local
+    # ...e repõe DB/Redis para os nomes de serviço da rede do compose.
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/conectai_dev
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+      PORT: "3333"
+      STORAGE_DRIVER: local
+      METRICS_ENABLED: "true"
+      # Desliga o rate limit p/ os 429 não poluírem latência/throughput no teste
+      # de desempenho (toggle introduzido em feat/rate-limit-via-env / #91).
+      RATE_LIMIT_ENABLED: "false"
+      # Desliga jobs de fundo p/ a CPU medida ser só a da carga HTTP.
+      BILLING_SYNC_ENABLED: "false"
+      FEATURED_RECONCILE_ENABLED: "false"
+      NOTIFICATIONS_ENABLED: "false"
+      ACCOUNT_DELETION_ENABLED: "false"
+      SPOT_LIFECYCLE_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    expose:
+      - "3333"
+    # 1 vCPU por réplica: a varredura 1->2->3 réplicas mede o ganho ~linear
+    # dentro do orçamento de cores (compose v2 honra isto no `up`).
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["cluster"]
+    depends_on:
+      - api
+    ports:
+      - "3333:3333" # ponto único de entrada do k6 (não rode `pnpm dev` junto)
+    volumes:
+      - ./load-tests/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped
+
 volumes:
   conectai_pgdata:
   conectai_redis_data:
