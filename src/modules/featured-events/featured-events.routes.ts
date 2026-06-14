@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify'
-import { requirePremium } from '../../lib/require-premium'
+import { requirePremium } from '../billing/billing.middleware'
 import {
   deleteFeaturedEvent,
   postFeaturedEvent,
@@ -18,14 +18,18 @@ export async function featuredEventsRoutes(app: FastifyInstance) {
         params: featuredEventParamsSchema,
         body: createFeaturedEventBodySchema,
       },
-      // requirePremium = defesa em profundidade (o service já checa
-      // event.author.isPremium). DELETE não exige premium (quem fez downgrade
-      // ainda cancela o destaque que criou).
+      // requirePremium roda DEPOIS de authenticate. Defesa em depth:
+      // bloqueia 99% das tentativas de não-premium antes de tocar a lógica.
+      // O service ainda valida `event.author.isPremium` + autoria — necessário
+      // pra garantir que o autor do evento (não o requester) é premium e
+      // pra cobrir o caso de race entre downgrade do user e o POST.
       onRequest: [app.authenticate, requirePremium],
     },
     postFeaturedEvent,
   )
 
+  // DELETE NÃO exige premium: usuário que perdeu premium ainda precisa
+  // poder cancelar destaques que criou quando era premium.
   app.delete(
     '/events/:id/featured/:featureId',
     {

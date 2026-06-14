@@ -1,6 +1,10 @@
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
+import {
+  terminateBillingForUser,
+  unlinkStripeCustomer,
+} from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
 import {
   findFollow,
@@ -282,8 +286,26 @@ export async function anonymizeAccount(
   // Chaves coletadas antes da tx (storage é externo/não-transacional). Os IDs de
   // follow para decrementar contadores são coletados DENTRO da tx (sem corrida).
   const storage = await findAnonymizationStorageKeys(userId)
+
+  // Billing primeiro, banco depois (LGPD): se o cancelamento no Stripe falhar,
+  // nada local muda — a conta segue PENDING_DELETION e o reconciler tenta de
+  // novo no próximo tick. A ordem inversa anonimizaria o titular deixando a
+  // cobrança viva no gateway.
+  const terminatedCustomerId = await terminateBillingForUser(userId)
+
   const anonymized = await anonymizeUserTx(userId, now)
-  if (!anonymized) return false
+  if (!anonymized) {
+    // Login reativou a conta na janela entre o cancel no Stripe e a tx (o
+    // guard venceu). O Customer já morreu no gateway — reparar o ponteiro pra
+    // o próximo checkout criar um Customer novo; sem isso, ensureStripeCustomer
+    // devolveria um ID morto e o checkout quebraria. isPremium se auto-corrige
+    // via webhook customer.subscription.deleted: a subscription local fica e o
+    // handler a acha pelo stripeSubscriptionId, sem depender do ponteiro.
+    if (terminatedCustomerId) {
+      await unlinkStripeCustomer(userId, terminatedCustomerId)
+    }
+    return false
+  }
 
   const keys = [storage.avatarKey, ...storage.eventImageKeys].filter(
     (k): k is string => Boolean(k),

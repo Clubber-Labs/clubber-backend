@@ -6,7 +6,9 @@ dist/
 .vscode/
 /generated/prisma
 .worktrees/
+
+# Skills/agents locais — não vão pro repo do time
+.agents/
 .claude/
 # Skills do Claude Code (geradas pelo harness na pasta do repo, não versionar)
-.agents/
 skills-lock.json

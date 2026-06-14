@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
 import { testPrisma } from './prisma'
@@ -125,9 +126,15 @@ export async function makeAttendance(
   userId: string,
   eventId: string,
   type: 'CONFIRMED' | 'INTERESTED' | 'NOT_INTERESTED' = 'CONFIRMED',
+  overrides: { createdAt?: Date } = {},
 ) {
   return testPrisma.eventAttendance.create({
-    data: { userId, eventId, type },
+    data: {
+      userId,
+      eventId,
+      type,
+      ...(overrides.createdAt && { createdAt: overrides.createdAt }),
+    },
   })
 }
 
@@ -254,6 +261,70 @@ export async function makeFeaturedEvent(
       startsAt: overrides.startsAt ?? now,
       endsAt: overrides.endsAt ?? new Date(now.getTime() + 3600_000),
       canceledAt: overrides.canceledAt ?? null,
+    },
+  })
+}
+
+type SubscriptionStatusLiteral =
+  | 'TRIALING'
+  | 'ACTIVE'
+  | 'PAST_DUE'
+  | 'CANCELED'
+  | 'INCOMPLETE'
+  | 'INCOMPLETE_EXPIRED'
+  | 'UNPAID'
+
+export async function makeSubscription(
+  userId: string,
+  overrides: {
+    stripeSubscriptionId?: string
+    stripePriceId?: string
+    status?: SubscriptionStatusLiteral
+    trialEndsAt?: Date | null
+    currentPeriodStart?: Date
+    currentPeriodEnd?: Date
+    cancelAtPeriodEnd?: boolean
+    canceledAt?: Date | null
+    lastSyncedAt?: Date
+  } = {},
+) {
+  const id = uid()
+  const now = new Date()
+  const periodEnd =
+    overrides.currentPeriodEnd ?? new Date(now.getTime() + 30 * 86_400_000)
+  return testPrisma.subscription.create({
+    data: {
+      userId,
+      stripeSubscriptionId: overrides.stripeSubscriptionId ?? `sub_test_${id}`,
+      stripePriceId: overrides.stripePriceId ?? `price_test_${id}`,
+      status: overrides.status ?? 'TRIALING',
+      trialEndsAt:
+        overrides.trialEndsAt ?? new Date(now.getTime() + 7 * 86_400_000),
+      currentPeriodStart: overrides.currentPeriodStart ?? now,
+      currentPeriodEnd: periodEnd,
+      cancelAtPeriodEnd: overrides.cancelAtPeriodEnd ?? false,
+      canceledAt: overrides.canceledAt ?? null,
+      lastSyncedAt: overrides.lastSyncedAt ?? now,
+    },
+  })
+}
+
+/** Evento de webhook Stripe já processado (linha de idempotência do billing). */
+export async function makeWebhookEvent(
+  overrides: {
+    stripeEventId?: string
+    type?: string
+    processedAt?: Date
+    payload?: Prisma.InputJsonValue
+  } = {},
+) {
+  const id = uid()
+  return testPrisma.webhookEvent.create({
+    data: {
+      stripeEventId: overrides.stripeEventId ?? `evt_test_${id}`,
+      type: overrides.type ?? 'customer.subscription.updated',
+      processedAt: overrides.processedAt ?? new Date(),
+      payload: overrides.payload ?? {},
     },
   })
 }

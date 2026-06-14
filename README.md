@@ -79,6 +79,49 @@ NODE_ENV=test
 | `pnpm db:studio` | Abre Prisma Studio |
 | `pnpm db:seed` | Popula banco de dev com dados fictícios |
 
+## Billing (Stripe)
+
+O módulo `billing` integra com Stripe via Checkout Sessions e webhooks. Em
+desenvolvimento, use o Stripe CLI (`stripe listen --forward-to localhost:3333/webhooks/stripe`)
+para encaminhar eventos do test mode.
+
+### Deploy do webhook em produção
+
+A URL `https://api.connectai.../webhooks/stripe` precisa ser registrada
+manualmente no Dashboard do Stripe (uma vez por ambiente — staging e prod
+têm secrets diferentes):
+
+1. **Stripe Dashboard → Developers → Webhooks → Add endpoint**
+2. URL: `https://<dominio>/webhooks/stripe`
+3. Selecionar os eventos que o handler trata:
+   - `checkout.session.completed`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+   - `invoice.payment_succeeded`
+   - `invoice.payment_failed`
+   - `setup_intent.succeeded`
+4. Após criar, copiar o **Signing secret** (`whsec_...`) e setar como
+   `STRIPE_WEBHOOK_SECRET` no ambiente.
+
+### Variáveis de ambiente
+
+| Variável | Onde obter |
+|---|---|
+| `STRIPE_SECRET_KEY` | Dashboard → Developers → API keys (`sk_live_...` em prod, `sk_test_...` em dev) |
+| `STRIPE_WEBHOOK_SECRET` | Endpoint criado no passo acima (prod) ou saída do `stripe listen` (dev) |
+| `STRIPE_PREMIUM_PRICE_ID` | Dashboard → Products → preço recorrente do plano Premium (`price_...`) |
+| `STRIPE_CHECKOUT_SUCCESS_URL` | URL do frontend pós-pagamento (ex.: `https://app.connectai.../billing/success`) |
+| `STRIPE_CHECKOUT_CANCEL_URL` | URL do frontend após cancelar (ex.: `https://app.connectai.../billing/canceled`) |
+| `STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS` | Hosts permitidos pros overrides `successUrl`/`cancelUrl` da request, separados por vírgula (defesa anti-open-redirect) |
+
+### Rotacionando secrets
+
+- **API key comprometida:** Dashboard → API keys → Roll → atualizar
+  `STRIPE_SECRET_KEY` em todos os ambientes que rodam o backend.
+- **Webhook secret:** Dashboard → Webhooks → endpoint → Roll signing secret →
+  atualizar `STRIPE_WEBHOOK_SECRET`. Stripe permite os dois secrets ativos
+  simultaneamente por algumas horas pra zero-downtime.
+
 ## Denúncias e moderação
 
 A API permite criar denúncias para eventos, comentários, mensagens e usuários. A listagem,
