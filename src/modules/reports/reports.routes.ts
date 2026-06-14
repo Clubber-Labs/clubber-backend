@@ -13,6 +13,7 @@ import {
   postCommentReport,
   postEventReport,
   postMessageReport,
+  postPostReport,
   postUserReport,
 } from './reports.controller'
 import {
@@ -22,6 +23,7 @@ import {
   reportEventParamSchema,
   reportMessageParamSchema,
   reportParamSchema,
+  reportPostParamSchema,
   reportUserParamSchema,
   resolveReportSchema,
 } from './reports.schema'
@@ -142,6 +144,26 @@ export async function reportsRoutes(app: FastifyInstance) {
       config: createReportRouteConfig,
     },
     postMessageReport,
+  )
+
+  api.post(
+    '/posts/:postId/report',
+    {
+      schema: { params: reportPostParamSchema, body: createReportSchema },
+      onRequest: [app.authenticate],
+      config: createReportRouteConfig,
+    },
+    postPostReport,
+  )
+
+  api.post(
+    '/posts/:postId/reports',
+    {
+      schema: { params: reportPostParamSchema, body: createReportSchema },
+      onRequest: [app.authenticate],
+      config: createReportRouteConfig,
+    },
+    postPostReport,
   )
 
   api.post(

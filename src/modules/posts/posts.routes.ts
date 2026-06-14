@@ -4,7 +4,12 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
-import { deletePost, getPosts, postPost } from './posts.controller'
+import {
+  deletePost,
+  getPosts,
+  postPost,
+  uploadPostImageHandler,
+} from './posts.controller'
 import {
   createPostSchema,
   eventIdParamSchema,
@@ -46,5 +51,15 @@ export async function postsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     deletePost,
+  )
+
+  // Enviar imagem para o post (multipart, uma por request — apenas o autor)
+  api.post(
+    '/events/:eventId/posts/:postId/images',
+    {
+      schema: { params: postParamSchema },
+      onRequest: [app.authenticate],
+    },
+    uploadPostImageHandler,
   )
 }

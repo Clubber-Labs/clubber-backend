@@ -154,6 +154,7 @@ export async function makeReport(
     eventId?: string
     commentId?: string
     messageId?: string
+    postId?: string
     targetUserId?: string
     reason?:
       | 'HATE_SPEECH'
@@ -175,6 +176,7 @@ export async function makeReport(
       eventId: overrides.eventId,
       commentId: overrides.commentId,
       messageId: overrides.messageId,
+      postId: overrides.postId,
       targetUserId: overrides.targetUserId,
       reviewerId: overrides.reviewerId,
       resolutionNote: overrides.resolutionNote,
