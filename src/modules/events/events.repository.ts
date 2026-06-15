@@ -519,19 +519,25 @@ export async function findEventsForMap(
   return points.slice(0, MAP_RESPONSE_CAP)
 }
 
-export type TopAttendance = { user: AuthorPayload; isFriend: boolean }
+export type TopAttendance = {
+  user: AuthorPayload
+  isFriend: boolean
+  type: AttendanceType
+}
 
 type TopAttendanceRow = AuthorPayload & {
   eventid: string
   isfriend: boolean
+  type: AttendanceType
 }
 
 /**
  * Participantes em destaque por evento (top {@link TOP_ATTENDANCES_LIMIT}),
  * ordenados: amigos primeiro, depois confirmados antes de interessados, depois
  * por recência. Um ROW_NUMBER por evento limita no SQL (sem trazer presenças
- * demais). Cada item carrega `isFriend` para o caller derivar friendAttendances
- * (subconjunto de amigos) sem uma segunda query.
+ * demais). Cada item carrega `isFriend` (para derivar friendAttendances, o
+ * subconjunto de amigos) e `type` (para o reason `friend_attending` do feed),
+ * evitando uma segunda query.
  */
 export async function findTopAttendancesByEvent(
   eventIds: string[],
@@ -549,9 +555,10 @@ export async function findTopAttendancesByEvent(
   const rows = await prisma.$queryRaw<TopAttendanceRow[]>(Prisma.sql`
     SELECT ranked."eventId" AS eventid,
            ranked.is_friend AS isfriend,
+           ranked.type AS type,
            u.id, u.name, u.lastname, u.username, u."avatarUrl"
     FROM (
-      SELECT a."eventId", a."userId",
+      SELECT a."eventId", a."userId", a.type,
              (${isFriendExpr}) AS is_friend,
              ROW_NUMBER() OVER (
                PARTITION BY a."eventId"
@@ -586,6 +593,7 @@ export async function findTopAttendancesByEvent(
         avatarUrl: r.avatarUrl,
       },
       isFriend: r.isfriend,
+      type: r.type,
     })
     map.set(r.eventid, arr)
   }
