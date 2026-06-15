@@ -6,6 +6,7 @@ import {
   makeDirectConversation,
   makeEvent,
   makeMessage,
+  makePost,
   makeReport,
   makeUser,
 } from '../../test/factories'
@@ -287,6 +288,123 @@ describe('POST /comments/:commentId/report', () => {
     })
 
     expect(res.statusCode).toBe(409)
+  })
+})
+
+describe('POST /posts/:postId/report', () => {
+  it('cria denúncia de post com sucesso', async () => {
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'INAPPROPRIATE_CONTENT', details: 'Imagem imprópria' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      reporterId: reporter.id,
+      postId: post.id,
+      reason: 'INAPPROPRIATE_CONTENT',
+    })
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/report`,
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+
+  it('retorna 404 para post inexistente', async () => {
+    const reporter = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/posts/00000000-0000-0000-0000-000000000000/report',
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('retorna 400 quando autor denuncia o próprio post', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/report`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 409 quando já existe denúncia ativa para o mesmo post', async () => {
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id)
+    await makeReport(reporter.id, { postId: post.id })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'HATE_SPEECH' },
+    })
+
+    expect(res.statusCode).toBe(409)
+  })
+
+  it('admin vê o post denunciado com suas imagens em GET /reports/:id', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const author = await makeUser()
+    const reporter = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id, { content: 'Olha isso' })
+    await testPrisma.postImage.create({
+      data: {
+        url: 'https://fake.storage/posts/x/0.webp',
+        key: 'posts/x/0.webp',
+        format: 'webp',
+        size: 100,
+        order: 0,
+        postId: post.id,
+      },
+    })
+    const report = await makeReport(reporter.id, { postId: post.id })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/reports/${report.id}`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().post).toMatchObject({
+      id: post.id,
+      content: 'Olha isso',
+      author: { id: author.id },
+      event: { id: event.id },
+    })
+    expect(res.json().post.images).toHaveLength(1)
+    expect(res.json().post.images[0]).toMatchObject({ format: 'webp' })
   })
 })
 
