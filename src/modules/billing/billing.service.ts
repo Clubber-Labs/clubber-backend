@@ -20,10 +20,6 @@ import {
 } from './billing.repository'
 
 /**
- * Converte erros do SDK do Stripe (rede/5xx) em 502 explícito, com mensagem
- * amigável. Outros erros (validation, auth, business) sobem normalmente.
- */
-/**
  * Dias de trial concedidos a novos assinantes. Fonte única: usado na criação da
  * subscription (checkout web e PaymentSheet) e exposto pelo GET /billing/plan —
  * centralizar evita que a tela de upgrade e a cobrança real divirjam.
@@ -52,6 +48,10 @@ export function resetPlanPriceCache() {
   cachedPlanPrice = null
 }
 
+/**
+ * Converte erros do SDK do Stripe (rede/5xx) em 502 explícito, com mensagem
+ * amigável. Outros erros (validation, auth, business) sobem normalmente.
+ */
 function wrapStripeError(err: unknown): never {
   if (
     err instanceof Stripe.errors.StripeAPIError ||
