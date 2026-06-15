@@ -37,6 +37,9 @@ const userPrivateProfileSelect = {
   accountStatus: true,
   deactivatedAt: true,
   scheduledDeletionAt: true,
+  // Status do MFA (sem expor o segredo nem os códigos) — o cliente usa pra
+  // mostrar "MFA ativo" e gates de UI.
+  mfaEnabled: true,
   // Preferência de notificação por proximidade — o app lê o raio atual no
   // /users/me (ex.: após troca de device). Select privado: não vaza em perfis
   // de terceiros.

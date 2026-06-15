@@ -4,13 +4,14 @@
 import './instrumentation'
 
 import { fastifyCors } from '@fastify/cors'
+import { fastifyHelmet } from '@fastify/helmet'
 import fastifyJwt from '@fastify/jwt'
 import fastifyMultipart from '@fastify/multipart'
 import { fastifyRateLimit } from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import { fastifySwagger } from '@fastify/swagger'
 import ScalarApiReference from '@scalar/fastify-api-reference'
-import { type FastifyReply, type FastifyRequest, fastify } from 'fastify'
+import { fastify } from 'fastify'
 import {
   jsonSchemaTransform,
   serializerCompiler,
@@ -18,15 +19,14 @@ import {
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
 import { shutdownInstrumentation } from './instrumentation'
+import { registerAuthDecorators } from './lib/auth-decorators'
 import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
 import { buildLoggerOptions } from './lib/logger'
-import {
-  isBlocked,
-  rebuildFromDb as rebuildModerationDenylist,
-} from './lib/moderation-denylist'
+import { rebuildFromDb as rebuildModerationDenylist } from './lib/moderation-denylist'
 import { redis } from './lib/redis'
 import { genReqId } from './lib/request-id'
+import { adminConsentRoutes } from './modules/admin-consent/admin-consent.routes'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
 import {
@@ -91,16 +91,34 @@ app.setErrorHandler(errorHandler)
 app.register(requestIdPlugin)
 app.register(metricsPlugin)
 
+// Headers de segurança (clickjacking, MIME sniffing, HSTS, etc.). CSP fica
+// desligada: a API serve JSON; o Scalar (/docs) precisaria de uma policy própria
+// e a app é consumida por cliente nativo, não por páginas servidas daqui.
+app.register(fastifyHelmet, {
+  contentSecurityPolicy: false,
+})
+
+// CORS: em produção exigimos allowlist explícita (env.CORS_ALLOWED_ORIGINS);
+// sem ela (dev/test) refletimos a Origin — conveniente localmente. Evita o
+// `origin: true` global, que refletia QUALQUER origem com credentials.
 app.register(fastifyCors, {
-  origin: true,
+  origin: env.CORS_ALLOWED_ORIGINS ?? true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
 })
 
-app.register(fastifyRateLimit, {
-  global: false,
-  redis: redis ?? undefined,
-})
+if (env.RATE_LIMIT_ENABLED) {
+  app.register(fastifyRateLimit, {
+    global: false,
+    redis: redis ?? undefined,
+  })
+} else if (env.NODE_ENV === 'production') {
+  // Rede de segurança: load test em staging/prod que esqueça de reverter o
+  // toggle deixaria todo o throttling desligado em silêncio.
+  app.log.warn(
+    'RATE_LIMIT_ENABLED=false em produção — todo o throttling está desligado',
+  )
+}
 
 app.register(fastifyMultipart, {
   limits: {
@@ -117,34 +135,13 @@ if (env.STORAGE_DRIVER === 'local') {
 
 app.register(fastifyJwt, {
   secret: env.JWT_SECRET,
+  // Expiração padrão dos tokens de sessão (antes eram emitidos sem `exp` e
+  // valiam para sempre). O token de matrícula de MFA passa o seu próprio
+  // `expiresIn: '15m'` no jwtSign, que sobrescreve este default.
+  sign: { expiresIn: env.JWT_EXPIRES_IN },
 })
 
-app.decorate(
-  'authenticate',
-  async (request: FastifyRequest, _reply: FastifyReply) => {
-    const payload = await request.jwtVerify<{ sub: string }>()
-    // Moderação: JWT não expira, então um token de conta suspensa/banida ainda
-    // verifica — a denylist barra a sessão existente na hora (401 → o mobile
-    // desloga via interceptor).
-    if (await isBlocked(payload.sub)) {
-      throw { statusCode: 401, message: 'Sessão inválida' }
-    }
-    request.user = payload
-  },
-)
-
-app.decorate(
-  'authenticateOptional',
-  async (request: FastifyRequest, _reply: FastifyReply) => {
-    if (request.headers.authorization) {
-      const payload = await request.jwtVerify<{ sub: string }>()
-      if (await isBlocked(payload.sub)) {
-        throw { statusCode: 401, message: 'Sessão inválida' }
-      }
-      request.user = payload
-    }
-  },
-)
+registerAuthDecorators(app)
 
 app.register(fastifySwagger, {
   openapi: {
@@ -171,6 +168,7 @@ app.register(eventStatsRoutes)
 app.register(featuredEventsRoutes)
 app.register(usersRoutes)
 app.register(consentRoutes)
+app.register(adminConsentRoutes)
 app.register(followsRoutes)
 app.register(attendanceRoutes)
 app.register(postsRoutes)

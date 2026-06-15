@@ -97,6 +97,8 @@ function checkoutSessionCompletedFixture(opts: {
           current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
           cancel_at_period_end: false,
           canceled_at: null,
+          // Checkout web coleta o cartão antes de completar → PM na subscription.
+          default_payment_method: 'pm_checkout',
         },
         metadata: { userId: opts.userId },
       },
@@ -163,17 +165,63 @@ function subscriptionUpdatedFixture(opts: {
   } as any
 }
 
+function subscriptionCreatedFixture(opts: {
+  subscriptionId: string
+  customerId: string
+  userId: string
+  status?: string
+  defaultPaymentMethod?: string | null
+  eventId?: string
+}) {
+  return {
+    id: opts.eventId ?? `evt_created_${Date.now()}`,
+    type: 'customer.subscription.created',
+    created: Math.floor(Date.now() / 1000),
+    data: {
+      object: {
+        id: opts.subscriptionId,
+        customer: opts.customerId,
+        status: opts.status ?? 'trialing',
+        items: { data: [{ price: { id: 'price_test' } }] },
+        trial_end: Math.floor(Date.now() / 1000) + 7 * 86400,
+        current_period_start: Math.floor(Date.now() / 1000),
+        current_period_end: Math.floor(Date.now() / 1000) + 7 * 86400,
+        cancel_at_period_end: false,
+        canceled_at: null,
+        default_payment_method: opts.defaultPaymentMethod ?? null,
+        metadata: { userId: opts.userId },
+      },
+    },
+    // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+  } as any
+}
+
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 describe('repository', () => {
   describe('findActiveSubscriptionByUserId', () => {
-    it('retorna subscription quando status é TRIALING', async () => {
+    it('retorna TRIALING com cartão (defaultPaymentMethodId)', async () => {
       const user = await makeUser()
-      const sub = await makeSubscription(user.id, { status: 'TRIALING' })
+      const sub = await makeSubscription(user.id, {
+        status: 'TRIALING',
+        defaultPaymentMethodId: 'pm_test',
+      })
 
       const found = await findActiveSubscriptionByUserId(user.id)
 
       expect(found?.id).toBe(sub.id)
+    })
+
+    it('NÃO retorna TRIALING órfão (sem cartão) — não trava o retry no 409', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, {
+        status: 'TRIALING',
+        defaultPaymentMethodId: null,
+      })
+
+      const found = await findActiveSubscriptionByUserId(user.id)
+
+      expect(found).toBeNull()
     })
 
     it('retorna subscription quando status é ACTIVE', async () => {
@@ -273,6 +321,43 @@ describe('repository', () => {
       await makeSubscription(user.id, {
         stripeSubscriptionId: 'sub_new',
         status: 'TRIALING',
+        defaultPaymentMethodId: 'pm_test',
+      })
+
+      await testPrisma.$transaction(async (tx) => {
+        await recalculateUserPremiumTx(tx, user.id)
+      })
+
+      const updated = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.isPremium).toBe(true)
+    })
+
+    it('TRIALING órfão (sem cartão) NÃO concede premium', async () => {
+      // Bug original: o trial do PaymentSheet nasce 'trialing' sem cartão e
+      // dava premium grátis. Sem defaultPaymentMethodId, não é premium.
+      const user = await makeUser({ isPremium: true })
+      await makeSubscription(user.id, {
+        status: 'TRIALING',
+        defaultPaymentMethodId: null,
+      })
+
+      await testPrisma.$transaction(async (tx) => {
+        await recalculateUserPremiumTx(tx, user.id)
+      })
+
+      const updated = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(updated?.isPremium).toBe(false)
+    })
+
+    it('TRIALING com cartão concede premium', async () => {
+      const user = await makeUser({ isPremium: false })
+      await makeSubscription(user.id, {
+        status: 'TRIALING',
+        defaultPaymentMethodId: 'pm_card',
       })
 
       await testPrisma.$transaction(async (tx) => {
@@ -295,13 +380,40 @@ describe('repository', () => {
       expect(has).toBe(false)
     })
 
-    it('retorna true mesmo se a única subscription está CANCELED', async () => {
+    it('retorna true se teve CANCELED com cartão (trial/assinatura real)', async () => {
       const user = await makeUser()
-      await makeSubscription(user.id, { status: 'CANCELED' })
+      await makeSubscription(user.id, {
+        status: 'CANCELED',
+        defaultPaymentMethodId: 'pm_test',
+      })
 
       const has = await hasAnyPreviousSubscription(user.id)
 
       expect(has).toBe(true)
+    })
+
+    it('retorna false se o CANCELED foi um trial órfão (sem cartão) — não queima o trial', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, {
+        status: 'CANCELED',
+        defaultPaymentMethodId: null,
+      })
+
+      const has = await hasAnyPreviousSubscription(user.id)
+
+      expect(has).toBe(false)
+    })
+
+    it('retorna false para TRIALING órfão (sem cartão) — abandonar a sheet não queima o trial', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, {
+        status: 'TRIALING',
+        defaultPaymentMethodId: null,
+      })
+
+      const has = await hasAnyPreviousSubscription(user.id)
+
+      expect(has).toBe(false)
     })
 
     it('retorna true quando há subscription ativa', async () => {
@@ -455,6 +567,7 @@ describe('repository', () => {
         currentPeriodEnd: new Date(now.getTime() + 30 * 86_400_000),
         cancelAtPeriodEnd: false,
         canceledAt: null,
+        defaultPaymentMethodId: null,
         lastSyncedAt: now,
       }
 
@@ -488,6 +601,7 @@ describe('repository', () => {
           currentPeriodEnd: new Date(now.getTime() + 30 * 86_400_000),
           cancelAtPeriodEnd: true,
           canceledAt: null,
+          defaultPaymentMethodId: null,
           lastSyncedAt: now,
         })
       })
@@ -497,6 +611,39 @@ describe('repository', () => {
       })
       expect(updated?.status).toBe('ACTIVE')
       expect(updated?.cancelAtPeriodEnd).toBe(true)
+    })
+
+    it('defaultPaymentMethodId é sticky: update com null não apaga o cartão já gravado', async () => {
+      const user = await makeUser()
+      await makeSubscription(user.id, {
+        stripeSubscriptionId: 'sub_sticky',
+        status: 'TRIALING',
+        defaultPaymentMethodId: 'pm_locked',
+      })
+
+      // Evento posterior (ex.: subscription.updated do trial) traz PM null — não
+      // pode zerar o cartão já carimbado pelo setup_intent nem revogar premium.
+      const now = new Date()
+      await testPrisma.$transaction(async (tx) => {
+        await upsertSubscriptionTx(tx, {
+          userId: user.id,
+          stripeSubscriptionId: 'sub_sticky',
+          stripePriceId: 'price_test',
+          status: 'TRIALING',
+          trialEndsAt: null,
+          currentPeriodStart: now,
+          currentPeriodEnd: new Date(now.getTime() + 30 * 86_400_000),
+          cancelAtPeriodEnd: false,
+          canceledAt: null,
+          defaultPaymentMethodId: null,
+          lastSyncedAt: now,
+        })
+      })
+
+      const updated = await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_sticky' },
+      })
+      expect(updated?.defaultPaymentMethodId).toBe('pm_locked')
     })
   })
 })
@@ -603,9 +750,14 @@ describe('service', () => {
       )
     })
 
-    it('NÃO aplica trial quando user já teve subscription (mitigação trial abuse)', async () => {
+    it('NÃO aplica trial quando user já teve subscription real (mitigação trial abuse)', async () => {
       const user = await makeUser()
-      await makeSubscription(user.id, { status: 'CANCELED' })
+      // Assinatura real anterior = teve cartão. CANCELED órfão (sem cartão) não
+      // contaria — ver hasAnyPreviousSubscription.
+      await makeSubscription(user.id, {
+        status: 'CANCELED',
+        defaultPaymentMethodId: 'pm_test',
+      })
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_a',
         // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
@@ -700,7 +852,11 @@ describe('service', () => {
 
     it('sem trial: retorna client secret do PaymentIntent da 1ª invoice', async () => {
       const user = await makeUser()
-      await makeSubscription(user.id, { status: 'CANCELED' })
+      // Já teve assinatura real (com cartão) → sem trial no retry.
+      await makeSubscription(user.id, {
+        status: 'CANCELED',
+        defaultPaymentMethodId: 'pm_test',
+      })
       vi.mocked(stripe.customers.create).mockResolvedValue({
         id: 'cus_ps',
         // biome-ignore lint/suspicious/noExplicitAny: mock parcial do Stripe
@@ -1069,6 +1225,40 @@ describe('processStripeWebhook', () => {
     })
   })
 
+  describe('customer.subscription.created', () => {
+    it('trial órfão (trialing sem cartão) cria a subscription mas NÃO concede premium', async () => {
+      // Bug que motivou o fix: POST /billing/subscribe cria o trial 'trialing'
+      // sem cartão e o subscription.created dispara na hora — não pode dar
+      // premium antes do cartão entrar (via setup_intent.succeeded).
+      const user = await makeUser({ isPremium: false })
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_trial_orphan' },
+      })
+      const event = subscriptionCreatedFixture({
+        subscriptionId: 'sub_trial_orphan',
+        customerId: 'cus_trial_orphan',
+        userId: user.id,
+        status: 'trialing',
+        defaultPaymentMethod: null,
+      })
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      const sub = await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_trial_orphan' },
+      })
+      expect(sub?.status).toBe('TRIALING')
+      expect(sub?.defaultPaymentMethodId).toBeNull()
+
+      const refreshed = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refreshed?.isPremium).toBe(false)
+    })
+  })
+
   describe('customer.subscription.deleted', () => {
     it('desliga isPremium e marca subscription CANCELED', async () => {
       const user = await makeUser({ isPremium: true })
@@ -1170,6 +1360,88 @@ describe('processStripeWebhook', () => {
       await processStripeWebhook(Buffer.from('x'), 'sig')
 
       expect(stripe.customers.update).not.toHaveBeenCalled()
+    })
+
+    it('carimba o cartão no trial órfão do customer e destrava o premium', async () => {
+      const user = await makeUser({ isPremium: false })
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_trial_flip' },
+      })
+      // Trial órfão criado antes pelo subscription.created (sem cartão).
+      const sub = await makeSubscription(user.id, {
+        status: 'TRIALING',
+        defaultPaymentMethodId: null,
+      })
+      const event = {
+        id: `evt_setup_flip_${Date.now()}`,
+        type: 'setup_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: 'seti_flip',
+            customer: 'cus_trial_flip',
+            payment_method: 'pm_card_visa',
+          },
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+      } as any
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      const reloaded = await testPrisma.subscription.findUnique({
+        where: { id: sub.id },
+      })
+      expect(reloaded?.defaultPaymentMethodId).toBe('pm_card_visa')
+
+      const refreshed = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refreshed?.isPremium).toBe(true)
+    })
+
+    it('setup_intent.succeeded atrasado, com trial já CANCELED, NÃO destrava premium', async () => {
+      // Replay tardio: user abandonou a sheet, missing_payment_method cancelou o
+      // trial ao fim dos 7 dias, e o setup_intent.succeeded chega atrasado (o
+      // Stripe reenvia por dias). O filtro status:'TRIALING' não toca a CANCELED
+      // → segue sem cartão e sem premium.
+      const user = await makeUser({ isPremium: false })
+      await testPrisma.user.update({
+        where: { id: user.id },
+        data: { stripeCustomerId: 'cus_late_setup' },
+      })
+      const sub = await makeSubscription(user.id, {
+        status: 'CANCELED',
+        defaultPaymentMethodId: null,
+      })
+      const event = {
+        id: `evt_setup_late_${Date.now()}`,
+        type: 'setup_intent.succeeded',
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: 'seti_late',
+            customer: 'cus_late_setup',
+            payment_method: 'pm_card_visa',
+          },
+        },
+        // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+      } as any
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      const reloaded = await testPrisma.subscription.findUnique({
+        where: { id: sub.id },
+      })
+      expect(reloaded?.status).toBe('CANCELED')
+      expect(reloaded?.defaultPaymentMethodId).toBeNull()
+
+      const refreshed = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refreshed?.isPremium).toBe(false)
     })
   })
 

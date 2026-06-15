@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   forgotPassword,
   resetPasswordController,
@@ -23,12 +24,7 @@ export async function passwordResetRoutes(app: FastifyInstance) {
     '/auth/forgot-password',
     {
       schema: { body: forgotPasswordBodySchema },
-      config: {
-        rateLimit: {
-          max: 5,
-          timeWindow: '1 minute',
-        },
-      },
+      config: { rateLimit: rateLimit(5) },
     },
     forgotPassword,
   )
@@ -37,12 +33,7 @@ export async function passwordResetRoutes(app: FastifyInstance) {
     '/auth/reset-password',
     {
       schema: { body: resetPasswordBodySchema },
-      config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: '1 minute',
-        },
-      },
+      config: { rateLimit: rateLimit(10) },
     },
     resetPasswordController,
   )

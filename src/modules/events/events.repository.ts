@@ -69,6 +69,28 @@ function buildSharedIncludes(): Prisma.EventInclude {
   }
 }
 
+/**
+ * Includes enxutos do mapa: o viewport (GET /events/map/events) só alimenta
+ * pins e o card de preview, que usam autor, contadores, a imagem de capa e os
+ * avatares de presença. Dropa a relação `comments` (que no shared rende ~3
+ * round-trips: comentários + autores + _count) e limita imagens à capa — o
+ * detalhe completo vem do GET /events/:id ao abrir o evento. Corta payload e
+ * latência sem regredir a UI do mapa. recentComments é normalizado para [].
+ */
+function buildMapIncludes(): Prisma.EventInclude {
+  return {
+    author: { select: authorSelect },
+    _count: {
+      select: { attendances: true, reactions: true, comments: true },
+    },
+    images: {
+      take: 1,
+      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      select: eventImageSelect,
+    },
+  }
+}
+
 type PrismaSharedEvent = Prisma.EventGetPayload<{
   include: {
     author: { select: typeof authorSelect }
@@ -611,7 +633,9 @@ export async function findEventsInViewport(
     // +1 pra detectar truncamento sem uma query de contagem extra.
     take: query.limit + 1,
     orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
-    include: buildSharedIncludes(),
+    // Include enxuto do mapa (sem comentários, só capa) — normalizeShared
+    // produz recentComments: [] quando a relação não vem.
+    include: buildMapIncludes(),
   })) as unknown as PrismaSharedEvent[]
 
   const truncated = rows.length > query.limit

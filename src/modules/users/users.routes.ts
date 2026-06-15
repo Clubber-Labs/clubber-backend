@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import { getUserEvents } from '../events/events.controller'
 import { userEventsQuerySchema } from '../events/events.schema'
 import {
@@ -56,7 +57,7 @@ export async function usersRoutes(app: FastifyInstance) {
     {
       schema: { querystring: searchUsersQuerySchema },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     searchUsersHandler,
   )
@@ -102,12 +103,7 @@ export async function usersRoutes(app: FastifyInstance) {
     '/users',
     {
       schema: { body: createUserSchema },
-      config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: '1 minute',
-        },
-      },
+      config: { rateLimit: rateLimit(10) },
     },
     postUser,
   )
