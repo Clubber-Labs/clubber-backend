@@ -920,10 +920,13 @@ describe('POST /reports/:id/moderate-user', () => {
 
   it('409 ao suspender quem já está banido (não rebaixa o ban)', async () => {
     const admin = await makeUser({ role: 'ADMIN' })
-    const reporter = await makeUser()
+    // Dois reporters distintos: a unique [reporterId, targetUserId, status]
+    // impede o mesmo reporter ter duas denúncias ativas sobre o mesmo alvo.
+    const reporterA = await makeUser()
+    const reporterB = await makeUser()
     const target = await makeUser()
-    const banReport = await makeReport(reporter.id, { targetUserId: target.id })
-    const suspendReport = await makeReport(reporter.id, {
+    const banReport = await makeReport(reporterA.id, { targetUserId: target.id })
+    const suspendReport = await makeReport(reporterB.id, {
       targetUserId: target.id,
     })
 
