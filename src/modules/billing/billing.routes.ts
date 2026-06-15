@@ -7,6 +7,7 @@ import {
 } from 'fastify-type-provider-zod'
 import { rateLimit } from '../../lib/rate-limit'
 import {
+  getPlanHandler,
   getSubscriptionHandler,
   postCancel,
   postCheckout,
@@ -55,6 +56,10 @@ export async function billingRoutes(app: FastifyInstance) {
     { onRequest: [app.authenticate] },
     getSubscriptionHandler,
   )
+
+  // GET barato e cacheado (preço lido do Stripe com TTL de módulo) — sem
+  // rate-limit especial, igual ao /billing/subscription.
+  api.get('/billing/plan', { onRequest: [app.authenticate] }, getPlanHandler)
 
   // Rotas que chamam a Stripe (consome cota da API + side effects):
   // 20/min por chave (IP por default) cobre UX legítima (retry após erro de

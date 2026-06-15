@@ -23,6 +23,35 @@ import {
  * Converte erros do SDK do Stripe (rede/5xx) em 502 explícito, com mensagem
  * amigável. Outros erros (validation, auth, business) sobem normalmente.
  */
+/**
+ * Dias de trial concedidos a novos assinantes. Fonte única: usado na criação da
+ * subscription (checkout web e PaymentSheet) e exposto pelo GET /billing/plan —
+ * centralizar evita que a tela de upgrade e a cobrança real divirjam.
+ */
+export const TRIAL_DAYS = 7
+
+/**
+ * Cache em memória do preço do plano Premium lido do Stripe. O valor quase nunca
+ * muda, então um TTL de ~1h evita bater no gateway a cada abertura da tela de
+ * upgrade. Só o preço entra aqui — `trialEligible` é por usuário e é calculado
+ * sempre. Escopo de módulo: vive enquanto o processo estiver de pé.
+ */
+const PLAN_PRICE_CACHE_TTL_MS = 60 * 60 * 1000
+
+type PlanPrice = {
+  amount: number
+  currency: string
+  interval: string
+  intervalCount: number
+}
+
+let cachedPlanPrice: { value: PlanPrice; expiresAt: number } | null = null
+
+/** Reseta o cache do preço — uso interno em testes. */
+export function resetPlanPriceCache() {
+  cachedPlanPrice = null
+}
+
 function wrapStripeError(err: unknown): never {
   if (
     err instanceof Stripe.errors.StripeAPIError ||
@@ -127,7 +156,7 @@ export async function createCheckoutSession(
 
   // Mitigação trial abuse: só concede trial se user nunca assinou antes
   const alreadyHadSubscription = await hasAnyPreviousSubscription(userId)
-  const trialDays = alreadyHadSubscription ? undefined : 7
+  const trialDays = alreadyHadSubscription ? undefined : TRIAL_DAYS
 
   try {
     // idempotencyKey com bucket de 1 minuto: bloqueia clicks duplicados em
@@ -154,6 +183,62 @@ export async function createCheckoutSession(
     return { url: session.url }
   } catch (err) {
     return wrapStripeError(err)
+  }
+}
+
+/**
+ * Lê o preço do plano Premium no Stripe (fonte da verdade — nunca hardcode o
+ * valor em R$) com cache de módulo. `recurring`/`unit_amount` ausentes indicam
+ * um price que não é de assinatura recorrente: 500 explícito, pois não deveria
+ * acontecer com o price configurado em STRIPE_PREMIUM_PRICE_ID.
+ */
+async function getPremiumPlanPrice(): Promise<PlanPrice> {
+  if (cachedPlanPrice && cachedPlanPrice.expiresAt > Date.now()) {
+    return cachedPlanPrice.value
+  }
+
+  let price: Awaited<ReturnType<typeof stripe.prices.retrieve>>
+  try {
+    price = await stripe.prices.retrieve(env.STRIPE_PREMIUM_PRICE_ID)
+  } catch (err) {
+    return wrapStripeError(err)
+  }
+
+  if (!price.recurring) {
+    throw {
+      statusCode: 500,
+      message: 'Preço do plano Premium não é recorrente (esperado assinatura).',
+    }
+  }
+  if (price.unit_amount === null) {
+    throw {
+      statusCode: 500,
+      message: 'Preço do plano Premium não tem valor unitário definido.',
+    }
+  }
+
+  const value: PlanPrice = {
+    amount: price.unit_amount,
+    currency: price.currency,
+    interval: price.recurring.interval,
+    intervalCount: price.recurring.interval_count,
+  }
+  cachedPlanPrice = { value, expiresAt: Date.now() + PLAN_PRICE_CACHE_TTL_MS }
+  return value
+}
+
+/**
+ * Dados da tela de upgrade: preço do plano (do Stripe, cacheado) + se o usuário
+ * ainda tem direito ao trial (nunca assinou antes — ver hasAnyPreviousSubscription).
+ */
+export async function getPlan(userId: string) {
+  const price = await getPremiumPlanPrice()
+  const alreadyHadSubscription = await hasAnyPreviousSubscription(userId)
+
+  return {
+    ...price,
+    trialDays: TRIAL_DAYS,
+    trialEligible: !alreadyHadSubscription,
   }
 }
 
@@ -259,7 +344,7 @@ export async function createSubscriptionIntent(userId: string) {
 
   // Mitigação trial abuse: só concede trial se user nunca assinou antes
   const alreadyHadSubscription = await hasAnyPreviousSubscription(userId)
-  const trialDays = alreadyHadSubscription ? undefined : 7
+  const trialDays = alreadyHadSubscription ? undefined : TRIAL_DAYS
 
   // SDK 22+ não expõe `Stripe.Subscription` via namespace — inferir do client.
   let subscription: Awaited<ReturnType<typeof stripe.subscriptions.create>>

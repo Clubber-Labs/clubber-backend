@@ -5,6 +5,7 @@ import {
   createCheckoutSession,
   createSetupIntent,
   createSubscriptionIntent,
+  getPlan,
   getSubscription,
   resumeSubscription,
 } from './billing.service'
@@ -36,6 +37,14 @@ export async function getSubscriptionHandler(
 ) {
   const sub = await getSubscription(request.user.sub)
   return reply.status(200).send(sub)
+}
+
+export async function getPlanHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const result = await getPlan(request.user.sub)
+  return reply.status(200).send(result)
 }
 
 export async function postCancel(request: FastifyRequest, reply: FastifyReply) {
