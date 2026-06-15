@@ -298,6 +298,8 @@ const baseSchema = z.object({
   // = janela de frescor; localização mais velha não recebe push de proximidade e
   // é expurgada pelo reconciler (minimização LGPD).
   NOTIFY_MAX_RADIUS_KM: z.coerce.number().int().positive().default(50),
+  // Teto do raio (km) da recomendação de spots — espelha NOTIFY_MAX_RADIUS_KM.
+  SPOT_MAX_RADIUS_KM: z.coerce.number().int().positive().default(50),
   NOTIFY_LOCATION_TTL_DAYS: z.coerce.number().int().positive().default(90),
   NOTIFY_LOCATION_CLEANUP_INTERVAL_MS: z.coerce
     .number()
@@ -503,6 +505,7 @@ export const env = {
     parsed.NOTIFY_RETENTION_CLEANUP_INTERVAL_MS,
   NOTIFY_RETENTION_CLEANUP_ENABLED: parsed.NOTIFY_RETENTION_CLEANUP_ENABLED,
   NOTIFY_MAX_RADIUS_KM: parsed.NOTIFY_MAX_RADIUS_KM,
+  SPOT_MAX_RADIUS_KM: parsed.SPOT_MAX_RADIUS_KM,
   NOTIFY_LOCATION_TTL_DAYS: parsed.NOTIFY_LOCATION_TTL_DAYS,
   NOTIFY_LOCATION_CLEANUP_INTERVAL_MS:
     parsed.NOTIFY_LOCATION_CLEANUP_INTERVAL_MS,

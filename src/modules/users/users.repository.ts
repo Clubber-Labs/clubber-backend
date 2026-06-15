@@ -47,6 +47,9 @@ const userPrivateProfileSelect = {
   // /users/me (ex.: após troca de device). Select privado: não vaza em perfis
   // de terceiros.
   notifyRadiusKm: true,
+  // Raio de interesse (km) da recomendação de spots — o app lê o atual no
+  // /users/me. Select privado: não vaza em perfis de terceiros.
+  spotRadiusKm: true,
 } as const
 
 // Campos do estado de conta usados internamente pelas transições de ciclo de
@@ -191,6 +194,24 @@ export async function updateNotifyRadius(id: string, radiusKm: number) {
     where: { id },
     data: { notifyRadiusKm: radiusKm },
     select: { id: true, notifyRadiusKm: true },
+  })
+}
+
+/** Raio de interesse (km) salvo para a recomendação de spots. */
+export async function findSpotRadius(id: string): Promise<number | null> {
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: { spotRadiusKm: true },
+  })
+  return user?.spotRadiusKm ?? null
+}
+
+/** Atualiza o raio de interesse (km) da recomendação de spots. */
+export async function updateSpotRadius(id: string, radiusKm: number) {
+  return prisma.user.update({
+    where: { id },
+    data: { spotRadiusKm: radiusKm },
+    select: { id: true, spotRadiusKm: true },
   })
 }
 
