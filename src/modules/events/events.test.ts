@@ -750,6 +750,57 @@ describe('GET /events/:id', () => {
 
     expect(res.statusCode).toBe(200)
   })
+
+  it('topAttendances: amigos primeiro, depois não-amigos (até 5)', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const strangerA = await makeUser()
+    const strangerB = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    // não-amigos confirmam antes; amigo confirma por último (mais recente).
+    await makeAttendance(strangerA.id, event.id, 'CONFIRMED')
+    await makeAttendance(strangerB.id, event.id, 'CONFIRMED')
+    await makeAttendance(friend.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    // amigo primeiro, apesar de ter confirmado por último
+    expect(body.topAttendances[0].user.id).toBe(friend.id)
+    const ids = body.topAttendances.map(
+      (a: { user: { id: string } }) => a.user.id,
+    )
+    expect(ids).toContain(strangerA.id)
+    expect(ids).toContain(strangerB.id)
+    expect(body.topAttendances).toHaveLength(3)
+    // friendAttendances = subconjunto de amigos do topAttendances
+    expect(body.friendAttendances).toHaveLength(1)
+    expect(body.friendAttendances[0].user.id).toBe(friend.id)
+  })
+
+  it('topAttendances aparece mesmo anônimo; friendAttendances vazio', async () => {
+    const author = await makeUser()
+    const goer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    await makeAttendance(goer.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(
+      body.topAttendances.map((a: { user: { id: string } }) => a.user.id),
+    ).toContain(goer.id)
+    expect(body.friendAttendances).toEqual([])
+  })
 })
 
 describe('GET /users/:id/events — privacy gate', () => {

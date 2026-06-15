@@ -66,6 +66,64 @@ describe('GET /feed', () => {
     )
   })
 
+  it('expõe topAttendances no card (amigos primeiro, depois não-amigos)', async () => {
+    const viewer = await makeUser()
+    const author = await makeUser()
+    const friend = await makeUser()
+    const stranger = await makeUser()
+    await makeFollow(viewer.id, author.id)
+    await makeFollow(viewer.id, friend.id)
+
+    const event = await makeEvent(author.id, { isPublic: true })
+    // stranger confirma antes; amigo por último — amigo ainda vem primeiro.
+    await makeAttendance(stranger.id, event.id, 'CONFIRMED')
+    await makeAttendance(friend.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeDefined()
+    expect(found.topAttendances[0].user.id).toBe(friend.id)
+    expect(
+      found.topAttendances.map((a: { user: { id: string } }) => a.user.id),
+    ).toContain(stranger.id)
+  })
+
+  it('reason friend_attending prioriza amigo CONFIRMED sobre o mais recente', async () => {
+    const viewer = await makeUser()
+    const friendConfirmed = await makeUser()
+    const friendInterested = await makeUser()
+    const author = await makeUser()
+    await makeFollow(viewer.id, friendConfirmed.id)
+    await makeFollow(viewer.id, friendInterested.id)
+
+    const event = await makeEvent(author.id, { isPublic: true })
+    // CONFIRMED é mais ANTIGO; INTERESTED é mais RECENTE. A prioridade
+    // (CONFIRMED > INTERESTED) deve vencer a recência na escolha do reason.
+    await makeAttendance(friendConfirmed.id, event.id, 'CONFIRMED', {
+      createdAt: new Date(Date.now() - 60_000),
+    })
+    await makeAttendance(friendInterested.id, event.id, 'INTERESTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeDefined()
+    expect(found.reason.kind).toBe('friend_attending')
+    expect(found.reason.user.id).toBe(friendConfirmed.id)
+    expect(found.reason.type).toBe('CONFIRMED')
+  })
+
   it('não exibe eventos privados sem acesso do viewer', async () => {
     const viewer = await makeUser()
     const followed = await makeUser()
