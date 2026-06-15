@@ -196,6 +196,48 @@ function subscriptionCreatedFixture(opts: {
   } as any
 }
 
+// invoice.* não traz a subscription inteira: só o id. O handler busca o objeto
+// completo via stripe.subscriptions.retrieve (preResolveSubscription) — por isso
+// a fixture do evento carrega só `subscription: subId`, e o teste mocka o
+// retrieve com `stripeSubscriptionObject` abaixo.
+function invoiceEventFixture(opts: {
+  type: 'invoice.payment_succeeded' | 'invoice.payment_failed'
+  subscriptionId: string
+  eventId?: string
+  createdSec?: number
+}) {
+  return {
+    id: opts.eventId ?? `evt_invoice_${Date.now()}`,
+    type: opts.type,
+    created: opts.createdSec ?? Math.floor(Date.now() / 1000),
+    data: { object: { id: 'in_test_123', subscription: opts.subscriptionId } },
+    // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+  } as any
+}
+
+// Objeto Subscription do Stripe (o que stripe.subscriptions.retrieve devolve),
+// no shape que o mapStripeSubscription consome.
+function stripeSubscriptionObject(opts: {
+  subscriptionId: string
+  customerId: string
+  status: string
+  defaultPaymentMethod?: string | null
+}) {
+  return {
+    id: opts.subscriptionId,
+    customer: opts.customerId,
+    status: opts.status,
+    items: { data: [{ price: { id: 'price_test' } }] },
+    current_period_start: Math.floor(Date.now() / 1000),
+    current_period_end: Math.floor(Date.now() / 1000) + 30 * 86400,
+    cancel_at_period_end: false,
+    canceled_at: null,
+    default_payment_method: opts.defaultPaymentMethod ?? 'pm_card_visa',
+    metadata: { userId: 'unused' },
+    // biome-ignore lint/suspicious/noExplicitAny: fixture de payload Stripe
+  } as any
+}
+
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 describe('repository', () => {
@@ -1317,6 +1359,121 @@ describe('processStripeWebhook', () => {
         where: { id: user.id },
       })
       expect(refreshed?.isPremium).toBe(true) // ainda premium até period_end
+    })
+  })
+
+  describe('invoice.payment_succeeded / invoice.payment_failed', () => {
+    it('payment_succeeded busca a subscription via retrieve e sincroniza o status (PAST_DUE → ACTIVE)', async () => {
+      const user = await makeUser({ isPremium: true })
+      await makeSubscription(user.id, {
+        stripeSubscriptionId: 'sub_inv_succ',
+        status: 'PAST_DUE',
+        defaultPaymentMethodId: 'pm_card_visa',
+        // No passado: o evento (≈agora) é mais novo → não cai no ordering check.
+        lastSyncedAt: new Date(Date.now() - 3600_000),
+      })
+      const event = invoiceEventFixture({
+        type: 'invoice.payment_succeeded',
+        subscriptionId: 'sub_inv_succ',
+      })
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+      // invoice.* não traz a subscription inteira: o handler faz o fetch.
+      vi.mocked(stripe.subscriptions.retrieve).mockResolvedValue(
+        stripeSubscriptionObject({
+          subscriptionId: 'sub_inv_succ',
+          customerId: 'cus_inv',
+          status: 'active',
+        }),
+      )
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      // Contrato do preResolve: o objeto completo vem do retrieve, não do payload.
+      expect(stripe.subscriptions.retrieve).toHaveBeenCalledWith('sub_inv_succ')
+
+      const sub = await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_inv_succ' },
+      })
+      expect(sub?.status).toBe('ACTIVE')
+
+      const refreshed = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refreshed?.isPremium).toBe(true)
+    })
+
+    it('payment_failed move a subscription para PAST_DUE mas MANTÉM premium (período de graça)', async () => {
+      // Cobrança falhou: o Stripe entra em dunning (retry) e a subscription vira
+      // past_due — NÃO canceled. PAST_DUE ainda concede premium (PREMIUM_GRANTING_OR),
+      // então o usuário não perde o acesso na hora; só perde se virar CANCELED/UNPAID.
+      const user = await makeUser({ isPremium: true })
+      await makeSubscription(user.id, {
+        stripeSubscriptionId: 'sub_inv_fail',
+        status: 'ACTIVE',
+        defaultPaymentMethodId: 'pm_card_visa',
+        lastSyncedAt: new Date(Date.now() - 3600_000),
+      })
+      const event = invoiceEventFixture({
+        type: 'invoice.payment_failed',
+        subscriptionId: 'sub_inv_fail',
+      })
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+      vi.mocked(stripe.subscriptions.retrieve).mockResolvedValue(
+        stripeSubscriptionObject({
+          subscriptionId: 'sub_inv_fail',
+          customerId: 'cus_inv',
+          status: 'past_due',
+        }),
+      )
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      const sub = await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_inv_fail' },
+      })
+      expect(sub?.status).toBe('PAST_DUE')
+
+      const refreshed = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refreshed?.isPremium).toBe(true)
+    })
+
+    it('é no-op quando não há subscription local correspondente (registra o evento, não cria linha)', async () => {
+      // invoice de uma subscription que nunca registramos localmente: o handler
+      // tem `if (!existing) return` — não inventa uma Subscription nem concede
+      // premium. Mas o evento ainda entra em webhook_events (idempotência).
+      const user = await makeUser({ isPremium: false })
+      const event = invoiceEventFixture({
+        type: 'invoice.payment_succeeded',
+        subscriptionId: 'sub_inv_unknown',
+        eventId: 'evt_inv_noexist',
+      })
+      vi.mocked(stripe.webhooks.constructEvent).mockReturnValue(event)
+      vi.mocked(stripe.subscriptions.retrieve).mockResolvedValue(
+        stripeSubscriptionObject({
+          subscriptionId: 'sub_inv_unknown',
+          customerId: 'cus_inv',
+          status: 'active',
+        }),
+      )
+
+      await processStripeWebhook(Buffer.from('x'), 'sig')
+
+      const sub = await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_inv_unknown' },
+      })
+      expect(sub).toBeNull()
+
+      const refreshed = await testPrisma.user.findUnique({
+        where: { id: user.id },
+      })
+      expect(refreshed?.isPremium).toBe(false)
+
+      const stored = await testPrisma.webhookEvent.findUnique({
+        where: { stripeEventId: 'evt_inv_noexist' },
+      })
+      expect(stored).not.toBeNull()
     })
   })
 
