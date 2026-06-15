@@ -7,6 +7,9 @@ dist/
 /generated/prisma
 .worktrees/
 
+# Saídas dos testes de carga (k6) — geradas localmente
+load-tests/results/
+
 # Skills/agents locais — não vão pro repo do time
 .agents/
 .claude/
