@@ -1,0 +1,10 @@
+# Override para o teste de cluster. O cluster é autossuficiente (postgres + redis
+# próprios). Único ajuste: não publicar o Redis no host — o merge de `ports` do
+# compose é ADITIVO, então sem o !reset ele tentaria bindar 6379 (já ocupado por
+# outro Redis na máquina). As réplicas falam com o redis pelo nome de serviço.
+#   docker compose -f docker-compose.yml \
+#     -f load-tests/docker-compose.cluster-override.yml \
+#     --profile cluster up --build --scale api=3 -d
+services:
+  redis:
+    ports: !reset []

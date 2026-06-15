@@ -4,6 +4,23 @@ import { z } from 'zod'
 const baseSchema = z.object({
   DATABASE_URL: z.url(),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET não configurado'),
+  // Validade do token de SESSÃO. Antes os tokens eram emitidos sem `exp` e
+  // valiam para sempre — um token vazado dava acesso permanente, sem rotação.
+  // Aceita o formato do `ms`/jsonwebtoken (ex.: '15m', '7d'). O ideal é encurtar
+  // (ex.: 15m) assim que houver fluxo de refresh token; 7d é um meio-termo que já
+  // fecha o "token eterno" sem deslogar o app a cada poucos minutos.
+  JWT_EXPIRES_IN: z
+    .string()
+    .regex(
+      /^\d+[smhd]$|^\d+$/,
+      "JWT_EXPIRES_IN inválido (ex.: '15m', '1h', '7d' ou segundos)",
+    )
+    .default('7d'),
+  // CSV de origens permitidas no CORS (ex.: 'https://app.connectai.app,https://admin...').
+  // Em produção é OBRIGATÓRIO definir (sem ele o boot falha) — não refletimos
+  // qualquer Origin com credentials em prod. Em dev/test, vazio = reflete a
+  // Origin da requisição (comportamento permissivo, conveniente localmente).
+  CORS_ALLOWED_ORIGINS: z.string().optional(),
   PORT: z.coerce.number().int().positive().default(3333),
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -13,6 +30,25 @@ const baseSchema = z.object({
     .string()
     .regex(/^rediss?:\/\//, 'REDIS_URL deve começar com redis:// ou rediss://')
     .optional(),
+  // Rate limiting (@fastify/rate-limit). Master switch + ajuste global. Os
+  // defaults preservam o comportamento atual (ligado, fator 1, janela de 1 min).
+  // Para testes de carga: RATE_LIMIT_ENABLED=false desliga todo o throttling, ou
+  // RATE_LIMIT_MAX_FACTOR alto relaxa os limites medindo throughput puro.
+  RATE_LIMIT_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // .finite() barra Infinity (positivo e numérico, passaria) — manteria max: Infinity.
+  RATE_LIMIT_MAX_FACTOR: z.coerce.number().positive().finite().default(1),
+  // Regex valida o formato do timeWindow no boot (em vez de só quebrar quando o
+  // @fastify/rate-limit tenta parsear a string ao registrar as rotas).
+  RATE_LIMIT_WINDOW: z
+    .string()
+    .regex(
+      /^\d+\s*(ms|milliseconds?|s|seconds?|m|minutes?|h|hours?|d|days?)$/,
+      "RATE_LIMIT_WINDOW deve ser no formato '1 minute', '30 seconds', '1 hour'…",
+    )
+    .default('1 minute'),
   STORAGE_DRIVER: z.enum(['cloudinary', 'local']).optional(),
   UPLOADS_DIR: z.string().optional(),
   // Envio de e-mail (recuperação de senha). Driver `log` (default) só loga o
@@ -277,6 +313,14 @@ const parsed = baseSchema
         'REDIS_URL é obrigatório quando NOTIFICATIONS_ENABLED=true em produção (a fila de notificações precisa do Redis).',
     },
   )
+  // Boot falha em vez de abrir CORS pra qualquer origem em produção: refletir a
+  // Origin com `credentials: true` é configuração frouxa. Em prod exigimos uma
+  // allowlist explícita. Em dev/test segue permissivo (sem a var) por conveniência.
+  .refine((v) => !(v.NODE_ENV === 'production' && !v.CORS_ALLOWED_ORIGINS), {
+    path: ['CORS_ALLOWED_ORIGINS'],
+    message:
+      'CORS_ALLOWED_ORIGINS é obrigatório em produção (CSV de origens permitidas).',
+  })
   .parse(process.env)
 
 const STORAGE_DRIVER: 'cloudinary' | 'local' =
@@ -313,10 +357,25 @@ export function resolveCloudinaryCredentials(): CloudinaryCredentials {
 export const env = {
   DATABASE_URL: parsed.DATABASE_URL,
   JWT_SECRET: parsed.JWT_SECRET,
+  JWT_EXPIRES_IN: parsed.JWT_EXPIRES_IN,
+  // CSV -> lista limpa, ou `undefined` quando não há origens configuradas.
+  // CORS_ALLOWED_ORIGINS="" (string vazia, como no .env.example) precisa cair em
+  // `undefined` — não em `[]`. Senão `origin: [] ?? true` no server.ts ficaria
+  // `[]` (array vazio não é nullish), e o @fastify/cors bloquearia TODAS as
+  // origens em dev. Contrato: ou lista não-vazia, ou undefined (= "não configurado").
+  CORS_ALLOWED_ORIGINS: ((): string[] | undefined => {
+    const list = parsed.CORS_ALLOWED_ORIGINS?.split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+    return list && list.length > 0 ? list : undefined
+  })(),
   PORT: parsed.PORT,
   NODE_ENV: parsed.NODE_ENV,
   PUBLIC_URL: parsed.PUBLIC_URL,
   REDIS_URL: parsed.REDIS_URL,
+  RATE_LIMIT_ENABLED: parsed.RATE_LIMIT_ENABLED,
+  RATE_LIMIT_MAX_FACTOR: parsed.RATE_LIMIT_MAX_FACTOR,
+  RATE_LIMIT_WINDOW: parsed.RATE_LIMIT_WINDOW,
   STORAGE_DRIVER,
   UPLOADS_DIR: path.resolve(
     parsed.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads'),

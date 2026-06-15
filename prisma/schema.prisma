@@ -4,7 +4,10 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // `native` cobre o dev local; `debian-openssl-3.0.x` é o runtime da imagem
+  // Docker (node:24-slim / bookworm) usada nos testes de carga.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
@@ -42,6 +45,12 @@ model User {
   isPremium        Boolean   @default(false)
   stripeCustomerId String?   @unique
   role             UserRole  @default(USER)
+  // MFA (TOTP). mfaSecret é o segredo base32 CIFRADO em repouso (AES-256-GCM com
+  // chave derivada do JWT_SECRET); só é populado durante/após o cadastro.
+  // mfaRecoveryCodes guarda hashes (uso único) dos códigos de recuperação.
+  mfaEnabled       Boolean   @default(false)
+  mfaSecret        String?
+  mfaRecoveryCodes String[]  @default([])
   followersCount   Int       @default(0)
   followingCount   Int       @default(0)
   createdAt        DateTime  @default(now())
@@ -384,6 +393,7 @@ model Event {
   reports     Report[]
   images      EventImage[]
   features    FeaturedEvent[]
+  analyticsMetrics EventAnalyticsMetric[]
 
   // Único: uma ocorrência por (série, data). Torna a reposição idempotente e
   // segura contra reconcilers concorrentes. seriesId NULL é distinto no
@@ -393,6 +403,8 @@ model Event {
   @@index([isPublic, date])
   @@index([isFeatured, date, id])
   @@index([categories], type: Gin)
+  // Join de visibilidade do autor (visibleAuthorWhere) na hidratação do mapa.
+  @@index([authorId])
   @@map("events")
 }
 
@@ -438,6 +450,23 @@ model EventSeries {
   // Predicado do reconciler: séries vivas que ainda podem crescer.
   @@index([canceledAt, until])
   @@map("event_series")
+}
+
+enum EventAnalyticsMetricType {
+  VIEW
+  SHARE
+}
+
+model EventAnalyticsMetric {
+  id         String                   @id @default(uuid())
+  eventId    String
+  type       EventAnalyticsMetricType
+  occurredAt DateTime                 @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([eventId, type, occurredAt])
+  @@map("event_analytics_metrics")
 }
 
 enum AttendanceType {
@@ -650,6 +679,11 @@ model Subscription {
   currentPeriodEnd     DateTime
   cancelAtPeriodEnd    Boolean            @default(false)
   canceledAt           DateTime?
+  // Método de pagamento (id do PaymentMethod no Stripe). Null = sem cartão. Um
+  // trial criado pelo PaymentSheet nasce sem cartão; só vira premium quando o
+  // SetupIntent conclui e grava o método aqui. "Sticky": eventos posteriores
+  // sem o campo não zeram (ver upsertSubscriptionTx).
+  defaultPaymentMethodId String?
   startedAt            DateTime           @default(now())
   // Timestamp do último evento Stripe aplicado. Comparado com event.created
   // pra descartar eventos fora de ordem (Stripe não garante ordering).

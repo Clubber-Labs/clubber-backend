@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   createConsentHandler,
   exportConsentHandler,
@@ -37,7 +38,7 @@ export async function consentRoutes(app: FastifyInstance) {
       schema: { response: { 200: consentResponseSchema } },
       onRequest: [app.authenticate],
       // #8: Rate limit — leitura mais permissiva
-      config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(60) },
     },
     getConsentHandler,
   )
@@ -52,7 +53,7 @@ export async function consentRoutes(app: FastifyInstance) {
       },
       onRequest: [app.authenticate],
       // #8: Criação deve ser rara — limitar mais
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(10) },
     },
     createConsentHandler,
   )
@@ -66,7 +67,7 @@ export async function consentRoutes(app: FastifyInstance) {
         response: { 200: consentResponseSchema },
       },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     updateConsentHandler,
   )
@@ -77,7 +78,7 @@ export async function consentRoutes(app: FastifyInstance) {
     {
       schema: { response: { 200: revokeConsentResponseSchema } },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(10) },
     },
     revokeConsentHandler,
   )
@@ -90,7 +91,7 @@ export async function consentRoutes(app: FastifyInstance) {
       schema: { response: { 200: exportResponseSchema } },
       onRequest: [app.authenticate],
       // #8: Operação pesada — limitar strictamente
-      config: { rateLimit: { max: 5, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(5) },
     },
     exportConsentHandler,
   )
@@ -105,7 +106,7 @@ export async function consentRoutes(app: FastifyInstance) {
         response: { 200: auditResponseSchema },
       },
       onRequest: [app.authenticate],
-      config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(30) },
     },
     getAuditLogHandler,
   )

@@ -1,27 +1,40 @@
 import { cache } from '../../lib/cache'
+import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
-  type AttendanceTimelineRow,
+  countAnalyticsMetricByType,
   countAttendanceByType,
-  findAttendanceTimeline,
+  createEventAnalyticsMetric,
+  type EventStatsTimelineRow,
   findEventForStats,
+  findEventStatsTimeline,
 } from './event-stats.repository'
 import type { EventStats, EventStatsTimelinePoint } from './event-stats.schema'
 
-const STATS_CACHE_TTL_SECONDS = 60
+const STATS_CACHE_TTL_SECONDS = 15 * 60
 
 function toIsoDay(day: Date): string {
   return day.toISOString().slice(0, 10)
 }
 
+function statsCacheKey(eventId: string) {
+  return cache.key('event-stats', eventId)
+}
+
 function pivotTimeline(
-  rows: AttendanceTimelineRow[],
+  rows: EventStatsTimelineRow[],
 ): EventStatsTimelinePoint[] {
   const byDay = new Map<string, EventStatsTimelinePoint>()
   for (const row of rows) {
     const date = toIsoDay(row.day)
-    const point = byDay.get(date) ?? { date, interested: 0, confirmed: 0 }
-    if (row.type === 'INTERESTED') point.interested = row.count
-    else point.confirmed = row.count
+    const point = byDay.get(date) ?? {
+      date,
+      views: 0,
+      shares: 0,
+      confirmations: 0,
+    }
+    if (row.metric === 'VIEW') point.views = row.count
+    else if (row.metric === 'SHARE') point.shares = row.count
+    else point.confirmations = row.count
     byDay.set(date, point)
   }
   // rows já chegam ordenadas por dia ASC; Map preserva ordem de inserção.
@@ -31,6 +44,7 @@ function pivotTimeline(
 export async function getEventStats(
   eventId: string,
   requesterId: string,
+  options: { refresh?: boolean } = {},
 ): Promise<EventStats> {
   const event = await findEventForStats(eventId)
   if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
@@ -52,44 +66,67 @@ export async function getEventStats(
   }
 
   // Cache lido DEPOIS das checagens de 404/403: a key é só por evento, então
-  // a autorização nunca pode vir do cache. TTL-only (sem invalidação) — até
-  // 60s de staleness é aceitável para dashboard e evita acoplar attendance/
-  // reactions/comments/posts/invites a este módulo.
-  const cacheKey = cache.key('event-stats', eventId)
-  const cached = await cache.get<EventStats>(cacheKey)
-  if (cached) return cached
-
-  // _count de engajamento já veio em findEventForStats (uma query a menos,
-  // sem TOCTOU). Falta só agregar attendances e a timeline.
-  const engagement = event._count
-  const [attendanceGroups, timelineRows] = await Promise.all([
-    countAttendanceByType(eventId),
-    findAttendanceTimeline(eventId),
-  ])
-
-  const byType = { INTERESTED: 0, CONFIRMED: 0, NOT_INTERESTED: 0 }
-  for (const group of attendanceGroups) {
-    byType[group.type] = group._count._all
+  // a autorização nunca pode vir do cache. O TCC aceita atualização a cada
+  // 15min ou por botão manual; refresh=true força recomputar.
+  const cacheKey = statsCacheKey(eventId)
+  if (!options.refresh) {
+    const cached = await cache.get<EventStats>(cacheKey)
+    if (cached) return cached
   }
 
-  const base = byType.INTERESTED + byType.CONFIRMED
-  const confirmationRate = base === 0 ? null : byType.CONFIRMED / base
+  const [analyticsGroups, attendanceGroups, timelineRows] = await Promise.all([
+    countAnalyticsMetricByType(eventId),
+    countAttendanceByType(eventId),
+    findEventStatsTimeline(eventId),
+  ])
+
+  const analyticsByType = { VIEW: 0, SHARE: 0 }
+  for (const group of analyticsGroups) {
+    analyticsByType[group.type] = group._count._all
+  }
+
+  let confirmations = 0
+  for (const group of attendanceGroups) {
+    if (group.type === 'CONFIRMED') confirmations = group._count._all
+  }
 
   const stats: EventStats = {
     eventId,
+    updatedAt: new Date().toISOString(),
     totals: {
-      interested: byType.INTERESTED,
-      confirmed: byType.CONFIRMED,
-      notInterested: byType.NOT_INTERESTED,
-      reactions: engagement.reactions,
-      comments: engagement.comments,
-      posts: engagement.posts,
-      invitesSent: engagement.invites,
+      views: analyticsByType.VIEW,
+      shares: analyticsByType.SHARE,
+      confirmations,
     },
-    confirmationRate,
     timeline: pivotTimeline(timelineRows),
   }
 
   await cache.set(cacheKey, stats, STATS_CACHE_TTL_SECONDS)
   return stats
+}
+
+export async function trackEventAnalyticsMetric(
+  eventId: string,
+  requesterId: string,
+  type: 'VIEW' | 'SHARE',
+) {
+  await ensureEventAccess(eventId, requesterId)
+  await createEventAnalyticsMetric(eventId, type, new Date())
+}
+
+export async function exportEventStatsCsv(
+  eventId: string,
+  requesterId: string,
+) {
+  const stats = await getEventStats(eventId, requesterId, { refresh: true })
+  const rows = [
+    ['data', 'visualizacoes', 'compartilhamentos', 'confirmacoes'],
+    ...stats.timeline.map((point) => [
+      point.date,
+      String(point.views),
+      String(point.shares),
+      String(point.confirmations),
+    ]),
+  ]
+  return rows.map((row) => row.join(',')).join('\n')
 }
