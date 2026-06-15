@@ -925,7 +925,9 @@ describe('POST /reports/:id/moderate-user', () => {
     const reporterA = await makeUser()
     const reporterB = await makeUser()
     const target = await makeUser()
-    const banReport = await makeReport(reporterA.id, { targetUserId: target.id })
+    const banReport = await makeReport(reporterA.id, {
+      targetUserId: target.id,
+    })
     const suspendReport = await makeReport(reporterB.id, {
       targetUserId: target.id,
     })
