@@ -10,7 +10,12 @@ import {
   makeUser,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
-import { reconcileAccountDeletions } from './account-deletion.reconciler'
+import { describeReconcilerTimer } from '../../test/reconciler-lifecycle'
+import {
+  reconcileAccountDeletions,
+  startAccountDeletionReconciler,
+  stopAccountDeletionReconciler,
+} from './account-deletion.reconciler'
 import { anonymizeAccount } from './users.service'
 
 // A anonimização encerra o billing no Stripe (terminateBillingForUser) antes
@@ -257,4 +262,10 @@ describe('reconcileAccountDeletions', () => {
       await testPrisma.subscription.findUnique({ where: { id: sub.id } }),
     ).not.toBeNull()
   })
+})
+
+describeReconcilerTimer('account-deletion', {
+  start: () => startAccountDeletionReconciler(60_000),
+  stop: stopAccountDeletionReconciler,
+  intervalMs: 60_000,
 })

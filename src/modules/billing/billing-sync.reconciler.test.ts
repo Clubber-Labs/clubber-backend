@@ -3,7 +3,12 @@ import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { stripe } from '../../lib/stripe'
 import { makeSubscription, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
-import { reconcileStaleSubscriptions } from './billing-sync.reconciler'
+import { describeReconcilerTimer } from '../../test/reconciler-lifecycle'
+import {
+  reconcileStaleSubscriptions,
+  startBillingSyncReconciler,
+  stopBillingSyncReconciler,
+} from './billing-sync.reconciler'
 
 // O sync re-consulta o Stripe (fonte de verdade) — mock do singleton, sem
 // rede em teste. `retrieve` é o único método usado pelo reconciler.
@@ -252,4 +257,10 @@ describe('reconcileStaleSubscriptions', () => {
     expect(result.due).toBe(0)
     expect(stripe.subscriptions.retrieve).not.toHaveBeenCalled()
   })
+})
+
+describeReconcilerTimer('billing-sync', {
+  start: () => startBillingSyncReconciler(60_000, GRACE_MS),
+  stop: stopBillingSyncReconciler,
+  intervalMs: 60_000,
 })

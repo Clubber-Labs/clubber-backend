@@ -1,7 +1,12 @@
 import { afterAll, describe, expect, it } from 'vitest'
 import { makeWebhookEvent } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
-import { reconcileBillingWebhookRetention } from './billing-retention.reconciler'
+import { describeReconcilerTimer } from '../../test/reconciler-lifecycle'
+import {
+  reconcileBillingWebhookRetention,
+  startBillingRetentionReconciler,
+  stopBillingRetentionReconciler,
+} from './billing-retention.reconciler'
 
 afterAll(async () => {
   await testPrisma.$disconnect()
@@ -39,4 +44,47 @@ describe('reconcileBillingWebhookRetention', () => {
 
     expect(result.deleted).toBe(0)
   })
+
+  it('idempotência: segundo run após o expurgo é no-op', async () => {
+    await makeWebhookEvent({ processedAt: daysAgo(91) })
+    await makeWebhookEvent({ processedAt: daysAgo(100) })
+    await makeWebhookEvent({ processedAt: daysAgo(80) })
+
+    const first = await reconcileBillingWebhookRetention(90)
+    expect(first.deleted).toBe(2)
+
+    const second = await reconcileBillingWebhookRetention(90)
+    expect(second.deleted).toBe(0)
+    expect(await testPrisma.webhookEvent.count()).toBe(1)
+  })
+
+  it('usa o now injetado e o limiar é exclusivo (< cutoff, não <=)', async () => {
+    const now = new Date('2026-01-01T00:00:00.000Z')
+    const cutoff = new Date(now.getTime() - 90 * 86_400_000)
+    // Exatamente no cutoff NÃO apaga (WHERE usa <).
+    const atCutoff = await makeWebhookEvent({ processedAt: cutoff })
+    // 1ms antes do cutoff: apaga.
+    const justOld = await makeWebhookEvent({
+      processedAt: new Date(cutoff.getTime() - 1),
+    })
+    // Depois do cutoff: fica.
+    await makeWebhookEvent({ processedAt: new Date(cutoff.getTime() + 1) })
+
+    const result = await reconcileBillingWebhookRetention(90, now)
+
+    expect(result.deleted).toBe(1)
+    expect(
+      await testPrisma.webhookEvent.findUnique({ where: { id: justOld.id } }),
+    ).toBeNull()
+    expect(
+      await testPrisma.webhookEvent.findUnique({ where: { id: atCutoff.id } }),
+    ).not.toBeNull()
+    expect(await testPrisma.webhookEvent.count()).toBe(2)
+  })
+})
+
+describeReconcilerTimer('billing-retention', {
+  start: () => startBillingRetentionReconciler(60_000, 90),
+  stop: stopBillingRetentionReconciler,
+  intervalMs: 60_000,
 })
