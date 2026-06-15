@@ -417,6 +417,115 @@ describe('POST /auth/social — reativação de conta', () => {
   })
 })
 
+describe('POST /auth/social — moderação (suspensão/banimento)', () => {
+  // Mesmo guard do /auth/login, mas no caminho social (loadUserAndDecorate):
+  // o login social de conta punida via conta já vinculada tem que ser barrado.
+  it('nega login social de conta BANNED com 403', async () => {
+    const user = await makeUser({
+      email: 'banido@exemplo.com',
+      accountStatus: 'BANNED',
+    })
+    await makeSocialAccount(user.id, 'GOOGLE', {
+      providerUserId: 'google_banido',
+    })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        providerUserId: 'google_banido',
+        email: 'banido@exemplo.com',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json().message).toMatch(/banida/i)
+  })
+
+  it('nega login social de conta SUSPENDED dentro da vigência com 403', async () => {
+    const user = await makeUser({
+      email: 'suspenso@exemplo.com',
+      accountStatus: 'SUSPENDED',
+      suspendedAt: new Date(),
+      suspendedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      suspensionReason: 'Spam',
+    })
+    await makeSocialAccount(user.id, 'GOOGLE', {
+      providerUserId: 'google_suspenso',
+    })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        providerUserId: 'google_suspenso',
+        email: 'suspenso@exemplo.com',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json().message).toMatch(/suspensa/i)
+
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true },
+    })
+    expect(reloaded?.accountStatus).toBe('SUSPENDED')
+  })
+
+  it('auto-cura suspensão vencida no login social: volta para ACTIVE e emite token', async () => {
+    const user = await makeUser({
+      email: 'venceu@exemplo.com',
+      accountStatus: 'SUSPENDED',
+      suspendedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      suspendedUntil: new Date(Date.now() - 60 * 60 * 1000),
+      suspensionReason: 'Conduta inadequada',
+    })
+    await makeSocialAccount(user.id, 'GOOGLE', {
+      providerUserId: 'google_venceu',
+    })
+
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        providerUserId: 'google_venceu',
+        email: 'venceu@exemplo.com',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().user.id).toBe(user.id)
+    expect(res.json()).toHaveProperty('token')
+
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        accountStatus: true,
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+      },
+    })
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.suspendedAt).toBeNull()
+    expect(reloaded?.suspendedUntil).toBeNull()
+    expect(reloaded?.suspensionReason).toBeNull()
+  })
+})
+
 describe('POST /auth/social — sessão (refresh token)', () => {
   it('retorna refreshToken (persistido como hash) junto do access token', async () => {
     mockedGoogle.mockResolvedValueOnce(

@@ -145,6 +145,83 @@ describe('POST /auth/login — reativação de conta', () => {
   })
 })
 
+describe('POST /auth/login — moderação (suspensão/banimento)', () => {
+  // O guard é checado DEPOIS da senha (só o dono sabe o motivo): os testes usam
+  // a senha correta de propósito, pra exercitar o branch de moderação — não o 401
+  // genérico de credencial inválida.
+  it('nega login de conta BANNED com 403', async () => {
+    const user = await makeUser({ accountStatus: 'BANNED' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json().message).toMatch(/banida/i)
+  })
+
+  it('nega login de conta SUSPENDED dentro da vigência com 403', async () => {
+    const user = await makeUser({
+      accountStatus: 'SUSPENDED',
+      suspendedAt: new Date(),
+      suspendedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      suspensionReason: 'Spam',
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json().message).toMatch(/suspensa/i)
+
+    // Suspensão vigente NÃO é curada: o estado no banco continua SUSPENDED.
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { accountStatus: true },
+    })
+    expect(reloaded?.accountStatus).toBe('SUSPENDED')
+  })
+
+  it('auto-cura suspensão vencida ao logar: volta para ACTIVE e emite token', async () => {
+    const user = await makeUser({
+      accountStatus: 'SUSPENDED',
+      suspendedAt: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000),
+      // Venceu há 1h: o login passa e dispara o auto-unblock.
+      suspendedUntil: new Date(Date.now() - 60 * 60 * 1000),
+      suspensionReason: 'Conduta inadequada',
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
+
+    // Mutação de estado no caminho de login: a suspensão vencida é zerada.
+    const reloaded = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: {
+        accountStatus: true,
+        suspendedAt: true,
+        suspendedUntil: true,
+        suspensionReason: true,
+      },
+    })
+    expect(reloaded?.accountStatus).toBe('ACTIVE')
+    expect(reloaded?.suspendedAt).toBeNull()
+    expect(reloaded?.suspendedUntil).toBeNull()
+    expect(reloaded?.suspensionReason).toBeNull()
+  })
+})
+
 describe('rate limit em POST /auth/login', () => {
   it('retorna 429 após 10 tentativas no mesmo minuto', async () => {
     const body = { email: 'naoexiste@test.com', password: 'qualquer' }

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { realtime } from '../../lib/realtime'
 import { buildApp } from '../../test/app'
 import {
   makeBlock,
@@ -9,6 +10,7 @@ import {
   makeUser,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
+import { runSpotRenewalReminders } from '../notifications/spot-lifecycle.reconciler'
 
 let app: FastifyInstance
 
@@ -530,6 +532,74 @@ describe('POST /spots/:id/renew (renovar)', () => {
       headers: auth(creator.id),
     })
     expect(res.statusCode).toBe(404)
+  })
+})
+
+// Ciclo completo ponta-a-ponta — a preocupação levantada: a notificação de
+// expiração realmente dispara, o usuário renova de fato pela rota, e o lembrete
+// re-arma para a nova janela (sem spam logo após renovar). Liga o reconciler de
+// lembrete (notifications) à ação de renovar (HTTP) num único fluxo.
+describe('ciclo de renovação: lembrete de expiração → renovar → re-arme', () => {
+  const LEAD = 60 * 60 * 1000 // 1h de antecedência
+
+  it('avisa a expiração, renova pela rota e volta a avisar só na nova janela', async () => {
+    // Entrega (WS) é best-effort; isola do Redis pub/sub pra não depender dele.
+    const publish = vi
+      .spyOn(realtime, 'publishNotification')
+      .mockResolvedValue(undefined)
+
+    try {
+      const creator = await makeUser()
+      // Spot vencendo em 30min — dentro do lead de 1h.
+      const spot = await makeSpot(creator.id, {
+        endsAt: new Date(Date.now() + 30 * 60 * 1000),
+      })
+      const endsBefore = spot.endsAt.getTime()
+
+      // 1) Lembrete dispara: cria a notificação SPOT_RENEWAL para o criador.
+      const first = await runSpotRenewalReminders(new Date(), LEAD)
+      expect(first.reminded).toBe(1)
+      const notif = await testPrisma.notification.findFirst({
+        where: { userId: creator.id, type: 'SPOT_RENEWAL', spotId: spot.id },
+      })
+      expect(notif).not.toBeNull()
+      expect(notif?.body).toContain(spot.title)
+      // O lembrete foi marcado (não re-notifica a mesma janela).
+      const armed = await testPrisma.spot.findUnique({ where: { id: spot.id } })
+      expect(armed?.renewalNotifiedAt).not.toBeNull()
+
+      // 2) O usuário decide renovar — ação real via HTTP.
+      const res = await app.inject({
+        method: 'POST',
+        url: `/spots/${spot.id}/renew`,
+        headers: auth(creator.id),
+      })
+      expect(res.statusCode).toBe(200)
+      const endsAfter = new Date(res.json().endsAt).getTime()
+      // Renovou de verdade: +24h no endsAt e lembrete re-armado.
+      expect(Math.round((endsAfter - endsBefore) / 3600_000)).toBe(24)
+      const reArmed = await testPrisma.spot.findUnique({
+        where: { id: spot.id },
+      })
+      expect(reArmed?.renewalNotifiedAt).toBeNull()
+
+      // 3) Logo após renovar o spot saiu da janela (vence em ~24h30) → sem spam.
+      const rightAfter = await runSpotRenewalReminders(new Date(), LEAD)
+      expect(rightAfter.reminded).toBe(0)
+
+      // 4) Já perto do novo vencimento → lembra DE NOVO. A chave de dedupe inclui
+      // o endsAt, então a renovação gera um lembrete fresco (não é suprimido).
+      const nextWindow = new Date(endsAfter - 30 * 60 * 1000)
+      const second = await runSpotRenewalReminders(nextWindow, LEAD)
+      expect(second.reminded).toBe(1)
+      expect(
+        await testPrisma.notification.count({
+          where: { type: 'SPOT_RENEWAL', spotId: spot.id },
+        }),
+      ).toBe(2)
+    } finally {
+      publish.mockRestore()
+    }
   })
 })
 

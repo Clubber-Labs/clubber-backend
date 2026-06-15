@@ -40,10 +40,19 @@ export async function makeUser(
     birthdate?: Date | null
     isPremium?: boolean
     role?: 'USER' | 'ADMIN'
-    accountStatus?: 'ACTIVE' | 'DEACTIVATED' | 'PENDING_DELETION' | 'ANONYMIZED'
+    accountStatus?:
+      | 'ACTIVE'
+      | 'DEACTIVATED'
+      | 'PENDING_DELETION'
+      | 'ANONYMIZED'
+      | 'SUSPENDED'
+      | 'BANNED'
     deactivatedAt?: Date | null
     scheduledDeletionAt?: Date | null
     anonymizedAt?: Date | null
+    suspendedAt?: Date | null
+    suspendedUntil?: Date | null
+    suspensionReason?: string | null
   } = {},
 ) {
   const id = uid()
@@ -72,6 +81,9 @@ export async function makeUser(
       deactivatedAt: overrides.deactivatedAt ?? null,
       scheduledDeletionAt: overrides.scheduledDeletionAt ?? null,
       anonymizedAt: overrides.anonymizedAt ?? null,
+      suspendedAt: overrides.suspendedAt ?? null,
+      suspendedUntil: overrides.suspendedUntil ?? null,
+      suspensionReason: overrides.suspensionReason ?? null,
     },
   })
 }
