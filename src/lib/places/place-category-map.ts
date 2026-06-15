@@ -30,13 +30,21 @@ for (const [t, c] of Object.entries(LEGACY_TYPE_TO_CATEGORY)) {
   if (!PLACE_TYPE_TO_CATEGORY.has(t)) PLACE_TYPE_TO_CATEGORY.set(t, c)
 }
 
-// Forward categoria -> tipos (união das subcategorias do pai), derivado.
+// Forward categoria -> tipos (união das subcategorias do pai), derivado. Sem
+// dedup: a partição garante que um tipo não se repete entre subcategorias do
+// mesmo pai (invariante coberta por teste) e o consumidor ainda usa Set.
 const CATEGORY_TO_PLACE_TYPES = new Map<EventCategory, string[]>()
 for (const s of SUBCATEGORIES) {
   const list = CATEGORY_TO_PLACE_TYPES.get(s.category) ?? []
-  for (const t of s.placeTypes) if (!list.includes(t)) list.push(t)
+  list.push(...s.placeTypes)
   CATEGORY_TO_PLACE_TYPES.set(s.category, list)
 }
+
+// Forward subcategoria -> tipos: constante de módulo (igual aos demais mapas),
+// evita reconstruir o Map a cada busca precisa (hot path dos próximos PRs).
+const SUBCATEGORY_TO_PLACE_TYPES = new Map(
+  SUBCATEGORIES.map((s) => [s.key, s.placeTypes]),
+)
 
 /** Tipos de Places (deduplicados) para as categorias pedidas. */
 export function placeTypesForCategories(categories: EventCategory[]): string[] {
@@ -49,10 +57,9 @@ export function placeTypesForCategories(categories: EventCategory[]): string[] {
 
 /** Tipos de Places (deduplicados) para as subcategorias pedidas (busca precisa). */
 export function placeTypesForSubcategories(keys: string[]): string[] {
-  const bySub = new Map(SUBCATEGORIES.map((s) => [s.key, s.placeTypes]))
   const types = new Set<string>()
   for (const k of keys) {
-    for (const t of bySub.get(k) ?? []) types.add(t)
+    for (const t of SUBCATEGORY_TO_PLACE_TYPES.get(k) ?? []) types.add(t)
   }
   return [...types]
 }

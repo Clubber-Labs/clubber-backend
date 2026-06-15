@@ -125,17 +125,17 @@ export const SUBCATEGORIES: Subcategory[] = [
 
   // HEALTH_WELLNESS
   {
-    key: 'WELLNESS_SPA',
+    key: 'HEALTH_WELLNESS_SPA',
     category: 'HEALTH_WELLNESS',
     placeTypes: ['spa', 'sauna', 'massage'],
   },
   {
-    key: 'WELLNESS_YOGA',
+    key: 'HEALTH_WELLNESS_YOGA',
     category: 'HEALTH_WELLNESS',
     placeTypes: ['yoga_studio', 'wellness_center'],
   },
   {
-    key: 'WELLNESS_BELEZA',
+    key: 'HEALTH_WELLNESS_BELEZA',
     category: 'HEALTH_WELLNESS',
     placeTypes: ['beauty_salon'],
   },
@@ -280,9 +280,9 @@ const SUBCATEGORY_LABELS: Record<string, Record<string, string>> = {
     SPORTS_GOLFE: 'Golfe',
     SPORTS_RADICAIS: 'Esportes radicais',
     SPORTS_PATINACAO: 'Patinação',
-    WELLNESS_SPA: 'Spa e massagem',
-    WELLNESS_YOGA: 'Yoga e bem-estar',
-    WELLNESS_BELEZA: 'Beleza',
+    HEALTH_WELLNESS_SPA: 'Spa e massagem',
+    HEALTH_WELLNESS_YOGA: 'Yoga e bem-estar',
+    HEALTH_WELLNESS_BELEZA: 'Beleza',
     ART_MUSEU: 'Museu',
     ART_GALERIA: 'Galeria e ateliê',
     ART_CULTURAL: 'Centro cultural',

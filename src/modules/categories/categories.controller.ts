@@ -7,6 +7,5 @@ export async function getCategories(
   reply: FastifyReply,
 ) {
   const locale = resolveLocale(request.headers['accept-language'])
-  // Duas camadas: cada categoria leva suas subcategorias aninhadas (rotuladas).
   return reply.send({ locale, data: listCategoriesWithSubcategories(locale) })
 }
