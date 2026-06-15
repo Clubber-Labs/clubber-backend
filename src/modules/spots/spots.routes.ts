@@ -5,6 +5,7 @@ import {
   getSpotById,
   getSpots,
   patchSpot,
+  patchSpotPrefs,
   postJoinSpot,
   postRenewSpot,
   postSpot,
@@ -15,6 +16,7 @@ import {
   listSpotsQuerySchema,
   spotParamSchema,
   suggestionsSchema,
+  updateSpotPrefsSchema,
   updateSpotSchema,
 } from './spots.schema'
 
@@ -30,6 +32,14 @@ export async function spotsRoutes(app: FastifyInstance) {
     '/spots/suggestions',
     { schema: { body: suggestionsSchema }, onRequest: [app.authenticate] },
     postSuggestions,
+  )
+
+  // Configura o raio salvo (km) da recomendação de spots. Espelha
+  // PATCH /users/me/notification-prefs.
+  app.patch(
+    '/users/me/spot-prefs',
+    { schema: { body: updateSpotPrefsSchema }, onRequest: [app.authenticate] },
+    patchSpotPrefs,
   )
 
   // "Meus spots": os spots ativos do próprio usuário (editar/cancelar/renovar).

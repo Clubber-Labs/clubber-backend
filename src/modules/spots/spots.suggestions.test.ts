@@ -14,6 +14,26 @@ function auth(userId: string) {
 
 const POINT = { latitude: -25.4, longitude: -49.3 }
 
+/** Candidato base para roteirizar o override do fakePlaces nos testes de cap. */
+function baseCandidate(
+  p: { latitude: number; longitude: number },
+  placeId: string,
+) {
+  return {
+    placeId,
+    name: placeId,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    category: 'PARTY' as const,
+    address: null,
+    rating: null,
+    userRatingCount: null,
+    priceLevel: null,
+    openNow: null,
+    distanceMeters: 0,
+  }
+}
+
 function suggest(userId: string, point = POINT) {
   return app.inject({
     method: 'POST',
@@ -134,11 +154,214 @@ describe('POST /spots/suggestions', () => {
     expect(usage).toHaveLength(0)
   })
 
+  it('usa o raio salvo do usuário (spotRadiusKm) como default', async () => {
+    const user = await makeUser({ spotRadiusKm: 30 })
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    await suggest(user.id)
+
+    expect(fakePlaces.lastNearby?.radiusMeters).toBe(30000)
+    expect(fakePlaces.lastNearby?.limit).toBe(20)
+  })
+
+  it('o radiusKm do request sobrescreve o raio salvo', async () => {
+    const user = await makeUser({ spotRadiusKm: 10 })
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 40 },
+    })
+
+    expect(fakePlaces.lastNearby?.radiusMeters).toBe(40000)
+  })
+
+  it('rejeita radiusKm acima do teto (400)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 9999 },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(fakePlaces.calls).toBe(0)
+  })
+
+  it('texto livre usa Text Search e funciona SEM preferências de perfil', async () => {
+    const user = await makeUser() // sem nenhuma preferência
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, query: 'bar com música ao vivo' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    // Roteou para a busca por texto, não a por categoria.
+    expect(fakePlaces.lastText?.textQuery).toBe('bar com música ao vivo')
+    expect(fakePlaces.lastNearby).toBeNull()
+    expect(res.json().suggestions.length).toBeGreaterThan(0)
+  })
+
+  it('texto livre ignora o perfil (não chama a busca por categoria)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, query: 'exposição de arte' },
+    })
+
+    expect(fakePlaces.lastText?.textQuery).toBe('exposição de arte')
+    expect(fakePlaces.lastNearby).toBeNull()
+  })
+
+  it('descarta candidatos além do teto de distância do alcance', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    // raio 5km → teto 10km. Um candidato a ~12km deve cair fora.
+    fakePlaces.override = (p) => [
+      { ...baseCandidate(p, 'perto'), distanceMeters: 3000 },
+      { ...baseCandidate(p, 'longe'), distanceMeters: 12000 },
+    ]
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5 },
+    })
+
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('perto')
+    expect(ids).not.toContain('longe')
+  })
+
+  it('limita a quantidade de sugestões devolvidas (cap)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    fakePlaces.override = (p) =>
+      Array.from({ length: 12 }, (_, i) => ({
+        ...baseCandidate(p, `c${i}`),
+        distanceMeters: 100,
+      }))
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: POINT,
+    })
+
+    expect(res.json().suggestions.length).toBeLessThanOrEqual(8)
+  })
+
+  it('raio amplo compartilha cache entre pontos próximos', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    // ~3km de diferença: dentro da mesma célula grossa do raio amplo → cache hit.
+    const near = {
+      latitude: POINT.latitude + 0.027,
+      longitude: POINT.longitude,
+    }
+
+    await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 40 },
+    })
+    await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...near, radiusKm: 40 },
+    })
+
+    expect(fakePlaces.calls).toBe(1)
+  })
+
+  it('raio estreito não compartilha cache entre os mesmos pontos', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    const near = {
+      latitude: POINT.latitude + 0.027,
+      longitude: POINT.longitude,
+    }
+
+    await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 4 },
+    })
+    await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...near, radiusKm: 4 },
+    })
+
+    expect(fakePlaces.calls).toBe(2)
+  })
+
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({
       method: 'POST',
       url: '/spots/suggestions',
       body: POINT,
+    })
+    expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('PATCH /users/me/spot-prefs', () => {
+  it('salva o raio de recomendação de spots do usuário', async () => {
+    const user = await makeUser({ spotRadiusKm: 10 })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/users/me/spot-prefs',
+      headers: auth(user.id),
+      body: { spotRadiusKm: 25 },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ spotRadiusKm: 25 })
+
+    const saved = await testPrisma.user.findUnique({ where: { id: user.id } })
+    expect(saved?.spotRadiusKm).toBe(25)
+  })
+
+  it('rejeita raio acima do teto (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/users/me/spot-prefs',
+      headers: auth(user.id),
+      body: { spotRadiusKm: 9999 },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/users/me/spot-prefs',
+      body: { spotRadiusKm: 20 },
     })
     expect(res.statusCode).toBe(401)
   })
