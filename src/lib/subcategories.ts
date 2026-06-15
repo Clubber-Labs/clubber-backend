@@ -5,6 +5,7 @@ import {
   type EventCategory,
   listCategories,
 } from './event-categories'
+import { GENRE_KEYS, listGenres } from './genres'
 
 /**
  * Taxonomia de SUBCATEGORIAS — segundo nível abaixo de EventCategory, para
@@ -319,6 +320,13 @@ export const subcategorySchema = z.enum(
   SUBCATEGORY_KEYS as [string, ...string[]],
 )
 
+// "Interesse" do 2º nível = subcategoria de venue OU gênero musical. Unifica o
+// armazenamento/validação (mesma tabela e campo preferredSubcategories); a
+// distinção é só de apresentação (/categories) e de Places (gênero não estreita).
+export const INTEREST_KEYS = [...SUBCATEGORY_KEYS, ...GENRE_KEYS]
+
+export const interestSchema = z.enum(INTEREST_KEYS as [string, ...string[]])
+
 /** Subcategorias agrupadas pelo pai (categoria com nenhuma subcategoria → []). */
 export const subcategoriesByCategory = SUBCATEGORIES.reduce<
   Partial<Record<EventCategory, Subcategory[]>>
@@ -357,4 +365,18 @@ export function listCategoriesWithSubcategories(
       label: labels[s.key] ?? s.key,
     })),
   }))
+}
+
+/**
+ * Rótulos (locale) das chaves de interesse — subcategoria de venue OU gênero.
+ * Usado para passar à IA texto humano em vez das chaves cruas.
+ */
+export function interestLabels(
+  keys: string[],
+  locale: string = DEFAULT_LOCALE,
+): string[] {
+  const subLabels =
+    SUBCATEGORY_LABELS[locale] ?? SUBCATEGORY_LABELS[DEFAULT_LOCALE]
+  const genres = new Map(listGenres(locale).map((g) => [g.value, g.label]))
+  return keys.map((k) => subLabels[k] ?? genres.get(k) ?? k)
 }

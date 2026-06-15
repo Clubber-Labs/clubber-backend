@@ -7,6 +7,8 @@ export type PlaceCandidate = {
   latitude: number
   longitude: number
   category: EventCategory
+  /** Subcategoria de venue inferida dos tipos (palpite, null se nenhum). */
+  subcategory: string | null
   address: string | null
   // Sinais de qualidade/relevância para o ranqueamento da IA. `null` quando o
   // Places não traz o dado; `distanceMeters` é sempre calculado do ponto da busca.
@@ -22,6 +24,11 @@ export type SearchNearbyParams = {
   longitude: number
   /** Categorias de interesse (preferências do usuário) → tipos do Places. */
   categories: EventCategory[]
+  /**
+   * Tipos do Places já resolvidos pelo caller (busca precisa por subcategoria).
+   * Quando presente, têm prioridade sobre os derivados de `categories`.
+   */
+  includedTypes?: string[]
   radiusMeters?: number
   limit?: number
 }

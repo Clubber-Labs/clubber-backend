@@ -2,7 +2,11 @@ import { cache } from '../../lib/cache'
 import { env } from '../../lib/env'
 import type { EventCategory } from '../../lib/event-categories'
 import { getPlacesClient } from '../../lib/places'
-import { placeTypesForCategories } from '../../lib/places/place-category-map'
+import {
+  placeTypesForCategories,
+  placeTypesForSubcategories,
+} from '../../lib/places/place-category-map'
+import { interestLabels, parentCategoryOf } from '../../lib/subcategories'
 import {
   type EnhancedCandidate,
   getSuggestionEnhancer,
@@ -13,13 +17,17 @@ import {
   findActiveParticipant,
   reactivateParticipant,
 } from '../chat/chat.repository'
-import { findUserPreferredCategories } from '../feed/feed.repository'
 import { areMutualFollowers } from '../follows/follows.repository'
 import {
   enqueueSpotJoined,
   enqueueSpotPublished,
 } from '../notifications/notification-queue'
-import { findSpotRadius, updateSpotRadius } from '../users/users.repository'
+import {
+  findSpotRadius,
+  findUserPreferredCategories,
+  findUserPreferredSubcategories,
+  updateSpotRadius,
+} from '../users/users.repository'
 import {
   cancelSpotById,
   consumeGenerationQuota,
@@ -308,6 +316,8 @@ export async function generateSuggestions(
   // Sem intenção em texto, a busca depende das preferências de perfil. Com
   // intenção, o texto basta — perfil é ignorado (decisão de produto).
   let sortedCats: EventCategory[] = []
+  let sortedSubcats: string[] = []
+  let includedTypes: string[] = []
   if (!intent) {
     const categories = await findUserPreferredCategories(userId)
     if (categories.length === 0) {
@@ -317,9 +327,26 @@ export async function generateSuggestions(
         code: 'SPOT_NO_PREFERENCES',
       }
     }
+    const subcats = await findUserPreferredSubcategories(userId)
+    // Busca PRECISA: as subcategorias de venue escolhidas estreitam os tipos;
+    // categorias sem subcategoria escolhida usam os tipos do nível. Gêneros não
+    // têm tipo do Places, então não estreitam (entram só no ranqueamento da IA).
+    const catsWithVenueSub = new Set(
+      subcats
+        .map(parentCategoryOf)
+        .filter((c): c is EventCategory => c !== undefined),
+    )
+    includedTypes = [
+      ...new Set([
+        ...placeTypesForSubcategories(subcats),
+        ...placeTypesForCategories(
+          categories.filter((c) => !catsWithVenueSub.has(c)),
+        ),
+      ]),
+    ]
     // Nenhuma preferência mapeia para tipo do Places (ex.: só TECH/BUSINESS):
     // a busca devolveria locais aleatórios. Barra ANTES de consumir quota.
-    if (placeTypesForCategories(categories).length === 0) {
+    if (includedTypes.length === 0) {
       throw {
         statusCode: 400,
         message: 'Suas preferências de rolê ainda não têm sugestões de locais',
@@ -327,6 +354,7 @@ export async function generateSuggestions(
       }
     }
     sortedCats = [...categories].sort()
+    sortedSubcats = [...subcats].sort()
   }
 
   const isPremium = await getUserPremiumStatus(userId)
@@ -348,7 +376,9 @@ export async function generateSuggestions(
     gridCell(body.latitude, radiusKm),
     gridCell(body.longitude, radiusKm),
     `r:${radiusKm}`,
-    intent ? `q:${intent.toLowerCase()}` : sortedCats.join(','),
+    intent
+      ? `q:${intent.toLowerCase()}`
+      : `${sortedCats.join(',')}|s:${sortedSubcats.join(',')}`,
   )
   // Busca ANTES de consumir: se o Places/IA falhar, a quota não é gasta. Cache
   // hit também passa por aqui e consome — decisão de produto. Places E IA rodam
@@ -367,6 +397,7 @@ export async function generateSuggestions(
           latitude: body.latitude,
           longitude: body.longitude,
           categories: sortedCats,
+          includedTypes,
           radiusMeters,
           limit: SEARCH_LIMIT,
         })
@@ -376,6 +407,11 @@ export async function generateSuggestions(
     )
     const enhanced = await getSuggestionEnhancer().enhance(within, {
       preferredCategories: sortedCats,
+      // Interesses finos (subcategorias + gêneros) em rótulo pt-BR — sinal extra
+      // de relevância para a IA (gênero não veio do Places, mas refina o gosto).
+      ...(sortedSubcats.length > 0 && {
+        preferredSubcategories: interestLabels(sortedSubcats),
+      }),
       ...(intent && { intent }),
     })
     // Cap de itens: devolve só as melhores (já ranqueadas pela IA).

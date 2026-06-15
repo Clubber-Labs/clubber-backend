@@ -3,6 +3,7 @@ import { placesSearchTotal } from '../metrics'
 import {
   categoryForPlaceTypes,
   placeTypesForCategories,
+  subcategoryForPlaceTypes,
 } from './place-category-map'
 import type {
   IPlacesClient,
@@ -53,7 +54,10 @@ export class GooglePlacesService implements IPlacesClient {
   constructor(private readonly apiKey: string) {}
 
   async searchNearby(params: SearchNearbyParams): Promise<PlaceCandidate[]> {
-    const includedTypes = placeTypesForCategories(params.categories)
+    // Tipos precisos resolvidos pelo caller (subcategoria) têm prioridade; senão
+    // deriva das categorias.
+    const includedTypes =
+      params.includedTypes ?? placeTypesForCategories(params.categories)
     const body = {
       ...(includedTypes.length > 0 && { includedTypes }),
       maxResultCount: params.limit ?? DEFAULT_LIMIT,
@@ -148,6 +152,7 @@ export class GooglePlacesService implements IPlacesClient {
       latitude: p.location.latitude,
       longitude: p.location.longitude,
       category: categoryForPlaceTypes(p.types ?? []),
+      subcategory: subcategoryForPlaceTypes(p.types ?? []),
       address: p.formattedAddress ?? null,
       rating: p.rating ?? null,
       userRatingCount: p.userRatingCount ?? null,

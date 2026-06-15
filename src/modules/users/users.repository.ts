@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import {
   activeUserWhere,
   DELETED_DISPLAY_LASTNAME,
@@ -7,6 +7,9 @@ import {
 import type { EventCategory } from '../../lib/event-categories'
 import { prisma } from '../../lib/prisma'
 import type { CreateUserBody } from './users.schema'
+
+// Teto de categorias preferidas retornadas (explícitas + inferidas do histórico).
+const PREFERRED_CATEGORIES_LIMIT = 3
 
 const userPublicListSelect = {
   id: true,
@@ -24,6 +27,7 @@ const userPublicListSelect = {
 const userPublicProfileSelect = {
   ...userPublicListSelect,
   categoryPreferences: { select: { category: true } },
+  subcategoryPreferences: { select: { subcategory: true } },
 } as const
 
 const userPrivateProfileSelect = {
@@ -131,7 +135,7 @@ export async function findUserByUsername(username: string) {
 export async function createUser(
   data: Omit<CreateUserBody, 'password'> & { password: string | null },
 ) {
-  const { preferredCategories, ...userData } = data
+  const { preferredCategories, preferredSubcategories, ...userData } = data
   return prisma.user.create({
     data: {
       ...userData,
@@ -139,6 +143,15 @@ export async function createUser(
         ? {
             categoryPreferences: {
               create: preferredCategories.map((category) => ({ category })),
+            },
+          }
+        : {}),
+      ...(preferredSubcategories && preferredSubcategories.length > 0
+        ? {
+            subcategoryPreferences: {
+              create: preferredSubcategories.map((subcategory) => ({
+                subcategory,
+              })),
             },
           }
         : {}),
@@ -228,27 +241,41 @@ export async function clearStaleUserLocations(cutoff: Date) {
 }
 
 /**
- * Atualiza o usuário e substitui suas preferências de categoria numa única
- * transação (semântica PUT: a lista enviada vira o estado completo).
+ * Atualiza o usuário e substitui suas preferências (categoria e/ou subcategoria)
+ * numa única transação. Semântica PUT: cada lista enviada vira o estado completo
+ * daquele nível; nível ausente (undefined) é preservado. Transação interativa: o
+ * update do usuário roda por ÚLTIMO, então seu select já lê o estado substituído
+ * (read-after-write), e o tipo de retorno é preservado sem cast.
  */
 export async function updateUserWithPreferences(
   id: string,
   data: Prisma.UserUpdateInput,
-  categories: EventCategory[],
+  prefs: { categories?: EventCategory[]; subcategories?: string[] },
 ) {
-  const [, , user] = await prisma.$transaction([
-    prisma.userCategoryPreference.deleteMany({ where: { userId: id } }),
-    prisma.userCategoryPreference.createMany({
-      data: categories.map((category) => ({ userId: id, category })),
-      skipDuplicates: true,
-    }),
-    prisma.user.update({
+  return prisma.$transaction(async (tx) => {
+    if (prefs.categories !== undefined) {
+      await tx.userCategoryPreference.deleteMany({ where: { userId: id } })
+      await tx.userCategoryPreference.createMany({
+        data: prefs.categories.map((category) => ({ userId: id, category })),
+        skipDuplicates: true,
+      })
+    }
+    if (prefs.subcategories !== undefined) {
+      await tx.userSubcategoryPreference.deleteMany({ where: { userId: id } })
+      await tx.userSubcategoryPreference.createMany({
+        data: prefs.subcategories.map((subcategory) => ({
+          userId: id,
+          subcategory,
+        })),
+        skipDuplicates: true,
+      })
+    }
+    return tx.user.update({
       where: { id },
       data,
       select: userPrivateProfileSelect,
-    }),
-  ])
-  return user
+    })
+  })
 }
 
 /**
@@ -582,4 +609,63 @@ export async function anonymizeUserTx(
     }
     return true
   })
+}
+
+/**
+ * Categorias preferidas do usuário: as EXPLÍCITAS (escolhidas no perfil) têm
+ * prioridade; quando há menos que o limite, completa com as inferidas do
+ * histórico (eventos criados ou com presença), sem repetir.
+ */
+export async function findUserPreferredCategories(
+  userId: string,
+): Promise<EventCategory[]> {
+  const explicit = await prisma.userCategoryPreference.findMany({
+    where: { userId },
+    select: { category: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  const result: EventCategory[] = explicit.map((p) => p.category)
+  if (result.length >= PREFERRED_CATEGORIES_LIMIT) {
+    return result.slice(0, PREFERRED_CATEGORIES_LIMIT)
+  }
+
+  // Evento tem N categorias: unnest expande cada uma numa linha, então um
+  // evento de 2 categorias conta para as duas no ranking do histórico.
+  const rows = await prisma.$queryRaw<{ category: EventCategory }[]>(
+    Prisma.sql`
+      SELECT cat AS category
+      FROM events e
+      LEFT JOIN event_attendances a
+        ON a."eventId" = e.id
+        AND a."userId" = ${userId}
+        AND a.type IN ('CONFIRMED', 'INTERESTED')
+      CROSS JOIN LATERAL unnest(e.categories) AS cat
+      WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
+      GROUP BY cat
+      ORDER BY COUNT(*) DESC, cat ASC
+    `,
+  )
+
+  for (const row of rows) {
+    if (result.length >= PREFERRED_CATEGORIES_LIMIT) break
+    if (!result.includes(row.category)) result.push(row.category)
+  }
+
+  return result
+}
+
+/**
+ * Interesses do 2º nível salvos pelo usuário (subcategorias de venue + gêneros).
+ * Explícito-only (v1): sem inferência por histórico — eventos legados não têm
+ * subcategoria. Ordenado por afinidade (createdAt).
+ */
+export async function findUserPreferredSubcategories(
+  userId: string,
+): Promise<string[]> {
+  const rows = await prisma.userSubcategoryPreference.findMany({
+    where: { userId },
+    select: { subcategory: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  return rows.map((r) => r.subcategory)
 }

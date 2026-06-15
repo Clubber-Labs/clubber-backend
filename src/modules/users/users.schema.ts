@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { selectableCategorySchema } from '../../lib/event-categories'
+import { interestSchema } from '../../lib/subcategories'
 
 export const createUserSchema = z.object({
   name: z
@@ -30,6 +31,9 @@ export const createUserSchema = z.object({
   isPrivate: z.boolean().default(false),
   birthdate: z.coerce.date(),
   preferredCategories: z.array(selectableCategorySchema).max(10).optional(),
+  // Interesses do 2º nível (subcategorias de venue + gêneros) — refinam o perfil.
+  // Uma subcategoria implica seu pai no matching; não exige a categoria também.
+  preferredSubcategories: z.array(interestSchema).max(30).optional(),
 })
 
 export type CreateUserBody = z.infer<typeof createUserSchema>

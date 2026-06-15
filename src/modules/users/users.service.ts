@@ -47,12 +47,18 @@ type Logger = { error: (msg: string) => void }
  * `preferredCategories: string[]` para a resposta da API.
  */
 function withPreferredCategories<
-  T extends { categoryPreferences?: { category: string }[] },
+  T extends {
+    categoryPreferences?: { category: string }[]
+    subcategoryPreferences?: { subcategory: string }[]
+  },
 >(user: T) {
-  const { categoryPreferences, ...rest } = user
+  const { categoryPreferences, subcategoryPreferences, ...rest } = user
   return {
     ...rest,
     preferredCategories: (categoryPreferences ?? []).map((p) => p.category),
+    preferredSubcategories: (subcategoryPreferences ?? []).map(
+      (p) => p.subcategory,
+    ),
   }
 }
 
@@ -182,10 +188,13 @@ export async function editUser(id: string, data: UpdateUserBody) {
     }
   }
 
-  const { preferredCategories, ...rest } = data
+  const { preferredCategories, preferredSubcategories, ...rest } = data
   const updated =
-    preferredCategories !== undefined
-      ? await updateUserWithPreferences(id, rest, preferredCategories)
+    preferredCategories !== undefined || preferredSubcategories !== undefined
+      ? await updateUserWithPreferences(id, rest, {
+          categories: preferredCategories,
+          subcategories: preferredSubcategories,
+        })
       : await updateUser(id, rest)
   return withPreferredCategories(updated)
 }

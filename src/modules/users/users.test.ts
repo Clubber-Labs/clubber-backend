@@ -1,7 +1,13 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeEvent, makeFollow, makeUser } from '../../test/factories'
+import {
+  makeEvent,
+  makeFollow,
+  makeUser,
+  makeUserCategoryPreference,
+  makeUserSubcategoryPreference,
+} from '../../test/factories'
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
@@ -471,6 +477,111 @@ describe('preferredCategories no perfil', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().preferredCategories).toEqual(['MUSIC'])
+  })
+})
+
+describe('preferredSubcategories no perfil', () => {
+  it('POST /users persiste subcategorias e gêneros, reflete em GET /users/me', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Bianca',
+        lastname: 'Costa',
+        username: 'biancacosta',
+        phone: '11955554444',
+        email: 'bianca@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredSubcategories: ['GASTRONOMY_JAPONESA', 'GENRE_FUNK'],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const { user, token: jwt } = res.json()
+    expect(user.preferredSubcategories).toEqual(
+      expect.arrayContaining(['GASTRONOMY_JAPONESA', 'GENRE_FUNK']),
+    )
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${jwt}` },
+    })
+    expect(me.json().preferredSubcategories).toEqual(
+      expect.arrayContaining(['GASTRONOMY_JAPONESA', 'GENRE_FUNK']),
+    )
+  })
+
+  it('POST /users com chave de interesse inválida retorna 400', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Carlos',
+        lastname: 'Dias',
+        username: 'carlosdias',
+        phone: '11944443333',
+        email: 'carlos@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredSubcategories: ['NAO_EXISTE'],
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('PUT substitui subcategorias sem mexer nas categorias (independência)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'GASTRONOMY')
+    await makeUserSubcategoryPreference(user.id, 'GASTRONOMY_PIZZA')
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { preferredSubcategories: ['GASTRONOMY_JAPONESA'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredSubcategories).toEqual(['GASTRONOMY_JAPONESA'])
+    // Categorias preservadas (PUT só tocou o nível enviado).
+    expect(res.json().preferredCategories).toEqual(['GASTRONOMY'])
+  })
+
+  it('GET /users/:id expõe as subcategorias de terceiros', async () => {
+    const owner = await makeUser()
+    await makeUserSubcategoryPreference(owner.id, 'GASTRONOMY_PIZZA')
+    const viewer = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredSubcategories).toContain('GASTRONOMY_PIZZA')
+  })
+
+  it('PUT com array vazio limpa as subcategorias', async () => {
+    const user = await makeUser()
+    await makeUserSubcategoryPreference(user.id, 'GENRE_ROCK')
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { preferredSubcategories: [] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().preferredSubcategories).toEqual([])
+    const count = await testPrisma.userSubcategoryPreference.count({
+      where: { userId: user.id },
+    })
+    expect(count).toBe(0)
   })
 })
 

@@ -364,6 +364,15 @@ export async function makeUserCategoryPreference(
   })
 }
 
+export async function makeUserSubcategoryPreference(
+  userId: string,
+  subcategory: string,
+) {
+  return testPrisma.userSubcategoryPreference.create({
+    data: { userId, subcategory },
+  })
+}
+
 /** Pré-popula o cap de descoberta do dia (CURRENT_DATE) — para testar o teto. */
 export async function makeSpotDiscoveryUsage(userId: string, count: number) {
   return testPrisma.$executeRaw`

@@ -15,6 +15,11 @@ export type EnhanceContext = {
    * presente, é o sinal dominante de ranqueamento — as preferências são ignoradas.
    */
   intent?: string
+  /**
+   * Interesses finos em rótulo (subcategorias de venue + gêneros musicais) —
+   * sinal extra de relevância, mais específico que a categoria.
+   */
+  preferredSubcategories?: string[]
 }
 
 /**
