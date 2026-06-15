@@ -361,7 +361,7 @@ model Follow {
 }
 
 model Event {
-  id          String        @id @default(uuid())
+  id          String          @id @default(uuid())
   title       String
   description String?
   date        DateTime
@@ -373,8 +373,8 @@ model Event {
   isPublic    Boolean         @default(true)
   isFeatured  Boolean         @default(false)
   maxCapacity Int?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
   canceledAt  DateTime?
 
   authorId String
@@ -385,14 +385,14 @@ model Event {
   seriesId String?
   series   EventSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
-  attendances EventAttendance[]
-  posts       Post[]
-  comments    Comment[]
-  reactions   Reaction[]
-  invites     EventInvite[]
-  reports     Report[]
-  images      EventImage[]
-  features    FeaturedEvent[]
+  attendances      EventAttendance[]
+  posts            Post[]
+  comments         Comment[]
+  reactions        Reaction[]
+  invites          EventInvite[]
+  reports          Report[]
+  images           EventImage[]
+  features         FeaturedEvent[]
   analyticsMetrics EventAnalyticsMetric[]
 
   // Único: uma ocorrência por (série, data). Torna a reposição idempotente e
@@ -491,16 +491,18 @@ model EventAttendance {
 }
 
 model Post {
-  id        String     @id @default(uuid())
+  id        String      @id @default(uuid())
   content   String
   authorId  String
   eventId   String
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  author    User       @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  event     Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   comments  Comment[]
   reactions Reaction[]
+  images    PostImage[]
+  reports   Report[]
 
   @@index([eventId, createdAt])
   @@map("posts")
@@ -611,16 +613,21 @@ model Report {
   messageId String?
   message   Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
+  postId String?
+  post   Post?   @relation(fields: [postId], references: [id], onDelete: SetNull)
+
   reviewerId String?
   reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
   @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
   @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
   @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
+  @@unique([reporterId, postId, status], map: "reports_reporter_post_status_unique")
   @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
   @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
+  @@index([reporterId, postId, status], map: "reports_reporter_post_status_idx")
   @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
   @@index([reviewerId], map: "reports_reviewer_idx")
   @@index([status, createdAt, id], map: "reports_status_created_at_id_idx")
@@ -640,6 +647,21 @@ model EventImage {
 
   @@index([eventId, order])
   @@map("event_images")
+}
+
+model PostImage {
+  id        String   @id @default(uuid())
+  url       String
+  key       String
+  format    String
+  size      Int
+  order     Int      @default(0)
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([postId, order])
+  @@map("post_images")
 }
 
 model FeaturedEvent {
@@ -668,28 +690,28 @@ enum SubscriptionStatus {
 }
 
 model Subscription {
-  id                   String             @id @default(uuid())
-  userId               String
-  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  stripeSubscriptionId String             @unique
-  stripePriceId        String
-  status               SubscriptionStatus
-  trialEndsAt          DateTime?
-  currentPeriodStart   DateTime
-  currentPeriodEnd     DateTime
-  cancelAtPeriodEnd    Boolean            @default(false)
-  canceledAt           DateTime?
+  id                     String             @id @default(uuid())
+  userId                 String
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  stripeSubscriptionId   String             @unique
+  stripePriceId          String
+  status                 SubscriptionStatus
+  trialEndsAt            DateTime?
+  currentPeriodStart     DateTime
+  currentPeriodEnd       DateTime
+  cancelAtPeriodEnd      Boolean            @default(false)
+  canceledAt             DateTime?
   // Método de pagamento (id do PaymentMethod no Stripe). Null = sem cartão. Um
   // trial criado pelo PaymentSheet nasce sem cartão; só vira premium quando o
   // SetupIntent conclui e grava o método aqui. "Sticky": eventos posteriores
   // sem o campo não zeram (ver upsertSubscriptionTx).
   defaultPaymentMethodId String?
-  startedAt            DateTime           @default(now())
+  startedAt              DateTime           @default(now())
   // Timestamp do último evento Stripe aplicado. Comparado com event.created
   // pra descartar eventos fora de ordem (Stripe não garante ordering).
-  lastSyncedAt         DateTime           @default(now())
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
+  lastSyncedAt           DateTime           @default(now())
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
 
   // userId NÃO é @unique: user pode ter histórico (canceladas + nova ativa).
   // Query "ativa": WHERE userId AND status IN (TRIALING, ACTIVE, PAST_DUE).
@@ -885,22 +907,22 @@ enum SpotVisibility {
 // A coluna `location` geography é GERADA via SQL cru, fora do schema — igual a
 // events.location (ver migration).
 model Spot {
-  id          String          @id @default(uuid())
-  title       String
-  description String?
-  categories  EventCategory[]
-  visibility  SpotVisibility  @default(PUBLIC)
-  placeId     String
-  latitude    Float
-  longitude   Float
-  startsAt    DateTime
-  endsAt      DateTime
-  canceledAt  DateTime?
+  id                String          @id @default(uuid())
+  title             String
+  description       String?
+  categories        EventCategory[]
+  visibility        SpotVisibility  @default(PUBLIC)
+  placeId           String
+  latitude          Float
+  longitude         Float
+  startsAt          DateTime
+  endsAt            DateTime
+  canceledAt        DateTime?
   // Marcado quando o lembrete de renovação é enviado; zerado ao renovar
   // (re-arma o lembrete para a nova janela). NULL = ainda não lembrado.
   renewalNotifiedAt DateTime?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   creatorId String
   creator   User   @relation("spotsCreated", fields: [creatorId], references: [id])

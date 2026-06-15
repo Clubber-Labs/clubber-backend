@@ -9,6 +9,7 @@ import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import { findEventIdsByDistance, type LatLng } from '../../lib/spatial'
 import { buildCommentInclude } from '../comments/comments.repository'
+import { findTopAttendancesByEvent } from '../events/events.repository'
 import type { FeedQuery } from './feed.schema'
 
 const PREFERRED_CATEGORIES_LIMIT = 3
@@ -54,7 +55,7 @@ function resolveReason(
   followingIds: string[],
   userAttendance: string | null,
   userLiked: boolean,
-  friendAttendances: { userId: string; type: string; user: FeedUser }[],
+  friendAttendances: { type: string; user: FeedUser }[],
   friendReactionsByEvent: Map<string, FriendReactionRow>,
   friendCommentsByEvent: Map<string, FriendCommentRow>,
 ): FeedReason {
@@ -271,16 +272,6 @@ export async function hydrateEvents(
     where: { id: { in: eventIds } },
     include: {
       author: { select: authorSelect },
-      attendances: {
-        where: {
-          userId: { in: followingIds },
-          type: { in: POSITIVE_ATTENDANCE },
-          user: activeUserWhere(),
-        },
-        include: { user: { select: authorSelect } },
-        orderBy: { createdAt: 'desc' as const },
-        take: 3,
-      },
       reactions: {
         where: { userId: viewerId },
         select: { id: true },
@@ -314,52 +305,59 @@ export async function hydrateEvents(
 
   if (events.length === 0) return []
 
-  const [viewerAttendances, friendReactions, friendComments] =
-    await Promise.all([
-      prisma.eventAttendance.findMany({
-        where: { eventId: { in: eventIds }, userId: viewerId },
-        select: { eventId: true, type: true },
-      }),
-      followingIds.length > 0
-        ? prisma.reaction.findMany({
-            where: {
-              eventId: { in: eventIds },
-              userId: { in: followingIds },
-              user: activeUserWhere(),
-            },
-            select: {
-              eventId: true,
-              userId: true,
-              user: { select: authorSelect },
-            },
-            orderBy: [
-              { eventId: 'asc' as const },
-              { createdAt: 'desc' as const },
-            ],
-            distinct: ['eventId'],
-          })
-        : Promise.resolve([]),
-      followingIds.length > 0
-        ? prisma.comment.findMany({
-            where: {
-              eventId: { in: eventIds },
-              authorId: { in: followingIds },
-              author: activeUserWhere(),
-            },
-            select: {
-              eventId: true,
-              authorId: true,
-              content: true,
-              author: { select: authorSelect },
-            },
-            orderBy: [
-              { eventId: 'asc' as const },
-              { createdAt: 'desc' as const },
-            ],
-            distinct: ['eventId'],
-          })
-        : Promise.resolve([]),
-    ])
+  const [
+    viewerAttendances,
+    friendReactions,
+    friendComments,
+    topAttendancesMap,
+  ] = await Promise.all([
+    prisma.eventAttendance.findMany({
+      where: { eventId: { in: eventIds }, userId: viewerId },
+      select: { eventId: true, type: true },
+    }),
+    followingIds.length > 0
+      ? prisma.reaction.findMany({
+          where: {
+            eventId: { in: eventIds },
+            userId: { in: followingIds },
+            user: activeUserWhere(),
+          },
+          select: {
+            eventId: true,
+            userId: true,
+            user: { select: authorSelect },
+          },
+          orderBy: [
+            { eventId: 'asc' as const },
+            { createdAt: 'desc' as const },
+          ],
+          distinct: ['eventId'],
+        })
+      : Promise.resolve([]),
+    followingIds.length > 0
+      ? prisma.comment.findMany({
+          where: {
+            eventId: { in: eventIds },
+            authorId: { in: followingIds },
+            author: activeUserWhere(),
+          },
+          select: {
+            eventId: true,
+            authorId: true,
+            content: true,
+            author: { select: authorSelect },
+          },
+          orderBy: [
+            { eventId: 'asc' as const },
+            { createdAt: 'desc' as const },
+          ],
+          distinct: ['eventId'],
+        })
+      : Promise.resolve([]),
+    // Participantes em destaque (amigos primeiro, depois não-amigos) para os
+    // avatares de prova social no card — mesma fonte do mapa.
+    findTopAttendancesByEvent(eventIds, followingIds),
+  ])
 
   const viewerAttendanceMap = new Map(
     viewerAttendances.map((a) => [a.eventId, a.type]),
@@ -374,10 +372,16 @@ export async function hydrateEvents(
   }
 
   return events.map((event) => {
-    const { reactions, attendances, comments, ...rest } = event
+    const { reactions, comments, ...rest } = event
 
     const userAttendance = viewerAttendanceMap.get(event.id) ?? null
     const userLiked = reactions.length > 0
+
+    // Fonte única dos participantes (mesma do mapa): friendAttendances é o
+    // subconjunto de amigos do topAttendances, e o reason `friend_attending`
+    // usa o amigo de maior prioridade (CONFIRMED > INTERESTED, depois recência).
+    const top = topAttendancesMap.get(event.id) ?? []
+    const friendTop = top.filter((a) => a.isFriend)
 
     const reason = resolveReason(
       event.id,
@@ -387,14 +391,15 @@ export async function hydrateEvents(
       followingIds,
       userAttendance,
       userLiked,
-      attendances,
+      friendTop,
       friendReactionsByEvent,
       friendCommentsByEvent,
     )
 
     return {
       ...rest,
-      friendAttendances: attendances.map((a) => ({ user: a.user })),
+      friendAttendances: friendTop.map((a) => ({ user: a.user })),
+      topAttendances: top.map((a) => ({ user: a.user })),
       recentComments: comments.map((c) => ({
         id: c.id,
         content: c.content,

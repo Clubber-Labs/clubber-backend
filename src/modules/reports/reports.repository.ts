@@ -60,6 +60,40 @@ const reportInclude = {
       createdAt: true,
     },
   },
+  post: {
+    select: {
+      id: true,
+      content: true,
+      authorId: true,
+      eventId: true,
+      createdAt: true,
+      author: {
+        select: {
+          id: true,
+          name: true,
+          lastname: true,
+          username: true,
+          avatarUrl: true,
+        },
+      },
+      event: {
+        select: {
+          id: true,
+          title: true,
+        },
+      },
+      images: {
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        select: {
+          id: true,
+          url: true,
+          format: true,
+          size: true,
+          order: true,
+        },
+      },
+    },
+  },
   reviewer: {
     select: {
       id: true,
@@ -81,6 +115,17 @@ export async function findCommentById(commentId: string) {
           eventId: true,
         },
       },
+    },
+  })
+}
+
+export async function findReportPostById(postId: string) {
+  return prisma.post.findUnique({
+    where: { id: postId },
+    select: {
+      id: true,
+      authorId: true,
+      eventId: true,
     },
   })
 }
@@ -148,6 +193,15 @@ export async function findExistingMessageReport(
   })
 }
 
+export async function findExistingPostReport(
+  reporterId: string,
+  postId: string,
+) {
+  return prisma.report.findFirst({
+    where: { reporterId, postId, status: { in: ['PENDING', 'REVIEWED'] } },
+  })
+}
+
 export async function findExistingUserReport(
   reporterId: string,
   targetUserId: string,
@@ -191,6 +245,16 @@ export async function createMessageReport(
   })
 }
 
+export async function createPostReport(
+  data: CreateReportBody,
+  reporterId: string,
+  postId: string,
+) {
+  return prisma.report.create({
+    data: { ...data, reporterId, postId },
+  })
+}
+
 export async function createUserReport(
   data: CreateReportBody,
   reporterId: string,
@@ -224,6 +288,12 @@ export async function findReports(query: ListReportsQuery) {
     where.messageId = query.messageId ?? { not: null }
   } else if (query.messageId) {
     where.messageId = query.messageId
+  }
+
+  if (query.targetType === 'POST') {
+    where.postId = query.postId ?? { not: null }
+  } else if (query.postId) {
+    where.postId = query.postId
   }
 
   if (query.targetType === 'USER') {
