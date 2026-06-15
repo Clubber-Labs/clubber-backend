@@ -5,6 +5,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   getSubscriptionHandler,
   postCancel,
@@ -33,7 +34,7 @@ export async function billingRoutes(app: FastifyInstance) {
       // Cria Stripe Customer + Checkout Session — chamadas externas pagas.
       // 10/min por chave (IP por default) é generoso pra UX legítima
       // (user retentando após erro) e bloqueia abuse.
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(10) },
     },
     postCheckout,
   )
@@ -44,7 +45,7 @@ export async function billingRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
       // Fluxo PaymentSheet (mobile): cria Subscription + ephemeral key —
       // mesmas chamadas externas pagas do checkout, mesmo limite.
-      config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+      config: { rateLimit: rateLimit(10) },
     },
     postSubscribe,
   )
@@ -59,7 +60,7 @@ export async function billingRoutes(app: FastifyInstance) {
   // 20/min por chave (IP por default) cobre UX legítima (retry após erro de
   // rede, troca de cartão depois de falha) e bloqueia spam autenticado —
   // ex. user hostil gerando SetupIntents em loop pra consumir quota nossa.
-  const stripeWriteLimit = { max: 20, timeWindow: '1 minute' as const }
+  const stripeWriteLimit = rateLimit(20)
 
   api.post(
     '/billing/cancel',
@@ -101,7 +102,7 @@ export async function billingWebhookRoutes(app: FastifyInstance) {
         // Stripe envia tipicamente <10 req/s pra um único endpoint.
         // 200/min cobre picos legítimos com folga e bloqueia flood:
         // requisições inválidas ainda gastariam CPU verificando signature.
-        rateLimit: { max: 200, timeWindow: '1 minute' },
+        rateLimit: rateLimit(200),
       },
     },
     postWebhook,

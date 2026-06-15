@@ -51,6 +51,10 @@ export type StripeSubscriptionLike = {
   current_period_end?: number | null
   cancel_at_period_end: boolean
   canceled_at?: number | null
+  // `string | { id }` conforme expandido ou não. Em trial criado pelo
+  // PaymentSheet costuma vir null: o cartão entra depois, via SetupIntent, e o
+  // backend grava o default no Customer (não na subscription).
+  default_payment_method?: string | { id: string } | null
   metadata?: Record<string, string> | null
 }
 
@@ -68,6 +72,7 @@ export type SubscriptionFields = {
   currentPeriodEnd: Date
   cancelAtPeriodEnd: boolean
   canceledAt: Date | null
+  defaultPaymentMethodId: string | null
 }
 
 /**
@@ -145,12 +150,34 @@ export function mapStripeSubscription(
     currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : new Date(),
     cancelAtPeriodEnd: sub.cancel_at_period_end,
     canceledAt: sub.canceled_at ? new Date(sub.canceled_at * 1000) : null,
+    defaultPaymentMethodId: idFromRef(sub.default_payment_method),
   }
 }
 
+/** Normaliza referência do Stripe (`string | { id } | null | undefined`) pro id. */
+function idFromRef(
+  ref: string | { id: string } | null | undefined,
+): string | null {
+  if (!ref) return null
+  return typeof ref === 'string' ? ref : ref.id
+}
+
 export function extractCustomerId(sub: StripeSubscriptionLike): string | null {
-  if (!sub.customer) return null
-  return typeof sub.customer === 'string' ? sub.customer : sub.customer.id
+  return idFromRef(sub.customer)
+}
+
+/**
+ * Extrai customer + payment method de um setup_intent.succeeded. Retorna null
+ * se faltar qualquer um — sem os dois não dá pra anexar o cartão nem creditar
+ * o trial.
+ */
+export function extractSetupIntentRefs(
+  intent: StripeSetupIntentLike,
+): { customerId: string; paymentMethodId: string } | null {
+  const customerId = idFromRef(intent.customer)
+  const paymentMethodId = idFromRef(intent.payment_method)
+  if (!customerId || !paymentMethodId) return null
+  return { customerId, paymentMethodId }
 }
 
 /**

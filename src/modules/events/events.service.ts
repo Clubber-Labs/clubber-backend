@@ -164,10 +164,71 @@ export async function listEventsForMap(
   return findEventsForMap(query, followingIds)
 }
 
+// Cache do viewport. Só cacheamos a parte SHARED (eventos no tile, sem nada do
+// viewer) — o estado do viewer e o ranking de amigos são hidratados por cima a
+// cada request, como em listEvents. friendsOnly não é cacheável (depende da
+// rede do viewer).
+const VIEWPORT_CACHE_TTL_SECONDS = 20
+// Passo da grade que "encaixa" o bbox num tile canônico (~0.05° ≈ 5,5 km).
+// Pans/zooms pequenos caem no mesmo tile → alto hit-rate sob carga. O tile
+// CONTÉM o bbox pedido (floor/ceil), então a resposta é superconjunto da área
+// visível: nenhum evento do viewport fica de fora.
+const VIEWPORT_TILE_DEG = 0.05
+
+type SharedViewport = { events: SharedEvent[]; truncated: boolean }
+
+// Índices inteiros do tile (estáveis, sem ruído de float na chave de cache).
+function tileIndices(query: ViewportQuery) {
+  const step = VIEWPORT_TILE_DEG
+  return {
+    n: Math.ceil(query.bboxNorth / step),
+    s: Math.floor(query.bboxSouth / step),
+    e: Math.ceil(query.bboxEast / step),
+    w: Math.floor(query.bboxWest / step),
+  }
+}
+
+async function getSharedViewport(
+  query: ViewportQuery,
+  followingIds: string[],
+): Promise<SharedViewport> {
+  // friendsOnly depende do viewer → sem cache (e a query precisa dos ids).
+  if (query.friendsOnly) return findEventsInViewport(query, followingIds)
+
+  const t = tileIndices(query)
+  const step = VIEWPORT_TILE_DEG
+  const tileQuery: ViewportQuery = {
+    ...query,
+    bboxNorth: t.n * step,
+    bboxSouth: t.s * step,
+    bboxEast: t.e * step,
+    bboxWest: t.w * step,
+  }
+  const cacheKey = cache.key(
+    'events:viewport',
+    t.n,
+    t.s,
+    t.e,
+    t.w,
+    query.limit,
+    query.category ? [...query.category].sort().join(',') : '',
+    query.status ? [...query.status].sort().join(',') : '',
+  )
+
+  const cached = await cache.get<SharedViewport>(cacheKey)
+  if (cached) return cached
+
+  // followingIds não é usado quando !friendsOnly (a query é viewer-agnóstica).
+  const result = await findEventsInViewport(tileQuery, [])
+  await cache.set(cacheKey, result, VIEWPORT_CACHE_TTL_SECONDS)
+  return result
+}
+
 /**
- * Viewport: FeedEvent completos no bbox + friendAttendances (top N por
- * prioridade/recência) + estado do viewer. Sem cache (depende do bbox e do
- * viewer). Retorna { data, truncated }.
+ * Viewport: eventos do mapa no bbox + friendAttendances (top N por
+ * prioridade/recência) + estado do viewer. A parte shared é cacheada por tile
+ * (getSharedViewport); o viewer state é hidratado por cima. Retorna
+ * { data, truncated }.
  */
 export async function listEventsForViewport(
   query: ViewportQuery,
@@ -175,7 +236,7 @@ export async function listEventsForViewport(
 ) {
   assertCanFilterByFriends(query.friendsOnly, viewerId)
   const followingIds = viewerId ? await findAcceptedFollowingIds(viewerId) : []
-  const { events, truncated } = await findEventsInViewport(query, followingIds)
+  const { events, truncated } = await getSharedViewport(query, followingIds)
   if (events.length === 0) return { data: [], truncated }
 
   const eventIds = events.map((e) => e.id)
@@ -255,10 +316,20 @@ export async function getEventById(id: string, requesterId?: string) {
   return hydrateWithState(event, states.get(event.id))
 }
 
+// Invalida os caches de leitura de eventos (lista pública + viewport do mapa).
+// Chamado em toda escrita que afeta descoberta — garante que privar/cancelar
+// um evento o remova IMEDIATAMENTE do mapa (o TTL só defasaria contagem/status).
+async function invalidateEventCaches(): Promise<void> {
+  await Promise.all([
+    cache.invalidate('events:public:*'),
+    cache.invalidate('events:viewport:*'),
+  ])
+}
+
 export async function addEvent(data: CreateEventBody, authorId: string) {
   const event = await createEvent({ ...data, authorId })
   if (data.isPublic === true) {
-    await cache.invalidate('events:public:*')
+    await invalidateEventCaches()
     // Fan-out de proximidade (best-effort, pós-commit): só eventos públicos.
     await enqueueEventCreated(event.id)
   }
@@ -287,7 +358,7 @@ export async function editEvent(
 
   const updated = await updateEvent(id, data)
   if (event.isPublic || data.isPublic === true) {
-    await cache.invalidate('events:public:*')
+    await invalidateEventCaches()
   }
   return updated
 }
@@ -309,7 +380,7 @@ export async function removeEvent(
   await Promise.all(images.map((img) => deleteUploaded(img.key, logger)))
   await deleteEvent(id)
   if (event.isPublic) {
-    await cache.invalidate('events:public:*')
+    await invalidateEventCaches()
   }
 }
 
@@ -337,7 +408,7 @@ export async function addEventImage(
       size: uploaded.size,
     })
     if (event.isPublic) {
-      await cache.invalidate('events:public:*')
+      await invalidateEventCaches()
     }
     return image
   } catch (err) {

@@ -237,9 +237,12 @@ export async function resumeSubscription(userId: string) {
  *   'cancel'` garante que, se o user abandonar a sheet sem cadastrar cartão,
  *   a assinatura cancela ao fim do trial (não vira PAST_DUE cobrando ninguém).
  *
- * A ativação do premium continua 100% via webhook (subscription.created/
- * updated + invoice.payment_succeeded) — INCOMPLETE não conta como ativa,
- * então abandonar a sheet sem pagar não dá acesso.
+ * A ativação do premium continua 100% via webhook, mas com gate de método de
+ * pagamento: o trial nasce `trialing` SEM cartão (não `incomplete`), então é o
+ * `setup_intent.succeeded` — não o `subscription.created` — que carimba o
+ * defaultPaymentMethodId e destrava o premium. Abrir a sheet e abandonar (ou
+ * nem abrir) deixa um trial órfão que NÃO concede acesso (ver
+ * recalculateUserPremiumTx).
  */
 export async function createSubscriptionIntent(userId: string) {
   const user = await findUserOrThrow(userId)

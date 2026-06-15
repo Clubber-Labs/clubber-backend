@@ -287,6 +287,7 @@ export async function makeSubscription(
     currentPeriodEnd?: Date
     cancelAtPeriodEnd?: boolean
     canceledAt?: Date | null
+    defaultPaymentMethodId?: string | null
     lastSyncedAt?: Date
   } = {},
 ) {
@@ -306,6 +307,7 @@ export async function makeSubscription(
       currentPeriodEnd: periodEnd,
       cancelAtPeriodEnd: overrides.cancelAtPeriodEnd ?? false,
       canceledAt: overrides.canceledAt ?? null,
+      defaultPaymentMethodId: overrides.defaultPaymentMethodId ?? null,
       lastSyncedAt: overrides.lastSyncedAt ?? now,
     },
   })
@@ -387,6 +389,44 @@ export async function makeMessage(
 export async function makeBlock(blockerId: string, blockedId: string) {
   return testPrisma.block.create({
     data: { blockerId, blockedId },
+  })
+}
+
+export async function makeAnalyticsMetric(
+  eventId: string,
+  type: 'VIEW' | 'SHARE',
+  occurredAt: Date,
+) {
+  return testPrisma.eventAnalyticsMetric.create({
+    data: { eventId, type, occurredAt },
+  })
+}
+
+export async function makeConsentAuditLog(
+  userId: string,
+  action: 'GRANTED' | 'UPDATED' | 'REVOKED' | 'EXPORTED' = 'GRANTED',
+) {
+  return testPrisma.consentAuditLog.create({
+    data: {
+      userId,
+      action,
+      changedFields: [{ field: 'analytics', from: null, to: true }],
+      consentVersion: '1.0',
+      ipAddress: '192.168.1.1',
+    },
+  })
+}
+
+export async function makeUserConsent(userId: string) {
+  return testPrisma.userConsent.upsert({
+    where: { userId },
+    create: {
+      userId,
+      analytics: true,
+      marketing: false,
+      consentVersion: '1.0',
+    },
+    update: { analytics: true },
   })
 }
 
