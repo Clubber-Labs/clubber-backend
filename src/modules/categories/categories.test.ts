@@ -24,12 +24,17 @@ describe('GET /categories', () => {
     const body = res.json()
     expect(body.locale).toBe('pt-BR')
     expect(body.data).toHaveLength(SELECTABLE_CATEGORIES.length)
-    expect(body.data).toEqual(
+    const gastronomy = body.data.find(
+      (c: { value: string }) => c.value === 'GASTRONOMY',
+    )
+    expect(gastronomy).toMatchObject({
+      value: 'GASTRONOMY',
+      label: 'Gastronomia',
+    })
+    // Duas camadas: a categoria leva subcategorias aninhadas e rotuladas.
+    expect(gastronomy.subcategories).toEqual(
       expect.arrayContaining([
-        { value: 'MUSIC', label: 'Música' },
-        { value: 'CAFE', label: 'Café e doceria' },
-        { value: 'COMEDY', label: 'Comédia' },
-        { value: 'MARKETS', label: 'Feiras e mercados' },
+        { value: 'GASTRONOMY_JAPONESA', label: 'Japonesa' },
       ]),
     )
   })
