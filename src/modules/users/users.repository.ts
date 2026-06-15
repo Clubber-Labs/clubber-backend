@@ -37,6 +37,9 @@ const userPrivateProfileSelect = {
   accountStatus: true,
   deactivatedAt: true,
   scheduledDeletionAt: true,
+  // Fim da suspensão (null em BANNED/ACTIVE) — o mobile mostra a data limite ao
+  // próprio usuário e o login social lê daqui sem uma 2ª query.
+  suspendedUntil: true,
   // Status do MFA (sem expor o segredo nem os códigos) — o cliente usa pra
   // mostrar "MFA ativo" e gates de UI.
   mfaEnabled: true,
@@ -322,6 +325,113 @@ export async function findAccountsDueForAnonymization(now: Date) {
       scheduledDeletionAt: { lte: now },
     },
     select: { id: true },
+  })
+}
+
+// ── Moderação (suspensão/banimento) ──────────────────────────────────────────
+
+const moderationStateSelect = {
+  id: true,
+  role: true,
+  accountStatus: true,
+  suspendedAt: true,
+  suspendedUntil: true,
+  suspensionReason: true,
+} as const
+
+export async function findModerationState(id: string) {
+  return prisma.user.findUnique({
+    where: { id },
+    select: moderationStateSelect,
+  })
+}
+
+/** Suspende temporariamente (até suspendedUntil) + log de moderação, atômico. */
+export async function setUserSuspended(
+  id: string,
+  suspendedUntil: Date,
+  reason?: string,
+) {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      data: {
+        accountStatus: 'SUSPENDED',
+        suspendedAt: new Date(),
+        suspendedUntil,
+        suspensionReason: reason ?? null,
+      },
+      select: moderationStateSelect,
+    })
+    await tx.accountLifecycleLog.create({
+      data: { userId: id, action: 'SUSPENDED', reason: reason ?? null },
+    })
+    return updated
+  })
+}
+
+/** Bane permanentemente (suspendedUntil null) + log, atômico. */
+export async function setUserBanned(id: string, reason?: string) {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      data: {
+        accountStatus: 'BANNED',
+        suspendedAt: new Date(),
+        suspendedUntil: null,
+        suspensionReason: reason ?? null,
+      },
+      select: moderationStateSelect,
+    })
+    await tx.accountLifecycleLog.create({
+      data: { userId: id, action: 'BANNED', reason: reason ?? null },
+    })
+    return updated
+  })
+}
+
+/** Levanta a punição (suspensão ou ban) → ACTIVE + log, atômico. */
+export async function setUserUnsuspended(id: string) {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.user.update({
+      where: { id },
+      data: {
+        accountStatus: 'ACTIVE',
+        suspendedAt: null,
+        suspendedUntil: null,
+        suspensionReason: null,
+      },
+      select: moderationStateSelect,
+    })
+    await tx.accountLifecycleLog.create({
+      data: { userId: id, action: 'UNSUSPENDED', reason: null },
+    })
+    return updated
+  })
+}
+
+/** IDs de contas SUSPENDED cujo prazo venceu (alvo do reconciler de expiração). */
+export async function findAccountsDueForUnsuspension(now: Date) {
+  return prisma.user.findMany({
+    where: { accountStatus: 'SUSPENDED', suspendedUntil: { lte: now } },
+    select: { id: true },
+  })
+}
+
+/**
+ * Limpa uma suspensão vencida no login (auto-cura, no espírito do
+ * reactivateOnLogin). updateMany condicional vence a corrida com o reconciler e
+ * é no-op se a conta não estiver mais SUSPENDED-vencida.
+ */
+export async function clearExpiredSuspension(id: string, now: Date) {
+  return prisma.user.updateMany({
+    where: { id, accountStatus: 'SUSPENDED', suspendedUntil: { lte: now } },
+    data: {
+      accountStatus: 'ACTIVE',
+      suspendedAt: null,
+      suspendedUntil: null,
+      suspensionReason: null,
+    },
   })
 }
 

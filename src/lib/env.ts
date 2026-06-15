@@ -225,6 +225,17 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
+  // Moderação: o reconciler que expira suspensões temporárias vencidas
+  // (SUSPENDED com suspendedUntil <= now → ACTIVE). Banimento é permanente.
+  SUSPENSION_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  SUSPENSION_RECONCILE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   // Lifecycle de spots: lembrete de renovação + limpeza no vencimento.
   SPOT_LIFECYCLE_INTERVAL_MS: z.coerce
     .number()
@@ -454,6 +465,8 @@ export const env = {
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
+  SUSPENSION_RECONCILE_INTERVAL_MS: parsed.SUSPENSION_RECONCILE_INTERVAL_MS,
+  SUSPENSION_RECONCILE_ENABLED: parsed.SUSPENSION_RECONCILE_ENABLED,
   SPOT_LIFECYCLE_INTERVAL_MS: parsed.SPOT_LIFECYCLE_INTERVAL_MS,
   SPOT_LIFECYCLE_ENABLED: parsed.SPOT_LIFECYCLE_ENABLED,
   SPOT_RENEWAL_LEAD_MS: parsed.SPOT_RENEWAL_LEAD_MS,
