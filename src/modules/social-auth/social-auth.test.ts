@@ -416,3 +416,64 @@ describe('POST /auth/social — reativação de conta', () => {
     expect(res.json().user.email).toBe('pessoa-real@exemplo.com')
   })
 })
+
+describe('POST /auth/social — sessão (refresh token)', () => {
+  it('retorna refreshToken (persistido como hash) junto do access token', async () => {
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        email: 'sessao@exemplo.com',
+        providerUserId: 'google_sessao_1',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    // Regressão: o mobile grava o refreshToken no SecureStore — se vier undefined,
+    // o app quebra ("Values must be strings"). O contrato tem que casar com o do
+    // /auth/login: { token, refreshToken, user, profileIncomplete }.
+    expect(typeof body.token).toBe('string')
+    expect(typeof body.refreshToken).toBe('string')
+    expect(body.refreshToken.length).toBeGreaterThan(0)
+    expect(body.refreshToken).not.toBe(body.token)
+
+    // Persistido como hash — um dump do banco não concede sessões.
+    const stored = await testPrisma.refreshToken.findFirst({
+      where: { userId: body.user.id },
+    })
+    expect(stored).toBeTruthy()
+    expect(stored?.tokenHash).not.toBe(body.refreshToken)
+  })
+
+  it('o refreshToken emitido no login social rotaciona em /auth/refresh', async () => {
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({
+        email: 'sessao2@exemplo.com',
+        providerUserId: 'google_sessao_2',
+      }),
+    )
+
+    const social = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-token-long' },
+    })
+    const { refreshToken } = social.json()
+
+    const refreshed = await app.inject({
+      method: 'POST',
+      url: '/auth/refresh',
+      body: { refreshToken },
+    })
+
+    expect(refreshed.statusCode).toBe(200)
+    const next = refreshed.json()
+    expect(typeof next.token).toBe('string')
+    expect(next.refreshToken).not.toBe(refreshToken)
+  })
+})
