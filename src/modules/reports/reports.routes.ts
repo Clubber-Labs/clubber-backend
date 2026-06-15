@@ -13,16 +13,21 @@ import {
   patchReport,
   postCommentReport,
   postEventReport,
+  postLiftUserModeration,
   postMessageReport,
+  postModerateUser,
+  postPostReport,
   postUserReport,
 } from './reports.controller'
 import {
   createReportSchema,
   listReportsQuerySchema,
+  moderateUserSchema,
   reportCommentParamSchema,
   reportEventParamSchema,
   reportMessageParamSchema,
   reportParamSchema,
+  reportPostParamSchema,
   reportUserParamSchema,
   resolveReportSchema,
 } from './reports.schema'
@@ -71,6 +76,26 @@ export async function reportsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     deleteReportTarget,
+  )
+
+  // Moderação do usuário denunciado: suspender (com prazo) ou banir (permanente).
+  api.post(
+    '/reports/:id/moderate-user',
+    {
+      schema: { params: reportParamSchema, body: moderateUserSchema },
+      onRequest: [app.authenticate],
+    },
+    postModerateUser,
+  )
+
+  // Levanta a punição de um usuário (não atado a denúncia).
+  api.post(
+    '/moderation/users/:userId/unsuspend',
+    {
+      schema: { params: reportUserParamSchema },
+      onRequest: [app.authenticate],
+    },
+    postLiftUserModeration,
   )
 
   api.delete(
@@ -140,6 +165,26 @@ export async function reportsRoutes(app: FastifyInstance) {
       config: createReportRouteConfig,
     },
     postMessageReport,
+  )
+
+  api.post(
+    '/posts/:postId/report',
+    {
+      schema: { params: reportPostParamSchema, body: createReportSchema },
+      onRequest: [app.authenticate],
+      config: createReportRouteConfig,
+    },
+    postPostReport,
+  )
+
+  api.post(
+    '/posts/:postId/reports',
+    {
+      schema: { params: reportPostParamSchema, body: createReportSchema },
+      onRequest: [app.authenticate],
+      config: createReportRouteConfig,
+    },
+    postPostReport,
   )
 
   api.post(

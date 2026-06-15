@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { isBlocked } from './moderation-denylist'
 
 /**
  * Decorators de autenticação — ÚNICO ponto que registra `authenticate`,
@@ -27,6 +28,12 @@ export function registerAuthDecorators(app: FastifyInstance) {
     async (request: FastifyRequest, _reply: FastifyReply) => {
       const payload = await request.jwtVerify<JwtPayload>()
       rejectEnrollmentToken(payload)
+      // Moderação: JWT não expira, então um token de conta suspensa/banida ainda
+      // verifica — a denylist barra a sessão existente na hora (401 → o mobile
+      // desloga via interceptor).
+      if (await isBlocked(payload.sub)) {
+        throw { statusCode: 401, message: 'Sessão inválida' }
+      }
       request.user = payload
     },
   )
@@ -37,7 +44,12 @@ export function registerAuthDecorators(app: FastifyInstance) {
       if (request.headers.authorization) {
         const payload = await request.jwtVerify<JwtPayload>()
         // Token de matrícula não confere identidade aqui: trata como anônimo.
-        if (!payload.mfaEnrollment) request.user = payload
+        if (!payload.mfaEnrollment) {
+          if (await isBlocked(payload.sub)) {
+            throw { statusCode: 401, message: 'Sessão inválida' }
+          }
+          request.user = payload
+        }
       }
     },
   )

@@ -219,6 +219,8 @@ async function main() {
   await prisma.eventInvite.deleteMany()
   await prisma.eventAttendance.deleteMany()
   await prisma.event.deleteMany()
+  // eventSeries depois de event (seriesId é SetNull) e antes de user (RESTRICT).
+  await prisma.eventSeries.deleteMany()
   await prisma.follow.deleteMany()
   await prisma.user.deleteMany()
 
@@ -400,6 +402,32 @@ async function main() {
 
   console.log(
     `   ✓ ${events.length} eventos (${publicEvents.length} públicos, ${privateEvents.length} privados)`,
+  )
+
+  // ── 3b. Série recorrente (RF11.6, premium) ──────────────────────────────────
+  // "Futeba de quarta" semanal do premiumDemo: 4 ocorrências espaçadas 7 dias.
+  const recurringSeries = await prisma.eventSeries.create({
+    data: { frequency: 'WEEKLY', interval: 1, authorId: premiumDemo.id },
+  })
+  const firstOccurrence = new Date()
+  firstOccurrence.setDate(firstOccurrence.getDate() + 2)
+  firstOccurrence.setHours(20, 0, 0, 0)
+  await prisma.event.createMany({
+    data: Array.from({ length: 4 }, (_, i) => ({
+      title: 'Futeba de quarta',
+      description: 'Pelada semanal da galera',
+      date: new Date(firstOccurrence.getTime() + i * 7 * 86_400_000),
+      latitude: -25.43,
+      longitude: -49.27,
+      address: 'Quadra do bairro',
+      categories: ['SPORTS'],
+      isPublic: true,
+      authorId: premiumDemo.id,
+      seriesId: recurringSeries.id,
+    })),
+  })
+  console.log(
+    '   🔁 1 série recorrente semanal (premium_demo) com 4 ocorrências',
   )
 
   // ── 4. Convites para eventos privados ────────────────────────────────────────

@@ -12,6 +12,7 @@ import { env } from '../lib/env'
 import { errorHandler } from '../lib/error-handler'
 import { redis } from '../lib/redis'
 import { genReqId } from '../lib/request-id'
+import { adminConsentRoutes } from '../modules/admin-consent/admin-consent.routes'
 import { attendanceRoutes } from '../modules/attendance/attendance.routes'
 import { authRoutes } from '../modules/auth/auth.routes'
 import {
@@ -34,6 +35,7 @@ import { notificationsRoutes } from '../modules/notifications/notifications.rout
 import { passwordResetRoutes } from '../modules/password-reset/password-reset.routes'
 import { postsRoutes } from '../modules/posts/posts.routes'
 import { reactionsRoutes } from '../modules/reactions/reactions.routes'
+import { recurringEventsRoutes } from '../modules/recurring-events/recurring-events.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { spotsRoutes } from '../modules/spots/spots.routes'
@@ -78,6 +80,7 @@ export function buildApp() {
   app.register(categoriesRoutes)
   app.register(eventsRoutes)
   app.register(eventStatsRoutes)
+  app.register(recurringEventsRoutes)
   app.register(featuredEventsRoutes)
   app.register(usersRoutes)
   app.register(followsRoutes)
@@ -94,6 +97,7 @@ export function buildApp() {
   app.register(chatRoutes)
   app.register(spotsRoutes)
   app.register(consentRoutes)
+  app.register(adminConsentRoutes)
   app.register(notificationsRoutes)
 
   return app

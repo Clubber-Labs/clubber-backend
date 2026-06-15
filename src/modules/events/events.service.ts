@@ -3,6 +3,7 @@ import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import { enqueueEventCreated } from '../notifications/notification-queue'
+import { createRecurringEvent } from '../recurring-events/recurring-events.service'
 import {
   createEvent,
   createEventImage,
@@ -305,15 +306,30 @@ export async function getEventById(id: string, requesterId?: string) {
     requesterId,
   )
 
-  if (!requesterId) return hydrateAnon(event)
-
+  // Participantes em destaque (amigos primeiro) para a prova social "quem vai"
+  // no detalhe — mesma fonte do mapa e do feed.
   const commentIds = event.recentComments.map((c) => c.id)
-  const states = await findViewerStatesForEvents(
-    requesterId,
-    [event.id],
-    commentIds,
-  )
-  return hydrateWithState(event, states.get(event.id))
+  // followingIds e viewerStates só dependem do requesterId (não um do outro):
+  // vão juntos. topAttendances depende de followingIds, então fecha o caminho.
+  const [followingIds, states] = await Promise.all([
+    requesterId ? findAcceptedFollowingIds(requesterId) : Promise.resolve([]),
+    requesterId
+      ? findViewerStatesForEvents(requesterId, [event.id], commentIds)
+      : Promise.resolve(null),
+  ])
+  const topMap = await findTopAttendancesByEvent([event.id], followingIds)
+  // friendAttendances é o subconjunto de amigos do topAttendances (mesma fonte,
+  // sem segunda query) — alinhado com viewport e feed.
+  const top = topMap.get(event.id) ?? []
+  const topAttendances = top.map((a) => ({ user: a.user }))
+  const friendAttendances = top
+    .filter((a) => a.isFriend)
+    .map((a) => ({ user: a.user }))
+
+  const normalized = states
+    ? hydrateWithState(event, states.get(event.id))
+    : hydrateAnon(event)
+  return { ...normalized, topAttendances, friendAttendances }
 }
 
 // Invalida os caches de leitura de eventos (lista pública + viewport do mapa).
@@ -327,8 +343,15 @@ async function invalidateEventCaches(): Promise<void> {
 }
 
 export async function addEvent(data: CreateEventBody, authorId: string) {
-  const event = await createEvent({ ...data, authorId })
-  if (data.isPublic === true) {
+  const { recurrence, ...eventData } = data
+  // RF11.6: com bloco recurrence, delega para a criação de série (gate premium
+  // no service). Sem recurrence, o evento avulso segue sem exigir premium.
+  if (recurrence) {
+    return createRecurringEvent(eventData, recurrence, authorId)
+  }
+
+  const event = await createEvent({ ...eventData, authorId })
+  if (eventData.isPublic === true) {
     await invalidateEventCaches()
     // Fan-out de proximidade (best-effort, pós-commit): só eventos públicos.
     await enqueueEventCreated(event.id)

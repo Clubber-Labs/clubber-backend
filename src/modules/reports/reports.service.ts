@@ -13,10 +13,13 @@ import { deleteComment } from '../comments/comments.repository'
 import { resolveCommentEventId } from '../comments/comments.service'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { deleteEvent, findEventImageKeys } from '../events/events.repository'
+import { deletePost, findPostImageKeys } from '../posts/posts.repository'
+import { banUser, suspendUser, unsuspendUser } from '../users/users.service'
 import {
   createCommentReport,
   createEventReport,
   createMessageReport,
+  createPostReport,
   createUserReport,
   deleteReportById,
   findActiveConversationParticipant,
@@ -24,9 +27,11 @@ import {
   findExistingCommentReport,
   findExistingEventReport,
   findExistingMessageReport,
+  findExistingPostReport,
   findExistingUserReport,
   findMessageById,
   findReportById,
+  findReportPostById,
   findReports,
   findReportTargetUserById,
   findUserRoleById,
@@ -35,6 +40,7 @@ import {
 import type {
   CreateReportBody,
   ListReportsQuery,
+  ModerateUserBody,
   ResolveReportBody,
 } from './reports.schema'
 
@@ -102,6 +108,36 @@ export async function reportComment(
   }
 
   return createCommentReport(data, reporterId, commentId)
+}
+
+export async function reportPost(
+  data: CreateReportBody,
+  reporterId: string,
+  postId: string,
+) {
+  const post = await findReportPostById(postId)
+  if (!post) {
+    throw { statusCode: 404, message: 'Post não encontrado' }
+  }
+
+  await ensureEventAccess(post.eventId, reporterId)
+
+  if (post.authorId === reporterId) {
+    throw {
+      statusCode: 400,
+      message: 'Não é possível denunciar o próprio conteúdo',
+    }
+  }
+
+  const existing = await findExistingPostReport(reporterId, postId)
+  if (existing) {
+    throw {
+      statusCode: 409,
+      message: 'Você já possui uma denúncia ativa para esta publicação',
+    }
+  }
+
+  return createPostReport(data, reporterId, postId)
 }
 
 export async function reportMessage(
@@ -217,6 +253,12 @@ async function removeReportedComment(commentId: string) {
   await cache.invalidate('events:public:*')
 }
 
+async function removeReportedPost(postId: string) {
+  const images = await findPostImageKeys(postId)
+  await Promise.all(images.map((img) => deleteUploaded(img.key, logger)))
+  await deletePost(postId)
+}
+
 async function removeReportedMessage(messageId: string) {
   const message = await findMessageById(messageId)
   if (!message) {
@@ -249,7 +291,8 @@ export async function removeReportTarget(
     report.status === 'RESOLVED_REMOVED' &&
     !report.eventId &&
     !report.commentId &&
-    !report.messageId
+    !report.messageId &&
+    !report.postId
   ) {
     return report
   }
@@ -258,11 +301,16 @@ export async function removeReportTarget(
     throw {
       statusCode: 400,
       message:
-        'Remoção de usuário exige fluxo próprio de suspensão ou banimento',
+        'Denúncia de usuário: use POST /reports/:id/moderate-user (suspender/banir)',
     }
   }
 
-  if (!report.eventId && !report.commentId && !report.messageId) {
+  if (
+    !report.eventId &&
+    !report.commentId &&
+    !report.messageId &&
+    !report.postId
+  ) {
     throw {
       statusCode: 409,
       message: 'O conteúdo denunciado já não está disponível',
@@ -283,6 +331,8 @@ export async function removeReportTarget(
     await removeReportedComment(report.commentId)
   } else if (report.messageId) {
     await removeReportedMessage(report.messageId)
+  } else if (report.postId) {
+    await removeReportedPost(report.postId)
   }
 
   // Re-fetch para refletir as FKs nulas após cascade SetNull da deleção de conteúdo
@@ -299,4 +349,54 @@ export async function removeReport(reportId: string, requesterId: string) {
   }
 
   await deleteReportById(reportId)
+}
+
+/**
+ * Pune o usuário alvo de uma denúncia (suspende ou bane) e fecha a denúncia.
+ * É o "fluxo próprio" que o removeReportTarget delega para usuário. A punição
+ * (suspendUser/banUser) e a resolução são feitas em sequência; o estado da
+ * conta é a fonte da verdade, então uma falha na resolução não desfaz a punição
+ * (o moderador reabre a denúncia se preciso).
+ */
+export async function moderateReportedUser(
+  reportId: string,
+  requesterId: string,
+  body: ModerateUserBody,
+) {
+  await assertAdmin(requesterId)
+  const report = await findReportById(reportId)
+  if (!report) {
+    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+  }
+  if (!report.targetUserId) {
+    throw {
+      statusCode: 400,
+      message: 'Esta denúncia não é sobre um usuário',
+    }
+  }
+
+  if (body.action === 'SUSPEND') {
+    // União discriminada: neste branch `body.days` é number (sem cast).
+    await suspendUser(report.targetUserId, requesterId, body.days, body.reason)
+  } else {
+    await banUser(report.targetUserId, requesterId, body.reason)
+  }
+
+  const note =
+    body.reason ??
+    (body.action === 'SUSPEND'
+      ? `Usuário suspenso por ${body.days} dia(s) pela moderação`
+      : 'Usuário banido pela moderação')
+
+  return updateReportResolution(reportId, requesterId, {
+    status:
+      body.action === 'SUSPEND' ? 'RESOLVED_SUSPENDED' : 'RESOLVED_BANNED',
+    resolutionNote: note,
+  })
+}
+
+/** Levanta a punição (suspensão/ban) de um usuário — não atado a denúncia. */
+export async function liftUserModeration(userId: string, requesterId: string) {
+  await assertAdmin(requesterId)
+  return unsuspendUser(userId)
 }

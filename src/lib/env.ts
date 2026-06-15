@@ -103,9 +103,40 @@ const baseSchema = z.object({
     .int()
     .positive()
     .default(300000),
+  // Quota mensal de promoções de evento por usuário premium (RF11.4+).
+  PROMOTION_MONTHLY_LIMIT: z.coerce.number().int().positive().default(3),
+  // Digest "melhor pra você": no máx. 1 push de promoção por usuário a cada
+  // COOLDOWN_DAYS, escolhendo o promovido mais relevante perto dele. Volume
+  // por usuário (não por promoção) — anti-spam by design.
+  PROMOTION_DIGEST_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  PROMOTION_DIGEST_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(21_600_000),
+  PROMOTION_DIGEST_COOLDOWN_DAYS: z.coerce.number().int().positive().default(3),
+  // Só avalia usuários ativos recentemente (lastSeenAt) — corta custo e spam.
+  PROMOTION_DIGEST_ACTIVE_USER_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(14),
   // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
   // Aceita explicitamente as strings comuns e transforma manualmente.
   FEATURED_RECONCILE_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Reposição de ocorrências de séries recorrentes (RF11.6). Default 6h.
+  RECURRENCE_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(21_600_000),
+  RECURRENCE_RECONCILE_ENABLED: z
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
@@ -201,6 +232,17 @@ const baseSchema = z.object({
     .positive()
     .default(3600000),
   ACCOUNT_DELETION_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Moderação: o reconciler que expira suspensões temporárias vencidas
+  // (SUSPENDED com suspendedUntil <= now → ACTIVE). Banimento é permanente.
+  SUSPENSION_RECONCILE_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  SUSPENSION_RECONCILE_ENABLED: z
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
@@ -397,6 +439,13 @@ export const env = {
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
+  PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,
+  PROMOTION_DIGEST_ENABLED: parsed.PROMOTION_DIGEST_ENABLED,
+  PROMOTION_DIGEST_INTERVAL_MS: parsed.PROMOTION_DIGEST_INTERVAL_MS,
+  PROMOTION_DIGEST_COOLDOWN_DAYS: parsed.PROMOTION_DIGEST_COOLDOWN_DAYS,
+  PROMOTION_DIGEST_ACTIVE_USER_DAYS: parsed.PROMOTION_DIGEST_ACTIVE_USER_DAYS,
+  RECURRENCE_RECONCILE_INTERVAL_MS: parsed.RECURRENCE_RECONCILE_INTERVAL_MS,
+  RECURRENCE_RECONCILE_ENABLED: parsed.RECURRENCE_RECONCILE_ENABLED,
   STRIPE_SECRET_KEY: parsed.STRIPE_SECRET_KEY,
   STRIPE_WEBHOOK_SECRET: parsed.STRIPE_WEBHOOK_SECRET,
   STRIPE_PREMIUM_PRICE_ID: parsed.STRIPE_PREMIUM_PRICE_ID,
@@ -427,6 +476,8 @@ export const env = {
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
+  SUSPENSION_RECONCILE_INTERVAL_MS: parsed.SUSPENSION_RECONCILE_INTERVAL_MS,
+  SUSPENSION_RECONCILE_ENABLED: parsed.SUSPENSION_RECONCILE_ENABLED,
   SPOT_LIFECYCLE_INTERVAL_MS: parsed.SPOT_LIFECYCLE_INTERVAL_MS,
   SPOT_LIFECYCLE_ENABLED: parsed.SPOT_LIFECYCLE_ENABLED,
   SPOT_RENEWAL_LEAD_MS: parsed.SPOT_RENEWAL_LEAD_MS,

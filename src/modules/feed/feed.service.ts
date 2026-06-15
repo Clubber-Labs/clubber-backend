@@ -9,11 +9,25 @@ import {
   findDiscoveryCandidateIds,
   findFollowingIds,
   findFriendInteractionCounts,
+  findPromotedPinCandidates,
   findSocialCandidateIds,
   findUserPreferredCategories,
   hydrateEvents,
 } from './feed.repository'
 import type { FeedQuery } from './feed.schema'
+
+// Posição do slot patrocinado na 1ª página (0-based). Índice 1 = logo após o
+// primeiro orgânico, padrão "sponsored" sem roubar o topo.
+const PROMOTED_PIN_INDEX = 1
+
+function distSq(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+) {
+  const dLat = a.latitude - b.latitude
+  const dLng = a.longitude - b.longitude
+  return dLat * dLat + dLng * dLng
+}
 
 // Pool de candidatos a ranquear: maior que a página para que o score (não a
 // recência) decida quem entra. Limitado para conter memória/latência.
@@ -108,7 +122,7 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
     findUserPreferredCategories(userId),
   ])
 
-  const [socialIds, discoveryIds] = await Promise.all([
+  const [socialIds, discoveryIds, pinCandidates] = await Promise.all([
     findSocialCandidateIds(userId, followingIds, query, poolSize, now),
     findDiscoveryCandidateIds(
       preferredCategories,
@@ -117,14 +131,32 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
       poolSize,
       now,
     ),
+    findPromotedPinCandidates(userId, query, now),
   ])
+
+  // Slot patrocinado: escolhe 1 promovido (mais próximo do viewer; sem
+  // localização, o de data mais próxima). Calculado em TODA página para poder
+  // EXCLUIR o pinado do fluxo orgânico (a seleção é estável dentro do TTL do
+  // cache, então o keyset das páginas seguintes não o reencontra) — mas a
+  // INJEÇÃO só acontece na 1ª página (sem cursor).
+  const pinId =
+    pinCandidates.length === 0
+      ? null
+      : center
+        ? pinCandidates.reduce((best, c) =>
+            distSq(c, center) < distSq(best, center) ? c : best,
+          ).id
+        : pinCandidates[0].id
 
   // Social primeiro (prioriza a rede do viewer), depois descoberta; capado em
   // POOL_CAP pra hidratação nunca passar do teto mesmo com as duas pools cheias.
-  const allIds = Array.from(new Set([...socialIds, ...discoveryIds])).slice(
-    0,
-    POOL_CAP,
-  )
+  // O pinado sai do fluxo orgânico (vai pelo slot patrocinado, sem duplicar).
+  const organicIds = Array.from(new Set([...socialIds, ...discoveryIds]))
+    .filter((id) => id !== pinId)
+    .slice(0, POOL_CAP)
+  const isFirstPage = !decoded
+  const pinToInject = isFirstPage ? pinId : null
+  const allIds = pinToInject ? [...organicIds, pinToInject] : organicIds
   if (allIds.length === 0) return { data: [], nextCursor: null }
 
   const [events, distances, friendCounts] = await Promise.all([
@@ -135,7 +167,12 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
     findFriendInteractionCounts(allIds, followingIds),
   ])
 
+  const pinnedEvent = pinToInject
+    ? events.find((e) => e.id === pinToInject)
+    : undefined
+
   const ranked = events
+    .filter((event) => event.id !== pinToInject)
     .map((event) => ({
       event,
       score: rankEvent(
@@ -165,8 +202,10 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
     )
   }
 
-  const page = candidates.slice(0, query.limit)
-  const hasMore = candidates.length > query.limit
+  // Com pin, a página orgânica encolhe 1 pra manter o total = limit.
+  const organicLimit = pinnedEvent ? Math.max(query.limit - 1, 1) : query.limit
+  const page = candidates.slice(0, organicLimit)
+  const hasMore = candidates.length > organicLimit
   const last = page[page.length - 1]
   const nextCursor =
     hasMore && last
@@ -177,5 +216,15 @@ async function buildFeedResult(userId: string, query: FeedQuery) {
         })
       : null
 
-  return { data: page.map((r) => r.event), nextCursor }
+  const data: (FeedEventWithPin | undefined)[] = page.map((r) => r.event)
+  if (pinnedEvent) {
+    const at = Math.min(PROMOTED_PIN_INDEX, data.length)
+    data.splice(at, 0, { ...pinnedEvent, promoted: true })
+  }
+
+  return { data, nextCursor }
+}
+
+type FeedEventWithPin = Awaited<ReturnType<typeof hydrateEvents>>[number] & {
+  promoted?: boolean
 }

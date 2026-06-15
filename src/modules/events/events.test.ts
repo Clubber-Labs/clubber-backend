@@ -474,6 +474,43 @@ describe('cache de GET /events', () => {
 })
 
 describe('GET /events/map', () => {
+  it('evento promovido ganha boost de peso e promoted:true', async () => {
+    const author = await makeUser()
+    // Dois UPCOMING idênticos em engajamento; um promovido, outro não.
+    const plain = await makeEvent(author.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+      isPublic: true,
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    })
+    const promoted = await makeEvent(author.id, {
+      latitude: -25.41,
+      longitude: -49.31,
+      isPublic: true,
+      isFeatured: true,
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events/map?bboxNorth=-25.3&bboxSouth=-25.5&bboxEast=-49.2&bboxWest=-49.4',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as {
+      id: string
+      weight: number
+      promoted: boolean
+    }[]
+    const promotedPoint = body.find((p) => p.id === promoted.id)
+    const plainPoint = body.find((p) => p.id === plain.id)
+    expect(promotedPoint).toBeDefined()
+    expect(plainPoint).toBeDefined()
+    expect(promotedPoint?.promoted).toBe(true)
+    expect(plainPoint?.promoted).toBe(false)
+    expect(promotedPoint?.weight).toBeGreaterThan(plainPoint?.weight as number)
+  })
+
   it('UPCOMING distante: peso vem só do engajamento', async () => {
     const author = await makeUser()
     const u1 = await makeUser()
@@ -712,6 +749,57 @@ describe('GET /events/:id', () => {
     })
 
     expect(res.statusCode).toBe(200)
+  })
+
+  it('topAttendances: amigos primeiro, depois não-amigos (até 5)', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const strangerA = await makeUser()
+    const strangerB = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    // não-amigos confirmam antes; amigo confirma por último (mais recente).
+    await makeAttendance(strangerA.id, event.id, 'CONFIRMED')
+    await makeAttendance(strangerB.id, event.id, 'CONFIRMED')
+    await makeAttendance(friend.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    // amigo primeiro, apesar de ter confirmado por último
+    expect(body.topAttendances[0].user.id).toBe(friend.id)
+    const ids = body.topAttendances.map(
+      (a: { user: { id: string } }) => a.user.id,
+    )
+    expect(ids).toContain(strangerA.id)
+    expect(ids).toContain(strangerB.id)
+    expect(body.topAttendances).toHaveLength(3)
+    // friendAttendances = subconjunto de amigos do topAttendances
+    expect(body.friendAttendances).toHaveLength(1)
+    expect(body.friendAttendances[0].user.id).toBe(friend.id)
+  })
+
+  it('topAttendances aparece mesmo anônimo; friendAttendances vazio', async () => {
+    const author = await makeUser()
+    const goer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    await makeAttendance(goer.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(
+      body.topAttendances.map((a: { user: { id: string } }) => a.user.id),
+    ).toContain(goer.id)
+    expect(body.friendAttendances).toEqual([])
   })
 })
 

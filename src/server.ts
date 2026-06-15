@@ -23,8 +23,10 @@ import { registerAuthDecorators } from './lib/auth-decorators'
 import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
 import { buildLoggerOptions } from './lib/logger'
+import { rebuildFromDb as rebuildModerationDenylist } from './lib/moderation-denylist'
 import { redis } from './lib/redis'
 import { genReqId } from './lib/request-id'
+import { adminConsentRoutes } from './modules/admin-consent/admin-consent.routes'
 import { attendanceRoutes } from './modules/attendance/attendance.routes'
 import { authRoutes } from './modules/auth/auth.routes'
 import {
@@ -55,16 +57,20 @@ import {
 import { startNotificationRetentionReconciler } from './modules/notifications/notification-retention.reconciler'
 import { notificationsGateway } from './modules/notifications/notifications.gateway'
 import { notificationsRoutes } from './modules/notifications/notifications.routes'
+import { startPromotedDigestReconciler } from './modules/notifications/promoted-digest.reconciler'
 import { startPushReceiptsReconciler } from './modules/notifications/push-receipts.reconciler'
 import { startSpotLifecycleReconciler } from './modules/notifications/spot-lifecycle.reconciler'
 import { startPasswordResetCleanupReconciler } from './modules/password-reset/password-reset.reconciler'
 import { passwordResetRoutes } from './modules/password-reset/password-reset.routes'
 import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
+import { startRecurringEventsReconciler } from './modules/recurring-events/recurring-events.reconciler'
+import { recurringEventsRoutes } from './modules/recurring-events/recurring-events.routes'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
+import { startSuspensionReconciler } from './modules/users/suspension.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
 import { metricsPlugin } from './plugins/metrics'
 import { requestIdPlugin } from './plugins/request-id'
@@ -162,9 +168,11 @@ app.register(passwordResetRoutes)
 app.register(categoriesRoutes)
 app.register(eventsRoutes)
 app.register(eventStatsRoutes)
+app.register(recurringEventsRoutes)
 app.register(featuredEventsRoutes)
 app.register(usersRoutes)
 app.register(consentRoutes)
+app.register(adminConsentRoutes)
 app.register(followsRoutes)
 app.register(attendanceRoutes)
 app.register(postsRoutes)
@@ -210,9 +218,30 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
   }
+  // Só inicia se o master-switch de notificações estiver ligado (o digest
+  // entrega push) E o switch específico do digest. Espelha o gate do worker
+  // de notificações.
+  if (
+    env.NODE_ENV !== 'test' &&
+    env.NOTIFICATIONS_ENABLED &&
+    env.PROMOTION_DIGEST_ENABLED
+  ) {
+    startPromotedDigestReconciler(env.PROMOTION_DIGEST_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.RECURRENCE_RECONCILE_ENABLED) {
+    startRecurringEventsReconciler(env.RECURRENCE_RECONCILE_INTERVAL_MS)
+  }
   if (env.NODE_ENV !== 'test' && env.ACCOUNT_DELETION_ENABLED) {
     startAccountDeletionReconciler(env.ACCOUNT_DELETION_INTERVAL_MS)
   }
+  if (env.NODE_ENV !== 'test' && env.SUSPENSION_RECONCILE_ENABLED) {
+    startSuspensionReconciler(env.SUSPENSION_RECONCILE_INTERVAL_MS)
+  }
+  // Repopula a denylist de moderação a partir do banco (sobrevive a restart /
+  // flush do Redis). Best-effort: falha não impede o boot.
+  rebuildModerationDenylist().catch((err) => {
+    app.log.error({ err }, 'falha ao reconstruir a denylist de moderação')
+  })
   if (
     env.NODE_ENV !== 'test' &&
     env.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED

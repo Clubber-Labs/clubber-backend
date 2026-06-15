@@ -92,6 +92,19 @@ export async function uploadEventImage(buffer: Buffer, eventId: string) {
   return { ...result, format: processed.format, size: processed.size }
 }
 
+export async function uploadPostImage(buffer: Buffer, postId: string) {
+  const processed = await imageProcessorService.processEventGallery(buffer)
+  const result = await getStorage().upload(
+    {
+      buffer: processed.buffer,
+      filename: 'image.webp',
+      mimetype: 'image/webp',
+    },
+    `posts/${postId}`,
+  )
+  return { ...result, format: processed.format, size: processed.size }
+}
+
 export async function uploadMessageImage(
   buffer: Buffer,
   conversationId: string,

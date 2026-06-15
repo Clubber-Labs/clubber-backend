@@ -66,6 +66,64 @@ describe('GET /feed', () => {
     )
   })
 
+  it('expõe topAttendances no card (amigos primeiro, depois não-amigos)', async () => {
+    const viewer = await makeUser()
+    const author = await makeUser()
+    const friend = await makeUser()
+    const stranger = await makeUser()
+    await makeFollow(viewer.id, author.id)
+    await makeFollow(viewer.id, friend.id)
+
+    const event = await makeEvent(author.id, { isPublic: true })
+    // stranger confirma antes; amigo por último — amigo ainda vem primeiro.
+    await makeAttendance(stranger.id, event.id, 'CONFIRMED')
+    await makeAttendance(friend.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeDefined()
+    expect(found.topAttendances[0].user.id).toBe(friend.id)
+    expect(
+      found.topAttendances.map((a: { user: { id: string } }) => a.user.id),
+    ).toContain(stranger.id)
+  })
+
+  it('reason friend_attending prioriza amigo CONFIRMED sobre o mais recente', async () => {
+    const viewer = await makeUser()
+    const friendConfirmed = await makeUser()
+    const friendInterested = await makeUser()
+    const author = await makeUser()
+    await makeFollow(viewer.id, friendConfirmed.id)
+    await makeFollow(viewer.id, friendInterested.id)
+
+    const event = await makeEvent(author.id, { isPublic: true })
+    // CONFIRMED é mais ANTIGO; INTERESTED é mais RECENTE. A prioridade
+    // (CONFIRMED > INTERESTED) deve vencer a recência na escolha do reason.
+    await makeAttendance(friendConfirmed.id, event.id, 'CONFIRMED', {
+      createdAt: new Date(Date.now() - 60_000),
+    })
+    await makeAttendance(friendInterested.id, event.id, 'INTERESTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((e: { id: string }) => e.id === event.id)
+    expect(found).toBeDefined()
+    expect(found.reason.kind).toBe('friend_attending')
+    expect(found.reason.user.id).toBe(friendConfirmed.id)
+    expect(found.reason.type).toBe('CONFIRMED')
+  })
+
   it('não exibe eventos privados sem acesso do viewer', async () => {
     const viewer = await makeUser()
     const followed = await makeUser()
@@ -1231,5 +1289,128 @@ describe('visibilidade no feed por status do autor', () => {
     expect(res.statusCode).toBe(200)
     const ids = res.json().data.map((e: { id: string }) => e.id)
     expect(ids).not.toContain(event.id)
+  })
+})
+
+// Slot patrocinado: 1 evento promovido pinado na 1ª página do feed.
+describe('GET /feed — slot promovido', () => {
+  type FeedItem = { id: string; promoted?: boolean }
+
+  it('1ª página pina 1 evento promovido com promoted:true', async () => {
+    const viewer = await makeUser()
+    const followed = await makeUser()
+    await makeFollow(viewer.id, followed.id)
+    await makeEvent(followed.id, { isPublic: true })
+    const promoter = await makeUser({ isPremium: true })
+    const promotedEvent = await makeEvent(promoter.id, {
+      isPublic: true,
+      isFeatured: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    const pinned = data.find((e) => e.id === promotedEvent.id)
+    expect(pinned).toBeDefined()
+    expect(pinned?.promoted).toBe(true)
+    // Os demais não carregam a flag.
+    for (const e of data.filter((x) => x.id !== promotedEvent.id)) {
+      expect(e.promoted ?? false).toBe(false)
+    }
+  })
+
+  it('sem promovido ativo, feed segue normal (ninguém com promoted:true)', async () => {
+    const viewer = await makeUser()
+    const followed = await makeUser()
+    await makeFollow(viewer.id, followed.id)
+    await makeEvent(followed.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    expect(data.some((e) => e.promoted === true)).toBe(false)
+  })
+
+  it('não duplica quando o promovido já apareceria organicamente', async () => {
+    const viewer = await makeUser()
+    const promoter = await makeUser({ isPremium: true })
+    // Viewer segue o promoter → o evento promovido entraria organicamente.
+    await makeFollow(viewer.id, promoter.id)
+    const promotedEvent = await makeEvent(promoter.id, {
+      isPublic: true,
+      isFeatured: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    const occurrences = data.filter((e) => e.id === promotedEvent.id)
+    expect(occurrences).toHaveLength(1)
+    expect(occurrences[0].promoted).toBe(true)
+  })
+
+  it('evento promovido PRÓPRIO não é pinado para o autor', async () => {
+    const promoter = await makeUser({ isPremium: true })
+    const promotedEvent = await makeEvent(promoter.id, {
+      isPublic: true,
+      isFeatured: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, promoter.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    const own = data.find((e) => e.id === promotedEvent.id)
+    // Pode até aparecer organicamente (evento próprio), mas nunca como pin.
+    expect(own?.promoted ?? false).toBe(false)
+  })
+
+  it('página com cursor (2ª+) não pina', async () => {
+    const viewer = await makeUser()
+    const followed = await makeUser()
+    await makeFollow(viewer.id, followed.id)
+    // Eventos suficientes pra ter 2ª página com limit=2.
+    for (let i = 0; i < 5; i++) {
+      await makeEvent(followed.id, { isPublic: true })
+    }
+    const promoter = await makeUser({ isPremium: true })
+    await makeEvent(promoter.id, { isPublic: true, isFeatured: true })
+
+    const first = await app.inject({
+      method: 'GET',
+      url: '/feed?limit=2',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(first.statusCode).toBe(200)
+    const nextCursor = first.json().nextCursor as string | null
+    expect(nextCursor).toBeTruthy()
+
+    const second = await app.inject({
+      method: 'GET',
+      url: `/feed?limit=2&cursor=${encodeURIComponent(nextCursor as string)}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(second.statusCode).toBe(200)
+    const data = second.json().data as FeedItem[]
+    expect(data.some((e) => e.promoted === true)).toBe(false)
   })
 })

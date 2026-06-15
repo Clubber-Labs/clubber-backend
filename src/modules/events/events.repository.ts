@@ -146,6 +146,108 @@ function normalizeShared(
   }
 }
 
+type EventImagePayload = Prisma.EventImageGetPayload<{
+  select: typeof eventImageSelect
+}>
+
+type AnchorImageRow = EventImagePayload & { seriesId: string }
+
+// Imagens da ocorrência ÂNCORA de cada série = a de menor (date, id) que TEM
+// imagem (sem filtro de lifecycle — a imagem é da série mesmo que a 1ª já seja
+// passada). Uma query para todas as séries (sem N+1). Estilo de ROW_NUMBER já
+// usado em findTopAttendancesByEvent.
+async function findSeriesAnchorImages(
+  seriesIds: string[],
+): Promise<Map<string, EventImagePayload[]>> {
+  const map = new Map<string, EventImagePayload[]>()
+  if (seriesIds.length === 0) return map
+
+  const rows = await prisma.$queryRaw<AnchorImageRow[]>(Prisma.sql`
+    SELECT anchor."seriesId" AS "seriesId",
+           img.id, img.url, img.format, img.size, img."order"
+    FROM (
+      SELECT e.id, e."seriesId",
+             ROW_NUMBER() OVER (
+               PARTITION BY e."seriesId" ORDER BY e.date ASC, e.id ASC
+             ) AS rn
+      FROM events e
+      WHERE e."seriesId" IN (${Prisma.join(seriesIds)})
+        AND EXISTS (SELECT 1 FROM event_images ei WHERE ei."eventId" = e.id)
+    ) anchor
+    JOIN event_images img ON img."eventId" = anchor.id
+    WHERE anchor.rn = 1
+    ORDER BY anchor."seriesId", img."order" ASC, img."createdAt" ASC
+  `)
+
+  for (const r of rows) {
+    const list = map.get(r.seriesId) ?? []
+    list.push({
+      id: r.id,
+      url: r.url,
+      format: r.format,
+      size: r.size,
+      order: r.order,
+    })
+    map.set(r.seriesId, list)
+  }
+  return map
+}
+
+// normalizeShared em lote, com fallback de imagem por série: ocorrências de uma
+// série SEM imagem própria herdam, no payload, as imagens da âncora da série.
+// Herança de leitura (não cópia física); se a âncora perde as imagens, as
+// ocorrências perdem o fallback. Batched para evitar N+1.
+async function normalizeSharedList(
+  events: PrismaSharedEvent[],
+  now: Date = new Date(),
+): Promise<SharedEvent[]> {
+  const needFallback = events.filter(
+    (e) => e.seriesId !== null && e.images.length === 0,
+  )
+  if (needFallback.length === 0) {
+    return events.map((e) => normalizeShared(e, now))
+  }
+  const seriesIds = [...new Set(needFallback.map((e) => e.seriesId as string))]
+  const anchorImages = await findSeriesAnchorImages(seriesIds)
+  // Sem mutar o resultado do Prisma (convenção do projeto): quando a ocorrência
+  // herda as imagens da âncora, normaliza uma cópia rasa com `images` trocado.
+  return events.map((e) => {
+    const imgs =
+      e.seriesId !== null && e.images.length === 0
+        ? anchorImages.get(e.seriesId)
+        : undefined
+    return normalizeShared(imgs ? { ...e, images: imgs } : e, now)
+  })
+}
+
+// Filtro que colapsa séries nas listagens: mantém só a ocorrência ÂNCORA de
+// cada série (a de menor data — única graças ao unique (seriesId, date)) +
+// todos os eventos avulsos (seriesId null). `baseWhere` é o MESMO filtro da
+// query principal, para a âncora ser a menor data ENTRE as que passam no filtro
+// (lifecycle, bbox, etc.). NÃO usado no feed GET /events (lá não colapsa).
+async function seriesAnchorFilter(
+  baseWhere: Prisma.EventWhereInput,
+): Promise<Prisma.EventWhereInput> {
+  // Resolve a âncora de cada série (a de menor data — única graças ao unique
+  // (seriesId, date)) para o ID do evento e devolve um único `id IN (...)`. Evita
+  // um OR de N condições compostas (seriesId, date), que cresceria até o teto de
+  // eventos do filtro (ex.: MAP_BBOX_FETCH_CAP) em áreas densas.
+  const seriesEvents = await prisma.event.findMany({
+    where: { AND: [baseWhere, { seriesId: { not: null } }] },
+    select: { id: true, seriesId: true, date: true },
+  })
+  const anchorBySeries = new Map<string, { id: string; date: Date }>()
+  for (const e of seriesEvents) {
+    const seriesId = e.seriesId as string
+    const current = anchorBySeries.get(seriesId)
+    if (!current || e.date < current.date) {
+      anchorBySeries.set(seriesId, { id: e.id, date: e.date })
+    }
+  }
+  const anchorIds = [...anchorBySeries.values()].map((a) => a.id)
+  return { OR: [{ seriesId: null }, { id: { in: anchorIds } }] }
+}
+
 export async function findPublicEvents(
   filters: Pick<
     ListEventsQuery,
@@ -232,7 +334,7 @@ export async function findPublicEvents(
           .slice(0, limit)
       : events
 
-  return ordered.map((e) => normalizeShared(e, now))
+  return normalizeSharedList(ordered, now)
 }
 
 export async function findEventsByAuthor(
@@ -258,7 +360,7 @@ export async function findEventsByAuthor(
     include: buildSharedIncludes(),
   })) as unknown as PrismaSharedEvent[]
 
-  return events.map((e) => normalizeShared(e, now))
+  return normalizeSharedList(events, now)
 }
 
 export async function findEventAccess(id: string) {
@@ -306,7 +408,7 @@ export async function findEventById(
   })) as unknown as PrismaSharedEvent | null
 
   if (!event) return null
-  return normalizeShared(event, now)
+  return (await normalizeSharedList([event], now))[0]
 }
 
 export type ViewerEventState = {
@@ -392,6 +494,8 @@ export type MapEventPoint = {
   latitude: number
   longitude: number
   weight: number
+  // Evento promovido (isFeatured): pin/badge diferenciado no mobile.
+  promoted: boolean
 }
 
 /**
@@ -406,6 +510,11 @@ const STATUS_HEATMAP_BOOST: Record<EventStatus, number> = {
   PAST: 0,
   CANCELED: 0,
 }
+
+// Boost aditivo de evento promovido (isFeatured) no heatmap: acima do SOON,
+// comparável ao ONGOING — o organizador pagou por visibilidade, mas o calor
+// orgânico (engajamento) continua somando por cima.
+const FEATURED_HEATMAP_BOOST = 25
 
 const MAP_BBOX_FETCH_CAP = 2000
 const MAP_RESPONSE_CAP = 500
@@ -452,33 +561,37 @@ export async function findEventsForMap(
   const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return []
 
-  const events = await prisma.event.findMany({
-    where: {
-      AND: [
-        { id: { in: idsInBbox } },
-        { isPublic: true },
-        { author: visibleAuthorWhere() },
-        buildMapLifecycleWhere({
-          status: query.status,
-          now,
-          recentPastMs: RECENT_PAST_MS,
-        }),
-        ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
-        ...(query.category && query.category.length > 0
-          ? [{ categories: { hasSome: query.category } }]
-          : []),
-        ...(query.dateFrom || query.dateTo
-          ? [
-              {
-                date: {
-                  ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
-                  ...(query.dateTo && { lte: new Date(query.dateTo) }),
-                },
+  const baseWhere: Prisma.EventWhereInput = {
+    AND: [
+      { id: { in: idsInBbox } },
+      { isPublic: true },
+      { author: visibleAuthorWhere() },
+      buildMapLifecycleWhere({
+        status: query.status,
+        now,
+        recentPastMs: RECENT_PAST_MS,
+      }),
+      ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
+      ...(query.category && query.category.length > 0
+        ? [{ categories: { hasSome: query.category } }]
+        : []),
+      ...(query.dateFrom || query.dateTo
+        ? [
+            {
+              date: {
+                ...(query.dateFrom && { gte: new Date(query.dateFrom) }),
+                ...(query.dateTo && { lte: new Date(query.dateTo) }),
               },
-            ]
-          : []),
-      ],
-    },
+            },
+          ]
+        : []),
+    ],
+  }
+
+  // Colapsa séries: 1 ponto por série no heatmap (a âncora) + avulsos.
+  const anchorFilter = await seriesAnchorFilter(baseWhere)
+  const events = await prisma.event.findMany({
+    where: { AND: [baseWhere, anchorFilter] },
     select: {
       id: true,
       latitude: true,
@@ -486,6 +599,7 @@ export async function findEventsForMap(
       date: true,
       endDate: true,
       canceledAt: true,
+      isFeatured: true,
     },
   })
   if (events.length === 0) return []
@@ -512,26 +626,36 @@ export async function findEventsForMap(
       id: e.id,
       latitude: e.latitude,
       longitude: e.longitude,
-      weight: (engagement.get(e.id) ?? 0) + STATUS_HEATMAP_BOOST[status],
+      weight:
+        (engagement.get(e.id) ?? 0) +
+        STATUS_HEATMAP_BOOST[status] +
+        (e.isFeatured ? FEATURED_HEATMAP_BOOST : 0),
+      promoted: e.isFeatured,
     }
   })
   points.sort((a, b) => b.weight - a.weight)
   return points.slice(0, MAP_RESPONSE_CAP)
 }
 
-export type TopAttendance = { user: AuthorPayload; isFriend: boolean }
+export type TopAttendance = {
+  user: AuthorPayload
+  isFriend: boolean
+  type: AttendanceType
+}
 
 type TopAttendanceRow = AuthorPayload & {
   eventid: string
   isfriend: boolean
+  type: AttendanceType
 }
 
 /**
  * Participantes em destaque por evento (top {@link TOP_ATTENDANCES_LIMIT}),
  * ordenados: amigos primeiro, depois confirmados antes de interessados, depois
  * por recência. Um ROW_NUMBER por evento limita no SQL (sem trazer presenças
- * demais). Cada item carrega `isFriend` para o caller derivar friendAttendances
- * (subconjunto de amigos) sem uma segunda query.
+ * demais). Cada item carrega `isFriend` (para derivar friendAttendances, o
+ * subconjunto de amigos) e `type` (para o reason `friend_attending` do feed),
+ * evitando uma segunda query.
  */
 export async function findTopAttendancesByEvent(
   eventIds: string[],
@@ -549,9 +673,10 @@ export async function findTopAttendancesByEvent(
   const rows = await prisma.$queryRaw<TopAttendanceRow[]>(Prisma.sql`
     SELECT ranked."eventId" AS eventid,
            ranked.is_friend AS isfriend,
+           ranked.type AS type,
            u.id, u.name, u.lastname, u.username, u."avatarUrl"
     FROM (
-      SELECT a."eventId", a."userId",
+      SELECT a."eventId", a."userId", a.type,
              (${isFriendExpr}) AS is_friend,
              ROW_NUMBER() OVER (
                PARTITION BY a."eventId"
@@ -586,6 +711,7 @@ export async function findTopAttendancesByEvent(
         avatarUrl: r.avatarUrl,
       },
       isFriend: r.isfriend,
+      type: r.type,
     })
     map.set(r.eventid, arr)
   }
@@ -613,23 +739,27 @@ export async function findEventsInViewport(
   const idsInBbox = await findEventIdsInBbox(bbox, MAP_BBOX_FETCH_CAP)
   if (idsInBbox.length === 0) return { events: [], truncated: false }
 
+  const baseWhere: Prisma.EventWhereInput = {
+    AND: [
+      { id: { in: idsInBbox } },
+      { isPublic: true },
+      { author: visibleAuthorWhere() },
+      buildMapLifecycleWhere({
+        status: query.status,
+        now,
+        recentPastMs: RECENT_PAST_MS,
+      }),
+      ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
+      ...(query.category && query.category.length > 0
+        ? [{ categories: { hasSome: query.category } }]
+        : []),
+    ],
+  }
+
+  // Colapsa séries antes do take+1, então `truncated` conta representativos.
+  const anchorFilter = await seriesAnchorFilter(baseWhere)
   const rows = (await prisma.event.findMany({
-    where: {
-      AND: [
-        { id: { in: idsInBbox } },
-        { isPublic: true },
-        { author: visibleAuthorWhere() },
-        buildMapLifecycleWhere({
-          status: query.status,
-          now,
-          recentPastMs: RECENT_PAST_MS,
-        }),
-        ...(query.friendsOnly ? [friendsOnlyWhere(followingIds)] : []),
-        ...(query.category && query.category.length > 0
-          ? [{ categories: { hasSome: query.category } }]
-          : []),
-      ],
-    },
+    where: { AND: [baseWhere, anchorFilter] },
     // +1 pra detectar truncamento sem uma query de contagem extra.
     take: query.limit + 1,
     orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
@@ -640,7 +770,7 @@ export async function findEventsInViewport(
 
   const truncated = rows.length > query.limit
   const page = truncated ? rows.slice(0, query.limit) : rows
-  return { events: page.map((e) => normalizeShared(e, now)), truncated }
+  return { events: await normalizeSharedList(page, now), truncated }
 }
 
 /**
@@ -653,28 +783,32 @@ export async function searchEvents(
   cursor: string | undefined,
   now: Date = new Date(),
 ): Promise<SharedEvent[]> {
+  const baseWhere: Prisma.EventWhereInput = {
+    AND: [
+      { isPublic: true },
+      { author: visibleAuthorWhere() },
+      buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
+      {
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { description: { contains: q, mode: 'insensitive' } },
+          { address: { contains: q, mode: 'insensitive' } },
+        ],
+      },
+    ],
+  }
+
+  // Colapsa séries mantendo o cursor keyset (anchorFilter é só um WHERE extra).
+  const anchorFilter = await seriesAnchorFilter(baseWhere)
   const events = (await prisma.event.findMany({
-    where: {
-      AND: [
-        { isPublic: true },
-        { author: visibleAuthorWhere() },
-        buildMapLifecycleWhere({ now, recentPastMs: RECENT_PAST_MS }),
-        {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-            { address: { contains: q, mode: 'insensitive' } },
-          ],
-        },
-      ],
-    },
+    where: { AND: [baseWhere, anchorFilter] },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
     include: buildSharedIncludes(),
   })) as unknown as PrismaSharedEvent[]
 
-  return events.map((e) => normalizeShared(e, now))
+  return normalizeSharedList(events, now)
 }
 
 export async function createEvent(

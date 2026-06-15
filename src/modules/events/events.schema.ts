@@ -1,6 +1,9 @@
 import { z } from 'zod'
 import { eventCategorySchema } from '../../lib/event-categories'
 import { EVENT_STATUSES } from '../../lib/event-lifecycle'
+import { recurrenceSchema } from '../recurring-events/recurring-events.schema'
+
+const ONE_YEAR_MS = 365 * 86_400_000
 
 const eventStatusEnum = z.enum(EVENT_STATUSES)
 
@@ -56,11 +59,32 @@ export const createEventSchema = z
     isPublic: z.boolean().default(true),
     maxCapacity: z.number().optional(),
     canceledAt: z.coerce.date().optional(),
+    // RF11.6: bloco opcional de recorrência (premium-only, validado no service).
+    recurrence: recurrenceSchema.optional(),
   })
   .refine((v) => !v.endDate || v.endDate > v.date, {
     message: 'endDate deve ser depois de date',
     path: ['endDate'],
   })
+  .refine(
+    (v) =>
+      !v.recurrence?.until ||
+      v.recurrence.until.getTime() <= v.date.getTime() + ONE_YEAR_MS,
+    {
+      message: 'until não pode passar de 1 ano após a data do evento',
+      path: ['recurrence', 'until'],
+    },
+  )
+  .refine(
+    // until antes da data do evento geraria zero ocorrências → criação quebraria
+    // (first = undefined). Rejeita no schema com 400 em vez de estourar 500.
+    (v) =>
+      !v.recurrence?.until || v.recurrence.until.getTime() >= v.date.getTime(),
+    {
+      message: 'until não pode ser antes da data do evento',
+      path: ['recurrence', 'until'],
+    },
+  )
 
 export const updateEventSchema = z
   .object({
