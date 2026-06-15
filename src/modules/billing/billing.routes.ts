@@ -16,7 +16,11 @@ import {
   postSubscribe,
   postWebhook,
 } from './billing.controller'
-import { createCheckoutBodySchema } from './billing.schema'
+import {
+  createCheckoutBodySchema,
+  planResponseSchema,
+  subscriptionResponseSchema,
+} from './billing.schema'
 
 /**
  * Rotas autenticadas — body parsing JSON normal.
@@ -53,13 +57,23 @@ export async function billingRoutes(app: FastifyInstance) {
 
   api.get(
     '/billing/subscription',
-    { onRequest: [app.authenticate] },
+    {
+      onRequest: [app.authenticate],
+      schema: { response: { 200: subscriptionResponseSchema } },
+    },
     getSubscriptionHandler,
   )
 
   // GET barato e cacheado (preço lido do Stripe com TTL de módulo) — sem
   // rate-limit especial, igual ao /billing/subscription.
-  api.get('/billing/plan', { onRequest: [app.authenticate] }, getPlanHandler)
+  api.get(
+    '/billing/plan',
+    {
+      onRequest: [app.authenticate],
+      schema: { response: { 200: planResponseSchema } },
+    },
+    getPlanHandler,
+  )
 
   // Rotas que chamam a Stripe (consome cota da API + side effects):
   // 20/min por chave (IP por default) cobre UX legítima (retry após erro de

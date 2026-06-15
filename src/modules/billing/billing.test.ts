@@ -1642,6 +1642,57 @@ describe('routes E2E', () => {
       })
     })
 
+    it('GET /billing/subscription mantém paridade total dos campos (schema de response)', async () => {
+      // Schema de response formaliza o contrato SEM remover campos — o output
+      // deve continuar com a linha inteira (datas serializadas como ISO string).
+      const user = await makeUser()
+      const sub = await makeSubscription(user.id, {
+        status: 'ACTIVE',
+        defaultPaymentMethodId: 'pm_keep',
+      })
+
+      const token = app.jwt.sign({ sub: user.id })
+      const res = await app.inject({
+        method: 'GET',
+        url: '/billing/subscription',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(200)
+      const body = res.json()
+      // Todos os campos da linha presentes (paridade total, nada stripado).
+      expect(body).toMatchObject({
+        id: sub.id,
+        userId: user.id,
+        stripeSubscriptionId: sub.stripeSubscriptionId,
+        stripePriceId: sub.stripePriceId,
+        status: 'ACTIVE',
+        cancelAtPeriodEnd: false,
+        defaultPaymentMethodId: 'pm_keep',
+      })
+      expect(Object.keys(body).sort()).toEqual(
+        [
+          'cancelAtPeriodEnd',
+          'canceledAt',
+          'createdAt',
+          'currentPeriodEnd',
+          'currentPeriodStart',
+          'defaultPaymentMethodId',
+          'id',
+          'lastSyncedAt',
+          'startedAt',
+          'status',
+          'stripePriceId',
+          'stripeSubscriptionId',
+          'trialEndsAt',
+          'updatedAt',
+          'userId',
+        ].sort(),
+      )
+      // Datas serializadas como ISO string no JSON.
+      expect(typeof body.currentPeriodEnd).toBe('string')
+    })
+
     it('GET /billing/plan retorna 401 sem token', async () => {
       const res = await app.inject({ method: 'GET', url: '/billing/plan' })
       expect(res.statusCode).toBe(401)
