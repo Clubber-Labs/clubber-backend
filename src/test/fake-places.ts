@@ -12,6 +12,7 @@ function fakeCandidate(
     name: `Lugar ${over.category}`,
     latitude: -25.4,
     longitude: -49.3,
+    subcategory: null,
     address: null,
     rating: null,
     userRatingCount: null,

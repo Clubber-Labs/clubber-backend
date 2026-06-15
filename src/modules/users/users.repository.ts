@@ -24,6 +24,7 @@ const userPublicListSelect = {
 const userPublicProfileSelect = {
   ...userPublicListSelect,
   categoryPreferences: { select: { category: true } },
+  subcategoryPreferences: { select: { subcategory: true } },
 } as const
 
 const userPrivateProfileSelect = {
@@ -131,7 +132,7 @@ export async function findUserByUsername(username: string) {
 export async function createUser(
   data: Omit<CreateUserBody, 'password'> & { password: string | null },
 ) {
-  const { preferredCategories, ...userData } = data
+  const { preferredCategories, preferredSubcategories, ...userData } = data
   return prisma.user.create({
     data: {
       ...userData,
@@ -139,6 +140,15 @@ export async function createUser(
         ? {
             categoryPreferences: {
               create: preferredCategories.map((category) => ({ category })),
+            },
+          }
+        : {}),
+      ...(preferredSubcategories && preferredSubcategories.length > 0
+        ? {
+            subcategoryPreferences: {
+              create: preferredSubcategories.map((subcategory) => ({
+                subcategory,
+              })),
             },
           }
         : {}),
@@ -228,27 +238,48 @@ export async function clearStaleUserLocations(cutoff: Date) {
 }
 
 /**
- * Atualiza o usuário e substitui suas preferências de categoria numa única
- * transação (semântica PUT: a lista enviada vira o estado completo).
+ * Atualiza o usuário e substitui suas preferências (categoria e/ou subcategoria)
+ * numa única transação. Semântica PUT: cada lista enviada vira o estado completo
+ * daquele nível; nível ausente (undefined) é preservado. O update do usuário é a
+ * ÚLTIMA operação para que seu select leia o estado já substituído
+ * (read-after-write dentro da transação).
  */
 export async function updateUserWithPreferences(
   id: string,
   data: Prisma.UserUpdateInput,
-  categories: EventCategory[],
+  prefs: { categories?: EventCategory[]; subcategories?: string[] },
 ) {
-  const [, , user] = await prisma.$transaction([
-    prisma.userCategoryPreference.deleteMany({ where: { userId: id } }),
-    prisma.userCategoryPreference.createMany({
-      data: categories.map((category) => ({ userId: id, category })),
-      skipDuplicates: true,
-    }),
+  const ops: Prisma.PrismaPromise<unknown>[] = []
+  if (prefs.categories !== undefined) {
+    ops.push(
+      prisma.userCategoryPreference.deleteMany({ where: { userId: id } }),
+      prisma.userCategoryPreference.createMany({
+        data: prefs.categories.map((category) => ({ userId: id, category })),
+        skipDuplicates: true,
+      }),
+    )
+  }
+  if (prefs.subcategories !== undefined) {
+    ops.push(
+      prisma.userSubcategoryPreference.deleteMany({ where: { userId: id } }),
+      prisma.userSubcategoryPreference.createMany({
+        data: prefs.subcategories.map((subcategory) => ({
+          userId: id,
+          subcategory,
+        })),
+        skipDuplicates: true,
+      }),
+    )
+  }
+  ops.push(
     prisma.user.update({
       where: { id },
       data,
       select: userPrivateProfileSelect,
     }),
-  ])
-  return user
+  )
+  const results = await prisma.$transaction(ops)
+  return results[results.length - 1] as Awaited<ReturnType<typeof updateUser>>
 }
 
 /**

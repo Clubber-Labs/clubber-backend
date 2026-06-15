@@ -113,7 +113,8 @@ model User {
   subscriptions         Subscription[]
   eventSeries           EventSeries[]
 
-  categoryPreferences UserCategoryPreference[]
+  categoryPreferences    UserCategoryPreference[]
+  subcategoryPreferences UserSubcategoryPreference[]
 
   // Chat
   conversationsCreated       Conversation[]            @relation("conversationsCreated")
@@ -230,6 +231,22 @@ model UserCategoryPreference {
   @@unique([userId, category])
   @@index([userId])
   @@map("user_category_preferences")
+}
+
+// Preferência de SUBCATEGORIA (2º nível). `subcategory` é uma chave da taxonomia
+// config (src/lib/subcategories.ts), validada no input — por isso String, não
+// enum. Espelha UserCategoryPreference.
+model UserSubcategoryPreference {
+  id          String   @id @default(uuid())
+  userId      String
+  subcategory String
+  createdAt   DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, subcategory])
+  @@index([userId])
+  @@map("user_subcategory_preferences")
 }
 
 enum ConversationType {

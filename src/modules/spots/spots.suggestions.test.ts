@@ -1,7 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeUser, makeUserCategoryPreference } from '../../test/factories'
+import {
+  makeUser,
+  makeUserCategoryPreference,
+  makeUserSubcategoryPreference,
+} from '../../test/factories'
 import { fakeEnhancer } from '../../test/fake-enhancer'
 import { fakePlaces } from '../../test/fake-places'
 import { testPrisma } from '../../test/prisma'
@@ -25,6 +29,7 @@ function baseCandidate(
     latitude: p.latitude,
     longitude: p.longitude,
     category: 'PARTY' as const,
+    subcategory: null,
     address: null,
     rating: null,
     userRatingCount: null,
@@ -316,6 +321,45 @@ describe('POST /spots/suggestions', () => {
       body: { ...near, radiusKm: 4 },
     })
 
+    expect(fakePlaces.calls).toBe(2)
+  })
+
+  it('subcategoria de venue estreita os tipos da busca (precise-first)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'GASTRONOMY')
+    await makeUserSubcategoryPreference(user.id, 'GASTRONOMY_JAPONESA')
+
+    await suggest(user.id)
+
+    // Em vez de todos os tipos de GASTRONOMY, só os da subcategoria escolhida.
+    expect(fakePlaces.lastNearby?.includedTypes).toEqual(['sushi_restaurant'])
+  })
+
+  it('gênero não estreita a busca (Places não filtra estilo)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    await makeUserSubcategoryPreference(user.id, 'GENRE_FUNK')
+
+    await suggest(user.id)
+
+    // Gênero não tem tipo do Places → busca cai nos tipos do nível de categoria.
+    expect(fakePlaces.lastNearby?.includedTypes).toEqual(
+      expect.arrayContaining(['night_club', 'dance_hall']),
+    )
+  })
+
+  it('subcategorias diferentes não compartilham cache', async () => {
+    const a = await makeUser()
+    await makeUserCategoryPreference(a.id, 'GASTRONOMY')
+    await makeUserSubcategoryPreference(a.id, 'GASTRONOMY_JAPONESA')
+    const b = await makeUser()
+    await makeUserCategoryPreference(b.id, 'GASTRONOMY')
+    await makeUserSubcategoryPreference(b.id, 'GASTRONOMY_PIZZA')
+
+    await suggest(a.id)
+    await suggest(b.id)
+
+    // Chaves de cache distintas (subcat no key) → 2 buscas no Places.
     expect(fakePlaces.calls).toBe(2)
   })
 

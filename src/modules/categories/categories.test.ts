@@ -45,6 +45,14 @@ describe('GET /categories', () => {
     expect(values).not.toContain('RELIGION')
   })
 
+  it('expõe os gêneros musicais como dimensão à parte', async () => {
+    const res = await app.inject({ method: 'GET', url: '/categories' })
+    const { genres } = res.json()
+    expect(genres).toEqual(
+      expect.arrayContaining([{ value: 'GENRE_FUNK', label: 'Funk' }]),
+    )
+  })
+
   it('é público (não exige autenticação)', async () => {
     const res = await app.inject({ method: 'GET', url: '/categories' })
     expect(res.statusCode).toBe(200)

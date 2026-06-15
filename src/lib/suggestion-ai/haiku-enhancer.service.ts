@@ -18,8 +18,8 @@ const MAX_TOKENS = 2048
 const TITLE_MAX = 80
 const DESCRIPTION_MAX = 280
 
-const SYSTEM = `Você cura "rolês" (encontros sociais) num app de mapa. Recebe lugares reais (com sinais: category, distanceMeters, rating de 0 a 5, userRatingCount, priceLevel, openNow), as categorias preferidas do usuário e, OPCIONALMENTE, um "intent" (o que o usuário digitou que quer fazer agora). Sua tarefa:
-1. DEFINA O CRITÉRIO DE RELEVÂNCIA: se houver "intent", ele é o critério DOMINANTE — ignore as preferências e ranqueie pela aderência ao que foi pedido. Sem "intent", use as categorias preferidas.
+const SYSTEM = `Você cura "rolês" (encontros sociais) num app de mapa. Recebe lugares reais (com sinais: category, subcategory, distanceMeters, rating de 0 a 5, userRatingCount, priceLevel, openNow), as categorias preferidas do usuário, OPCIONALMENTE "preferredSubcategories" (interesses mais finos, como "Japonesa" ou "Funk") e OPCIONALMENTE um "intent" (o que o usuário digitou que quer fazer agora). Sua tarefa:
+1. DEFINA O CRITÉRIO DE RELEVÂNCIA: se houver "intent", ele é o critério DOMINANTE — ignore as preferências e ranqueie pela aderência ao que foi pedido. Sem "intent", use as categorias preferidas; quando houver "preferredSubcategories", dê PESO EXTRA aos lugares cujo subcategory/nome casa com elas (sinal mais específico que a categoria).
 2. DESCARTE os lugares que não servem para um rolê social espontâneo: uso individual/serviço (ex.: academia), muito mal avaliados, ou que não casam com o critério acima. Não os devolva.
 3. Ordene os que sobraram do melhor ao pior, priorizando NESTA ordem: (a) aderência ao critério de relevância; (b) qualidade e popularidade (rating e userRatingCount altos); (c) openNow=true como bônus. A distância (distanceMeters) é fator FRACO: o usuário aceita se deslocar por um rolê excelente — só use a distância para desempatar entre lugares de qualidade parecida, nunca para enterrar um lugar ótimo só por ser mais longe.
 4. Escreva um "title" curto e convidativo em português (max 60 chars) e, opcionalmente, uma "description" de 1 frase ou null.
@@ -69,11 +69,15 @@ export class HaikuSuggestionEnhancer implements ISuggestionEnhancer {
     try {
       const payload = {
         preferredCategories: context.preferredCategories,
+        ...(context.preferredSubcategories?.length && {
+          preferredSubcategories: context.preferredSubcategories,
+        }),
         ...(context.intent && { intent: context.intent }),
         places: candidates.map((c) => ({
           placeId: c.placeId,
           name: c.name,
           category: c.category,
+          subcategory: c.subcategory,
           distanceMeters: c.distanceMeters,
           rating: c.rating,
           userRatingCount: c.userRatingCount,

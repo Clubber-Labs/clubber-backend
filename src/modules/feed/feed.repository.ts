@@ -487,3 +487,19 @@ export async function findUserPreferredCategories(
 
   return result
 }
+
+/**
+ * Interesses do 2º nível salvos pelo usuário (subcategorias de venue + gêneros).
+ * Explícito-only (v1): sem inferência por histórico — eventos legados não têm
+ * subcategoria. Ordenado por afinidade (createdAt).
+ */
+export async function findUserPreferredSubcategories(
+  userId: string,
+): Promise<string[]> {
+  const rows = await prisma.userSubcategoryPreference.findMany({
+    where: { userId },
+    select: { subcategory: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  return rows.map((r) => r.subcategory)
+}

@@ -17,6 +17,7 @@ function candidate(over: Partial<PlaceCandidate> = {}): PlaceCandidate {
     latitude: -23.56,
     longitude: -46.65,
     category: 'ART',
+    subcategory: null,
     address: null,
     rating: 4.5,
     userRatingCount: 100,
