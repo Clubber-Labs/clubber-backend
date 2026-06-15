@@ -1,5 +1,8 @@
 import { z } from 'zod'
-import { selectableCategorySchema } from '../../lib/event-categories'
+import {
+  eventCategorySchema,
+  selectableCategorySchema,
+} from '../../lib/event-categories'
 import { EVENT_STATUSES } from '../../lib/event-lifecycle'
 import { recurrenceSchema } from '../recurring-events/recurring-events.schema'
 
@@ -36,7 +39,10 @@ export const categoryFilter = z
     const unique = Array.from(new Set(list))
     return unique.length > 0 ? unique : undefined
   })
-  .pipe(z.array(selectableCategorySchema).optional())
+  // Filtro de BUSCA: aceita qualquer categoria armazenável (incl. legada como
+  // RELIGION), para não quebrar a consulta de dado antigo. Só a CRIAÇÃO
+  // (eventCategoriesInput) restringe ao selecionável.
+  .pipe(z.array(eventCategorySchema).optional())
 
 // Categorias que o evento POSSUI (mín. 1, sem duplicatas). Distinto do
 // categoryFilter acima, que é o filtro de busca por categoria na listagem.

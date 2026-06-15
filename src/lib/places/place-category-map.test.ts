@@ -1,14 +1,21 @@
 import { describe, expect, it } from 'vitest'
+import { EVENT_CATEGORIES } from '../event-categories'
 import {
   categoryForPlaceTypes,
   placeTypesForCategories,
 } from './place-category-map'
 
 describe('placeTypesForCategories', () => {
-  it('dedup os tipos quando categorias compartilham o mesmo tipo', () => {
-    // SPORTS e HEALTH_WELLNESS compartilham 'gym'.
-    const types = placeTypesForCategories(['SPORTS', 'HEALTH_WELLNESS'])
-    expect(types.filter((t) => t === 'gym')).toHaveLength(1)
+  it('é uma partição: nenhum tipo do Places pertence a duas categorias', () => {
+    const owner = new Map<string, string>()
+    for (const c of EVENT_CATEGORIES) {
+      for (const t of placeTypesForCategories([c])) {
+        expect(owner.has(t), `tipo "${t}" em ${owner.get(t)} e ${c}`).toBe(
+          false,
+        )
+        owner.set(t, c)
+      }
+    }
   })
 
   it('reparte a vida noturna em PARTY/NIGHTLIFE/MUSIC distintos', () => {

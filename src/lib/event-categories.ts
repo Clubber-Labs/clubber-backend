@@ -50,8 +50,12 @@ export const SELECTABLE_CATEGORIES = EVENT_CATEGORIES.filter(
   (c) => !DEPRECATED_CATEGORIES.has(c),
 ) as Exclude<EventCategory, 'RELIGION'>[]
 
+// Tipo estreito (exclui as descontinuadas). Faz o schema e quem o consome
+// inferirem o subconjunto, não o EventCategory inteiro (RELIGION fora também no tipo).
+export type SelectableCategory = (typeof SELECTABLE_CATEGORIES)[number]
+
 export const selectableCategorySchema = z.enum(
-  SELECTABLE_CATEGORIES as [EventCategory, ...EventCategory[]],
+  SELECTABLE_CATEGORIES as [SelectableCategory, ...SelectableCategory[]],
 )
 
 /**

@@ -78,6 +78,26 @@ describe('GET /events', () => {
     expect(categorias).not.toContain('SPORTS')
   })
 
+  it('filtra por categoria legada/descontinuada (RELIGION) sem dar 400', async () => {
+    // RELIGION não é selecionável para CRIAR, mas dado antigo existe e deve ser
+    // consultável: o filtro de BUSCA aceita qualquer categoria armazenável.
+    const user = await makeUser()
+    await makeEvent(user.id, { category: 'RELIGION', isPublic: true })
+    await makeEvent(user.id, { category: 'PARTY', isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events?category=RELIGION',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const categorias = res
+      .json()
+      .data.flatMap((e: { categories: string[] }) => e.categories)
+    expect(categorias).toContain('RELIGION')
+    expect(categorias).not.toContain('PARTY')
+  })
+
   it('ignora category vazia e não filtra', async () => {
     const user = await makeUser()
     await makeEvent(user.id, { category: 'PARTY', isPublic: true })
