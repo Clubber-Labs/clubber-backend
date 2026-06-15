@@ -1291,3 +1291,126 @@ describe('visibilidade no feed por status do autor', () => {
     expect(ids).not.toContain(event.id)
   })
 })
+
+// Slot patrocinado: 1 evento promovido pinado na 1ª página do feed.
+describe('GET /feed — slot promovido', () => {
+  type FeedItem = { id: string; promoted?: boolean }
+
+  it('1ª página pina 1 evento promovido com promoted:true', async () => {
+    const viewer = await makeUser()
+    const followed = await makeUser()
+    await makeFollow(viewer.id, followed.id)
+    await makeEvent(followed.id, { isPublic: true })
+    const promoter = await makeUser({ isPremium: true })
+    const promotedEvent = await makeEvent(promoter.id, {
+      isPublic: true,
+      isFeatured: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    const pinned = data.find((e) => e.id === promotedEvent.id)
+    expect(pinned).toBeDefined()
+    expect(pinned?.promoted).toBe(true)
+    // Os demais não carregam a flag.
+    for (const e of data.filter((x) => x.id !== promotedEvent.id)) {
+      expect(e.promoted ?? false).toBe(false)
+    }
+  })
+
+  it('sem promovido ativo, feed segue normal (ninguém com promoted:true)', async () => {
+    const viewer = await makeUser()
+    const followed = await makeUser()
+    await makeFollow(viewer.id, followed.id)
+    await makeEvent(followed.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    expect(data.some((e) => e.promoted === true)).toBe(false)
+  })
+
+  it('não duplica quando o promovido já apareceria organicamente', async () => {
+    const viewer = await makeUser()
+    const promoter = await makeUser({ isPremium: true })
+    // Viewer segue o promoter → o evento promovido entraria organicamente.
+    await makeFollow(viewer.id, promoter.id)
+    const promotedEvent = await makeEvent(promoter.id, {
+      isPublic: true,
+      isFeatured: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    const occurrences = data.filter((e) => e.id === promotedEvent.id)
+    expect(occurrences).toHaveLength(1)
+    expect(occurrences[0].promoted).toBe(true)
+  })
+
+  it('evento promovido PRÓPRIO não é pinado para o autor', async () => {
+    const promoter = await makeUser({ isPremium: true })
+    const promotedEvent = await makeEvent(promoter.id, {
+      isPublic: true,
+      isFeatured: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed',
+      headers: { authorization: `Bearer ${token(app, promoter.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as FeedItem[]
+    const own = data.find((e) => e.id === promotedEvent.id)
+    // Pode até aparecer organicamente (evento próprio), mas nunca como pin.
+    expect(own?.promoted ?? false).toBe(false)
+  })
+
+  it('página com cursor (2ª+) não pina', async () => {
+    const viewer = await makeUser()
+    const followed = await makeUser()
+    await makeFollow(viewer.id, followed.id)
+    // Eventos suficientes pra ter 2ª página com limit=2.
+    for (let i = 0; i < 5; i++) {
+      await makeEvent(followed.id, { isPublic: true })
+    }
+    const promoter = await makeUser({ isPremium: true })
+    await makeEvent(promoter.id, { isPublic: true, isFeatured: true })
+
+    const first = await app.inject({
+      method: 'GET',
+      url: '/feed?limit=2',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(first.statusCode).toBe(200)
+    const nextCursor = first.json().nextCursor as string | null
+    expect(nextCursor).toBeTruthy()
+
+    const second = await app.inject({
+      method: 'GET',
+      url: `/feed?limit=2&cursor=${encodeURIComponent(nextCursor as string)}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    expect(second.statusCode).toBe(200)
+    const data = second.json().data as FeedItem[]
+    expect(data.some((e) => e.promoted === true)).toBe(false)
+  })
+})

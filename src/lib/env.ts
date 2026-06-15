@@ -93,6 +93,27 @@ const baseSchema = z.object({
     .int()
     .positive()
     .default(300000),
+  // Quota mensal de promoções de evento por usuário premium (RF11.4+).
+  PROMOTION_MONTHLY_LIMIT: z.coerce.number().int().positive().default(3),
+  // Digest "melhor pra você": no máx. 1 push de promoção por usuário a cada
+  // COOLDOWN_DAYS, escolhendo o promovido mais relevante perto dele. Volume
+  // por usuário (não por promoção) — anti-spam by design.
+  PROMOTION_DIGEST_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  PROMOTION_DIGEST_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(21_600_000),
+  PROMOTION_DIGEST_COOLDOWN_DAYS: z.coerce.number().int().positive().default(3),
+  // Só avalia usuários ativos recentemente (lastSeenAt) — corta custo e spam.
+  PROMOTION_DIGEST_ACTIVE_USER_DAYS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(14),
   // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
   // Aceita explicitamente as strings comuns e transforma manualmente.
   FEATURED_RECONCILE_ENABLED: z
@@ -396,6 +417,11 @@ export const env = {
   FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
+  PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,
+  PROMOTION_DIGEST_ENABLED: parsed.PROMOTION_DIGEST_ENABLED,
+  PROMOTION_DIGEST_INTERVAL_MS: parsed.PROMOTION_DIGEST_INTERVAL_MS,
+  PROMOTION_DIGEST_COOLDOWN_DAYS: parsed.PROMOTION_DIGEST_COOLDOWN_DAYS,
+  PROMOTION_DIGEST_ACTIVE_USER_DAYS: parsed.PROMOTION_DIGEST_ACTIVE_USER_DAYS,
   RECURRENCE_RECONCILE_INTERVAL_MS: parsed.RECURRENCE_RECONCILE_INTERVAL_MS,
   RECURRENCE_RECONCILE_ENABLED: parsed.RECURRENCE_RECONCILE_ENABLED,
   STRIPE_SECRET_KEY: parsed.STRIPE_SECRET_KEY,

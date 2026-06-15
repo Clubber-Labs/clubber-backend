@@ -474,6 +474,43 @@ describe('cache de GET /events', () => {
 })
 
 describe('GET /events/map', () => {
+  it('evento promovido ganha boost de peso e promoted:true', async () => {
+    const author = await makeUser()
+    // Dois UPCOMING idênticos em engajamento; um promovido, outro não.
+    const plain = await makeEvent(author.id, {
+      latitude: -25.4,
+      longitude: -49.3,
+      isPublic: true,
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    })
+    const promoted = await makeEvent(author.id, {
+      latitude: -25.41,
+      longitude: -49.31,
+      isPublic: true,
+      isFeatured: true,
+      date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/events/map?bboxNorth=-25.3&bboxSouth=-25.5&bboxEast=-49.2&bboxWest=-49.4',
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as {
+      id: string
+      weight: number
+      promoted: boolean
+    }[]
+    const promotedPoint = body.find((p) => p.id === promoted.id)
+    const plainPoint = body.find((p) => p.id === plain.id)
+    expect(promotedPoint).toBeDefined()
+    expect(plainPoint).toBeDefined()
+    expect(promotedPoint?.promoted).toBe(true)
+    expect(plainPoint?.promoted).toBe(false)
+    expect(promotedPoint?.weight).toBeGreaterThan(plainPoint?.weight as number)
+  })
+
   it('UPCOMING distante: peso vem só do engajamento', async () => {
     const author = await makeUser()
     const u1 = await makeUser()

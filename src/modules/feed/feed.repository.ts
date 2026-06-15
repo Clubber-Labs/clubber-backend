@@ -182,6 +182,32 @@ export async function findSocialCandidateIds(
  * categorias preferidas e/ou proximidade (KNN PostGIS). Só roda quando há
  * sinal de perfil (categorias preferidas ou localização); senão retorna [].
  */
+// Candidatos ao slot patrocinado da 1ª página: eventos promovidos (isFeatured)
+// públicos, vivos, de OUTROS autores, respeitando os filtros do request. Poucos
+// ids (cap baixo) — o service escolhe 1 (mais próximo do viewer, se houver
+// localização; senão o de data mais próxima).
+export async function findPromotedPinCandidates(
+  viewerId: string,
+  query: FeedQuery,
+  now: Date,
+  take = 20,
+): Promise<{ id: string; latitude: number; longitude: number }[]> {
+  return prisma.event.findMany({
+    where: {
+      AND: [
+        ...buildBaseWhere(query, now),
+        { isFeatured: true },
+        { isPublic: true },
+        { authorId: { not: viewerId } },
+        { author: visibleAuthorWhere() },
+      ],
+    },
+    take,
+    orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    select: { id: true, latitude: true, longitude: true },
+  })
+}
+
 export async function findDiscoveryCandidateIds(
   preferredCategories: EventCategory[],
   center: LatLng | null,

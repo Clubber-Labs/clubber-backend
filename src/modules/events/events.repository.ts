@@ -494,6 +494,8 @@ export type MapEventPoint = {
   latitude: number
   longitude: number
   weight: number
+  // Evento promovido (isFeatured): pin/badge diferenciado no mobile.
+  promoted: boolean
 }
 
 /**
@@ -508,6 +510,11 @@ const STATUS_HEATMAP_BOOST: Record<EventStatus, number> = {
   PAST: 0,
   CANCELED: 0,
 }
+
+// Boost aditivo de evento promovido (isFeatured) no heatmap: acima do SOON,
+// comparável ao ONGOING — o organizador pagou por visibilidade, mas o calor
+// orgânico (engajamento) continua somando por cima.
+const FEATURED_HEATMAP_BOOST = 25
 
 const MAP_BBOX_FETCH_CAP = 2000
 const MAP_RESPONSE_CAP = 500
@@ -592,6 +599,7 @@ export async function findEventsForMap(
       date: true,
       endDate: true,
       canceledAt: true,
+      isFeatured: true,
     },
   })
   if (events.length === 0) return []
@@ -618,7 +626,11 @@ export async function findEventsForMap(
       id: e.id,
       latitude: e.latitude,
       longitude: e.longitude,
-      weight: (engagement.get(e.id) ?? 0) + STATUS_HEATMAP_BOOST[status],
+      weight:
+        (engagement.get(e.id) ?? 0) +
+        STATUS_HEATMAP_BOOST[status] +
+        (e.isFeatured ? FEATURED_HEATMAP_BOOST : 0),
+      promoted: e.isFeatured,
     }
   })
   points.sort((a, b) => b.weight - a.weight)

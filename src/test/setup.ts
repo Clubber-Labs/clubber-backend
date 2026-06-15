@@ -49,6 +49,7 @@ afterEach(async () => {
     testPrisma.report.deleteMany(),
     testPrisma.spotGenerationUsage.deleteMany(),
     testPrisma.spotDiscoveryUsage.deleteMany(),
+    testPrisma.eventPromotionUsage.deleteMany(),
     // Spot referencia conversation e creator com RESTRICT — apaga antes de ambos.
     testPrisma.spot.deleteMany(),
     // Chat: conversation cascateia participants/messages/attachments;

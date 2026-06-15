@@ -56,6 +56,7 @@ import {
 import { startNotificationRetentionReconciler } from './modules/notifications/notification-retention.reconciler'
 import { notificationsGateway } from './modules/notifications/notifications.gateway'
 import { notificationsRoutes } from './modules/notifications/notifications.routes'
+import { startPromotedDigestReconciler } from './modules/notifications/promoted-digest.reconciler'
 import { startPushReceiptsReconciler } from './modules/notifications/push-receipts.reconciler'
 import { startSpotLifecycleReconciler } from './modules/notifications/spot-lifecycle.reconciler'
 import { startPasswordResetCleanupReconciler } from './modules/password-reset/password-reset.reconciler'
@@ -214,6 +215,16 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   app.log.info(`Server is running on http://localhost:${env.PORT}`)
   if (env.NODE_ENV !== 'test' && env.FEATURED_RECONCILE_ENABLED) {
     startFeaturedEventsReconciler(env.FEATURED_RECONCILE_INTERVAL_MS)
+  }
+  // Só inicia se o master-switch de notificações estiver ligado (o digest
+  // entrega push) E o switch específico do digest. Espelha o gate do worker
+  // de notificações.
+  if (
+    env.NODE_ENV !== 'test' &&
+    env.NOTIFICATIONS_ENABLED &&
+    env.PROMOTION_DIGEST_ENABLED
+  ) {
+    startPromotedDigestReconciler(env.PROMOTION_DIGEST_INTERVAL_MS)
   }
   if (env.NODE_ENV !== 'test' && env.RECURRENCE_RECONCILE_ENABLED) {
     startRecurringEventsReconciler(env.RECURRENCE_RECONCILE_INTERVAL_MS)

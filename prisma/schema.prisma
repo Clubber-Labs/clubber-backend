@@ -121,6 +121,7 @@ model User {
   spotsCreated        Spot[]                @relation("spotsCreated")
   spotGenerationUsage SpotGenerationUsage[]
   spotDiscoveryUsage  SpotDiscoveryUsage[]
+  eventPromotionUsage EventPromotionUsage[]
 
   // Predicado do reconciler: PENDING_DELETION com scheduledDeletionAt vencido.
   @@index([accountStatus, scheduledDeletionAt])
@@ -966,4 +967,22 @@ model SpotDiscoveryUsage {
 
   @@id([userId, day])
   @@map("spot_discovery_usage")
+}
+
+// Quota MENSAL de promoções de evento (RF11.4+, premium). Uma linha por
+// (usuário, mês); `period` é o 1º dia do mês em UTC. `count` é consumido de
+// forma atômica DENTRO da transação de criação do destaque — exceder o limite
+// (env PROMOTION_MONTHLY_LIMIT) lança 429 e o rollback desfaz o incremento.
+// Cancelar um destaque NÃO devolve a quota. O mês é calendário (não o ciclo
+// de billing) — aceitável no MVP.
+model EventPromotionUsage {
+  userId    String
+  period    DateTime @db.Date
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, period])
+  @@map("event_promotion_usage")
 }

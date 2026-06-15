@@ -464,3 +464,102 @@ describe('reconcileFeaturedEvents', () => {
     expect(updated?.isFeatured).toBe(true)
   })
 })
+
+// Quota mensal de promoções (RF11.4+): consumida atomicamente na criação.
+describe('quota mensal de promoções', () => {
+  function currentPeriod() {
+    const now = new Date()
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+  }
+
+  function previousPeriod() {
+    const now = new Date()
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+  }
+
+  async function promote(authorId: string) {
+    const event = await makeEvent(authorId, { date: inFuture(86_400_000) })
+    return app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/featured`,
+      headers: { authorization: `Bearer ${token(app, authorId)}` },
+      body: {
+        startsAt: new Date().toISOString(),
+        endsAt: inFuture(3_600_000).toISOString(),
+      },
+    })
+  }
+
+  it('promover consome 1 da quota do mês corrente', async () => {
+    const author = await makeUser({ isPremium: true })
+
+    const res = await promote(author.id)
+
+    expect(res.statusCode).toBe(201)
+    const usage = await testPrisma.eventPromotionUsage.findUnique({
+      where: {
+        userId_period: { userId: author.id, period: currentPeriod() },
+      },
+    })
+    expect(usage?.count).toBe(1)
+  })
+
+  it('429 quando a quota do mês está esgotada', async () => {
+    const author = await makeUser({ isPremium: true })
+    // Esgota a quota direto no banco (limite default = 3).
+    await testPrisma.eventPromotionUsage.create({
+      data: { userId: author.id, period: currentPeriod(), count: 3 },
+    })
+
+    const res = await promote(author.id)
+
+    expect(res.statusCode).toBe(429)
+    // Tentativa rejeitada não consome (rollback).
+    const usage = await testPrisma.eventPromotionUsage.findUnique({
+      where: {
+        userId_period: { userId: author.id, period: currentPeriod() },
+      },
+    })
+    expect(usage?.count).toBe(3)
+  })
+
+  it('quota esgotada no mês PASSADO não afeta o mês corrente', async () => {
+    const author = await makeUser({ isPremium: true })
+    await testPrisma.eventPromotionUsage.create({
+      data: { userId: author.id, period: previousPeriod(), count: 3 },
+    })
+
+    const res = await promote(author.id)
+
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('cancelar o destaque NÃO devolve a quota', async () => {
+    const author = await makeUser({ isPremium: true })
+    const event = await makeEvent(author.id, { date: inFuture(86_400_000) })
+    const created = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/featured`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: {
+        startsAt: new Date().toISOString(),
+        endsAt: inFuture(3_600_000).toISOString(),
+      },
+    })
+    expect(created.statusCode).toBe(201)
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/events/${event.id}/featured/${created.json().id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+    expect(del.statusCode).toBe(204)
+
+    const usage = await testPrisma.eventPromotionUsage.findUnique({
+      where: {
+        userId_period: { userId: author.id, period: currentPeriod() },
+      },
+    })
+    expect(usage?.count).toBe(1)
+  })
+})
