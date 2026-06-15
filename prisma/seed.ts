@@ -3,6 +3,8 @@ import {
   AttendanceType,
   type EventCategory,
   FollowStatus,
+  type NotificationType,
+  type Prisma,
   PrismaClient,
   type SpotVisibility,
   UserRole,
@@ -200,6 +202,85 @@ const SPOT_MESSAGES = [
   'Atrasa não que tá enchendo',
   'Tô levando mais um amigo',
 ]
+
+// Imagens (upload desacoplado → webp). URLs/keys fictícias no mesmo formato que
+// o provider gera (events/<id>/<n> e posts/<id>/<n>). size em bytes.
+const IMAGE_CDN = 'https://cdn.conectai.dev'
+
+function fakeImage(folder: 'events' | 'posts', ownerId: string, order: number) {
+  const key = `${folder}/${ownerId}/${order}`
+  return {
+    url: `${IMAGE_CDN}/${key}.webp`,
+    key,
+    format: 'webp',
+    size: faker.number.int({ min: 80_000, max: 1_200_000 }),
+    order,
+  }
+}
+
+// Denúncias: motivos + textos curtos coerentes com cada motivo.
+const REPORT_REASONS = [
+  'HATE_SPEECH',
+  'SPAM_OR_FRAUD',
+  'HARASSMENT',
+  'INAPPROPRIATE_CONTENT',
+  'OTHER',
+] as const
+
+const REPORT_DETAILS: Record<(typeof REPORT_REASONS)[number], string> = {
+  HATE_SPEECH: 'Discurso de ódio contra um grupo.',
+  SPAM_OR_FRAUD: 'Parece golpe / conteúdo repetido em massa.',
+  HARASSMENT: 'Está perseguindo e ofendendo outros usuários.',
+  INAPPROPRIATE_CONTENT: 'Conteúdo impróprio para a plataforma.',
+  OTHER: 'Outro motivo (ver descrição com a moderação).',
+}
+
+// Os 7 consentimentos granulares da Política de Privacidade v1.0 (LGPD).
+const CONSENT_FIELDS = [
+  'locationPrecise',
+  'socialFeed',
+  'socialVisibility',
+  'pushNotifications',
+  'marketing',
+  'analytics',
+  'surveys',
+] as const
+
+// Copy das notificações sociais — espelha notification-content.ts (mantido inline
+// pra o seed seguir autossuficiente, como os demais textos acima).
+function notificationCopy(
+  type: string,
+  who: string,
+): { title: string; body: string } {
+  switch (type) {
+    case 'FOLLOW_REQUEST':
+      return { title: 'Nova solicitação', body: `${who} quer te seguir` }
+    case 'NEW_FOLLOWER':
+      return { title: 'Novo seguidor', body: `${who} começou a te seguir` }
+    case 'FOLLOW_ACCEPTED':
+      return {
+        title: 'Solicitação aceita',
+        body: `${who} aceitou seu pedido para seguir`,
+      }
+    case 'EVENT_INVITE':
+      return {
+        title: 'Convite para evento',
+        body: `${who} te convidou para um evento`,
+      }
+    case 'EVENT_COMMENT':
+      return { title: 'Novo comentário', body: `${who} comentou no seu evento` }
+    case 'POST_COMMENT':
+      return { title: 'Novo comentário', body: `${who} comentou no seu post` }
+    case 'EVENT_REACTION':
+      return { title: 'Nova curtida', body: `${who} curtiu seu evento` }
+    case 'POST_REACTION':
+      return { title: 'Nova curtida', body: `${who} curtiu seu post` }
+    case 'EVENT_ATTENDANCE':
+      return { title: 'Nova presença', body: `${who} vai ao seu evento` }
+    default:
+      return { title: 'Novidade', body: `${who} interagiu com você` }
+  }
+}
 
 // ─── seed ─────────────────────────────────────────────────────────────────────
 
@@ -406,28 +487,162 @@ async function main() {
 
   // ── 3b. Série recorrente (RF11.6, premium) ──────────────────────────────────
   // "Futeba de quarta" semanal do premiumDemo: 4 ocorrências espaçadas 7 dias.
+  // O template (title/categories/duração…) mora na série — o reconciler clona
+  // DESTE template para repor ocorrências futuras; séries sem template são
+  // puladas. `categories` é NOT NULL no schema, então é obrigatório aqui.
+  const futebaTemplate = {
+    title: 'Futeba de quarta',
+    description: 'Pelada semanal da galera',
+    latitude: -25.43,
+    longitude: -49.27,
+    address: 'Quadra do bairro',
+    categories: ['SPORTS'] as EventCategory[],
+    isPublic: true,
+    durationMs: 2 * 3_600_000, // 2h de jogo
+  }
   const recurringSeries = await prisma.eventSeries.create({
-    data: { frequency: 'WEEKLY', interval: 1, authorId: premiumDemo.id },
+    data: {
+      frequency: 'WEEKLY',
+      interval: 1,
+      authorId: premiumDemo.id,
+      ...futebaTemplate,
+    },
   })
   const firstOccurrence = new Date()
   firstOccurrence.setDate(firstOccurrence.getDate() + 2)
   firstOccurrence.setHours(20, 0, 0, 0)
   await prisma.event.createMany({
-    data: Array.from({ length: 4 }, (_, i) => ({
-      title: 'Futeba de quarta',
-      description: 'Pelada semanal da galera',
-      date: new Date(firstOccurrence.getTime() + i * 7 * 86_400_000),
-      latitude: -25.43,
-      longitude: -49.27,
-      address: 'Quadra do bairro',
-      categories: ['SPORTS'],
-      isPublic: true,
-      authorId: premiumDemo.id,
-      seriesId: recurringSeries.id,
-    })),
+    data: Array.from({ length: 4 }, (_, i) => {
+      const date = new Date(firstOccurrence.getTime() + i * 7 * 86_400_000)
+      return {
+        title: futebaTemplate.title,
+        description: futebaTemplate.description,
+        date,
+        endDate: new Date(date.getTime() + futebaTemplate.durationMs),
+        latitude: futebaTemplate.latitude,
+        longitude: futebaTemplate.longitude,
+        address: futebaTemplate.address,
+        categories: futebaTemplate.categories,
+        isPublic: futebaTemplate.isPublic,
+        authorId: premiumDemo.id,
+        seriesId: recurringSeries.id,
+      }
+    }),
   })
   console.log(
     '   🔁 1 série recorrente semanal (premium_demo) com 4 ocorrências',
+  )
+
+  // ── 3c. Imagens de eventos (upload webp) ─────────────────────────────────────
+  // ~40% dos eventos públicos ganham 1–3 imagens, ordenadas por `order`.
+  console.log('🖼️  Criando imagens de eventos...')
+
+  const eventImages = publicEvents.flatMap((event) =>
+    faker.datatype.boolean({ probability: 0.4 })
+      ? Array.from(
+          { length: faker.number.int({ min: 1, max: 3 }) },
+          (_, n) => ({
+            eventId: event.id,
+            ...fakeImage('events', event.id, n),
+          }),
+        )
+      : [],
+  )
+  await prisma.eventImage.createMany({ data: eventImages })
+  console.log(`   ✓ ${eventImages.length} imagens de eventos`)
+
+  // ── 3d. Destaques / promoção de eventos (RF11.4+, premium) ───────────────────
+  // Só autor premium destaca o próprio evento; uma janela ativa agora marca
+  // Event.isFeatured. Exercita os 3 estados: ativo, agendado e cancelado. Cada
+  // destaque consome 1 da quota mensal (EventPromotionUsage).
+  console.log('⭐ Criando destaques de eventos...')
+
+  const HOUR_MS = 3_600_000
+  const nowMs = Date.now()
+  const promotionPeriod = new Date(
+    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+  )
+
+  // Ocorrências da "Futeba de quarta" (premium_demo) têm datas folgadas (+2d…),
+  // ideais para janelas de destaque sem violar endsAt <= event.date.
+  const futeba = await prisma.event.findMany({
+    where: { seriesId: recurringSeries.id },
+    orderBy: { date: 'asc' },
+    select: { id: true },
+  })
+
+  const promotionUsage: Array<{ userId: string; count: number }> = []
+
+  if (futeba.length >= 3) {
+    // Ativo agora → isFeatured = true
+    await prisma.featuredEvent.create({
+      data: {
+        eventId: futeba[0].id,
+        createdBy: premiumDemo.id,
+        startsAt: new Date(nowMs - HOUR_MS),
+        endsAt: new Date(nowMs + 6 * HOUR_MS),
+      },
+    })
+    await prisma.event.update({
+      where: { id: futeba[0].id },
+      data: { isFeatured: true },
+    })
+    // Agendado (ainda não começou) → não marca isFeatured
+    await prisma.featuredEvent.create({
+      data: {
+        eventId: futeba[1].id,
+        createdBy: premiumDemo.id,
+        startsAt: new Date(nowMs + 12 * HOUR_MS),
+        endsAt: new Date(nowMs + 18 * HOUR_MS),
+      },
+    })
+    // Cancelado (janela passada, soft-cancel) → consumiu quota mesmo assim
+    await prisma.featuredEvent.create({
+      data: {
+        eventId: futeba[2].id,
+        createdBy: premiumDemo.id,
+        startsAt: new Date(nowMs - 26 * HOUR_MS),
+        endsAt: new Date(nowMs - 2 * HOUR_MS),
+        canceledAt: new Date(nowMs - 20 * HOUR_MS),
+      },
+    })
+    promotionUsage.push({ userId: premiumDemo.id, count: 3 })
+  }
+
+  // admin_demo (também premium) destaca um evento próprio com data folgada.
+  const adminEvent = events.find(
+    (e) =>
+      e.authorId === adminDemo.id &&
+      e.isPublic &&
+      e.date.getTime() > nowMs + 8 * HOUR_MS,
+  )
+  if (adminEvent) {
+    await prisma.featuredEvent.create({
+      data: {
+        eventId: adminEvent.id,
+        createdBy: adminDemo.id,
+        startsAt: new Date(nowMs - 30 * 60_000),
+        endsAt: new Date(nowMs + 5 * HOUR_MS),
+      },
+    })
+    await prisma.event.update({
+      where: { id: adminEvent.id },
+      data: { isFeatured: true },
+    })
+    promotionUsage.push({ userId: adminDemo.id, count: 1 })
+  }
+
+  if (promotionUsage.length > 0) {
+    await prisma.eventPromotionUsage.createMany({
+      data: promotionUsage.map((u) => ({
+        userId: u.userId,
+        period: promotionPeriod,
+        count: u.count,
+      })),
+    })
+  }
+  console.log(
+    `   ✓ destaques criados (1 ativo, 1 agendado, 1 cancelado${adminEvent ? ' + 1 admin' : ''})`,
   )
 
   // ── 4. Convites para eventos privados ────────────────────────────────────────
@@ -580,6 +795,23 @@ async function main() {
   )
 
   console.log(`   ✓ ${posts.length} posts criados`)
+
+  // ── 8b. Imagens em posts (upload webp) ───────────────────────────────────────
+  // ~40% dos posts ganham 1–4 imagens (RF: imagens em posts de evento).
+  let postImageCount = 0
+  if (posts.length > 0) {
+    const postImages = posts.flatMap((post) =>
+      faker.datatype.boolean({ probability: 0.4 })
+        ? Array.from(
+            { length: faker.number.int({ min: 1, max: 4 }) },
+            (_, n) => ({ postId: post.id, ...fakeImage('posts', post.id, n) }),
+          )
+        : [],
+    )
+    await prisma.postImage.createMany({ data: postImages })
+    postImageCount = postImages.length
+    console.log(`   ✓ ${postImages.length} imagens em posts`)
+  }
 
   // ── 9. Reações e comentários em posts ────────────────────────────────────────
   if (posts.length > 0) {
@@ -863,16 +1095,345 @@ async function main() {
   }
   console.log(`   ✓ ${spotCount} spots (1 vencendo, 1 upcoming, 1 privado)`)
 
+  // ── 13. Denúncias (moderação) ────────────────────────────────────────────────
+  // Cobre os 5 alvos (evento, post, comentário, mensagem, usuário) e os estados
+  // PENDING → REVIEWED → RESOLVED_*. admin_demo aparece como revisor.
+  console.log('🚩 Criando denúncias...')
+
+  const commentsForReports = await prisma.comment.findMany({
+    take: 4,
+    select: { id: true, authorId: true },
+  })
+  const messagesForReports = await prisma.message.findMany({
+    take: 2,
+    select: { id: true, senderId: true },
+  })
+
+  // Reporter aleatório distinto do dono do conteúdo (não se denuncia a si mesmo).
+  function reporterExcept(excludeId: string) {
+    return pick(randomUsers.filter((u) => u.id !== excludeId))
+  }
+
+  type ReportSpec = {
+    reporterId: string
+    reason: (typeof REPORT_REASONS)[number]
+    status: 'PENDING' | 'REVIEWED' | 'RESOLVED_INVALID' | 'RESOLVED_REMOVED'
+    eventId?: string
+    postId?: string
+    commentId?: string
+    messageId?: string
+    targetUserId?: string
+    reviewerId?: string
+    resolutionNote?: string
+    resolvedAt?: Date
+  }
+
+  const reportSpecs: ReportSpec[] = []
+
+  if (publicEvents[0]) {
+    reportSpecs.push({
+      reporterId: reporterExcept(publicEvents[0].authorId).id,
+      reason: 'SPAM_OR_FRAUD',
+      status: 'PENDING',
+      eventId: publicEvents[0].id,
+    })
+  }
+  if (posts[0]) {
+    reportSpecs.push({
+      reporterId: reporterExcept(posts[0].authorId).id,
+      reason: 'INAPPROPRIATE_CONTENT',
+      status: 'PENDING',
+      postId: posts[0].id,
+    })
+  }
+  if (commentsForReports[0]) {
+    reportSpecs.push({
+      reporterId: reporterExcept(commentsForReports[0].authorId).id,
+      reason: 'HARASSMENT',
+      status: 'REVIEWED',
+      commentId: commentsForReports[0].id,
+      reviewerId: adminDemo.id,
+    })
+  }
+  if (messagesForReports[0]) {
+    reportSpecs.push({
+      reporterId: reporterExcept(messagesForReports[0].senderId).id,
+      reason: 'HATE_SPEECH',
+      status: 'RESOLVED_REMOVED',
+      messageId: messagesForReports[0].id,
+      reviewerId: adminDemo.id,
+      resolutionNote: 'Mensagem removida por violar as diretrizes.',
+      resolvedAt: new Date(nowMs - 2 * HOUR_MS),
+    })
+  }
+  // Duas denúncias de usuário (uma resolvida-inválida, uma pendente).
+  const reportedUserA = randomUsers[randomUsers.length - 1]
+  const reportedUserB = randomUsers[randomUsers.length - 2]
+  if (reportedUserA) {
+    reportSpecs.push({
+      reporterId: reporterExcept(reportedUserA.id).id,
+      reason: 'OTHER',
+      status: 'RESOLVED_INVALID',
+      targetUserId: reportedUserA.id,
+      reviewerId: adminDemo.id,
+      resolutionNote: 'Denúncia improcedente após análise.',
+      resolvedAt: new Date(nowMs - 5 * HOUR_MS),
+    })
+  }
+  if (reportedUserB) {
+    reportSpecs.push({
+      reporterId: reporterExcept(reportedUserB.id).id,
+      reason: 'HARASSMENT',
+      status: 'PENDING',
+      targetUserId: reportedUserB.id,
+    })
+  }
+
+  for (const spec of reportSpecs) {
+    await prisma.report.create({
+      data: { ...spec, details: REPORT_DETAILS[spec.reason] },
+    })
+  }
+  console.log(`   ✓ ${reportSpecs.length} denúncias (pendentes + resolvidas)`)
+
+  // ── 14. Bloqueios ────────────────────────────────────────────────────────────
+  console.log('🚫 Criando bloqueios...')
+
+  const blockPairs: Array<{ blockerId: string; blockedId: string }> = []
+  const blockSeen = new Set<string>()
+  for (let b = 0; b < 5; b++) {
+    const [blocker, blocked] = sample(randomUsers, 2)
+    if (!blocker || !blocked || blocker.id === blocked.id) continue
+    const key = `${blocker.id}:${blocked.id}`
+    if (blockSeen.has(key)) continue
+    blockSeen.add(key)
+    blockPairs.push({ blockerId: blocker.id, blockedId: blocked.id })
+  }
+  await prisma.block.createMany({ data: blockPairs, skipDuplicates: true })
+  console.log(`   ✓ ${blockPairs.length} bloqueios`)
+
+  // ── 15. Notificações (central in-app + push) ─────────────────────────────────
+  // Tokens de push (Expo) e uma caixa de notificações pro premium_demo com
+  // não-lidas (exercita o badge), além de algumas pra usuários aleatórios.
+  console.log('🔔 Criando notificações e device tokens...')
+
+  const deviceTokenUsers = [premiumDemo, adminDemo, ...sample(randomUsers, 6)]
+  const deviceTokens = deviceTokenUsers.map((u, i) => ({
+    userId: u.id,
+    token: `ExponentPushToken[seed-${i}-${u.username}]`,
+    platform: i % 2 === 0 ? 'ios' : 'android',
+    // um token soft-disabled pra exercitar o estado invalidado
+    ...(i === deviceTokenUsers.length - 1
+      ? {
+          invalidatedAt: new Date(nowMs - 24 * HOUR_MS),
+          invalidatedReason: 'DeviceNotRegistered',
+        }
+      : {}),
+  }))
+  await prisma.deviceToken.createMany({ data: deviceTokens })
+
+  const premiumEvents = events.filter((e) => e.authorId === premiumDemo.id)
+  const premiumPosts = posts.filter((p) => p.authorId === premiumDemo.id)
+
+  type NotifSpec = {
+    userId: string
+    type: NotificationType
+    actor: { id: string; name: string; lastname: string }
+    eventId?: string
+    postId?: string
+    read: boolean
+  }
+
+  const notifSpecs: NotifSpec[] = []
+  const notifActors = sample(randomUsers, 6)
+
+  // Caixa do premium_demo: social + interações nos próprios eventos/posts.
+  notifSpecs.push({
+    userId: premiumDemo.id,
+    type: 'NEW_FOLLOWER',
+    actor: notifActors[0],
+    read: false,
+  })
+  if (premiumEvents[0]) {
+    notifSpecs.push(
+      {
+        userId: premiumDemo.id,
+        type: 'EVENT_COMMENT',
+        actor: notifActors[1],
+        eventId: premiumEvents[0].id,
+        read: false,
+      },
+      {
+        userId: premiumDemo.id,
+        type: 'EVENT_ATTENDANCE',
+        actor: notifActors[2],
+        eventId: premiumEvents[0].id,
+        read: false,
+      },
+      {
+        userId: premiumDemo.id,
+        type: 'EVENT_REACTION',
+        actor: notifActors[3],
+        eventId: premiumEvents[0].id,
+        read: true,
+      },
+    )
+  }
+  if (premiumPosts[0]) {
+    notifSpecs.push(
+      {
+        userId: premiumDemo.id,
+        type: 'POST_REACTION',
+        actor: notifActors[4],
+        postId: premiumPosts[0].id,
+        read: true,
+      },
+      {
+        userId: premiumDemo.id,
+        type: 'POST_COMMENT',
+        actor: notifActors[5],
+        postId: premiumPosts[0].id,
+        read: true,
+      },
+    )
+  }
+
+  // Algumas notificações sociais (lidas e não-lidas) pra usuários aleatórios.
+  for (const recipient of sample(randomUsers, 6)) {
+    const actor = pick(randomUsers.filter((u) => u.id !== recipient.id))
+    notifSpecs.push({
+      userId: recipient.id,
+      type: 'NEW_FOLLOWER',
+      actor,
+      read: faker.datatype.boolean(),
+    })
+  }
+
+  const notifications: Prisma.NotificationCreateManyInput[] = notifSpecs.map(
+    (spec, i) => {
+      const who = [spec.actor.name, spec.actor.lastname]
+        .filter(Boolean)
+        .join(' ')
+      const { title, body } = notificationCopy(spec.type, who)
+      const target = spec.eventId ?? spec.postId ?? 'social'
+      return {
+        userId: spec.userId,
+        type: spec.type,
+        actorId: spec.actor.id,
+        eventId: spec.eventId ?? null,
+        postId: spec.postId ?? null,
+        title,
+        body,
+        dedupeKey: `${spec.type}:${spec.actor.id}:${target}:${i}`,
+        readAt: spec.read
+          ? new Date(nowMs - faker.number.int({ min: 1, max: 40 }) * 60_000)
+          : null,
+      }
+    },
+  )
+  await prisma.notification.createMany({ data: notifications })
+  const unreadCount = notifications.filter((n) => n.readAt === null).length
+  console.log(
+    `   ✓ ${deviceTokens.length} device tokens, ${notifications.length} notificações (${unreadCount} não-lidas)`,
+  )
+
+  // ── 16. Consentimento LGPD (granular + auditoria) ────────────────────────────
+  // Cada usuário tem um UserConsent + log GRANTED. premium/admin aceitam tudo;
+  // alguns usuários revogam (REVOKED) ou ajustam (UPDATED) — alimenta a auditoria.
+  console.log('🔐 Criando consentimentos LGPD...')
+
+  const consentRows: Prisma.UserConsentCreateManyInput[] = []
+  const consentLogs: Prisma.ConsentAuditLogCreateManyInput[] = []
+
+  users.forEach((u, i) => {
+    const isFixedFull = u.id === premiumDemo.id || u.id === adminDemo.id
+    const accepted = isFixedFull
+      ? [...CONSENT_FIELDS]
+      : sample(CONSENT_FIELDS, faker.number.int({ min: 2, max: 6 }))
+    const revoked = !isFixedFull && i % 6 === 0 // ~1 em 6 revoga
+    const updated = !isFixedFull && !revoked && i % 5 === 0 // ~alguns ajustam
+
+    // Revogado zera os granulares; do contrário vale o subconjunto aceito.
+    const on = (field: (typeof CONSENT_FIELDS)[number]) =>
+      !revoked && accepted.includes(field)
+
+    consentRows.push({
+      userId: u.id,
+      essentialAccepted: true,
+      locationPrecise: on('locationPrecise'),
+      socialFeed: on('socialFeed'),
+      socialVisibility: on('socialVisibility'),
+      pushNotifications: on('pushNotifications'),
+      marketing: on('marketing'),
+      analytics: on('analytics'),
+      surveys: on('surveys'),
+      consentVersion: '1.0',
+      ipAddress: faker.internet.ipv4(),
+      userAgent: 'ConectAI/1.0 (seed)',
+      ...(revoked ? { revokedAt: new Date(nowMs - 3 * HOUR_MS) } : {}),
+    })
+
+    // Log inicial GRANTED (com o que foi aceito na criação).
+    consentLogs.push({
+      userId: u.id,
+      action: 'GRANTED',
+      changedFields: accepted.map((f) => ({ field: f, from: null, to: true })),
+      consentVersion: '1.0',
+      ipAddress: faker.internet.ipv4(),
+      userAgent: 'ConectAI/1.0 (seed)',
+    })
+    if (updated) {
+      consentLogs.push({
+        userId: u.id,
+        action: 'UPDATED',
+        changedFields: [{ field: 'marketing', from: true, to: false }],
+        consentVersion: '1.0',
+        ipAddress: faker.internet.ipv4(),
+        userAgent: 'ConectAI/1.0 (seed)',
+      })
+    }
+    if (revoked) {
+      consentLogs.push({
+        userId: u.id,
+        action: 'REVOKED',
+        changedFields: accepted.map((f) => ({
+          field: f,
+          from: true,
+          to: false,
+        })),
+        consentVersion: '1.0',
+        ipAddress: faker.internet.ipv4(),
+        userAgent: 'ConectAI/1.0 (seed)',
+      })
+    }
+  })
+
+  await prisma.userConsent.createMany({ data: consentRows })
+  await prisma.consentAuditLog.createMany({ data: consentLogs })
+  console.log(
+    `   ✓ ${consentRows.length} consentimentos, ${consentLogs.length} logs de auditoria`,
+  )
+
   // ── Resumo ───────────────────────────────────────────────────────────────────
+  const featuredCount = promotionUsage.reduce((s, u) => s + u.count, 0)
+
   console.log('\n✅ Seed concluído!')
-  console.log(`   👤 Usuários:    ${users.length}`)
-  console.log(`   🔗 Follows:     ${follows.length}`)
-  console.log(`   📅 Eventos:     ${events.length}`)
-  console.log(`   ✅ Presenças:   ${attendancesToCreate.length}`)
-  console.log(`   📝 Posts:       ${posts.length}`)
-  console.log(`   💬 Conversas:   ${conversationCount}`)
-  console.log(`   ✉️  Mensagens:   ${messageCount}`)
-  console.log(`   📍 Spots:       ${spotCount}`)
+  console.log(`   👤 Usuários:      ${users.length}`)
+  console.log(`   🔗 Follows:       ${follows.length}`)
+  console.log(`   📅 Eventos:       ${events.length}`)
+  console.log(`   ⭐ Destaques:     ${featuredCount}`)
+  console.log(`   ✅ Presenças:     ${attendancesToCreate.length}`)
+  console.log(`   📝 Posts:         ${posts.length}`)
+  console.log(
+    `   🖼️  Imagens:       ${eventImages.length} eventos / ${postImageCount} posts`,
+  )
+  console.log(`   💬 Conversas:     ${conversationCount}`)
+  console.log(`   ✉️  Mensagens:     ${messageCount}`)
+  console.log(`   📍 Spots:         ${spotCount}`)
+  console.log(`   🚩 Denúncias:     ${reportSpecs.length}`)
+  console.log(`   🚫 Bloqueios:     ${blockPairs.length}`)
+  console.log(`   🔔 Notificações:  ${notifications.length}`)
+  console.log(`   🔐 Consentimentos: ${consentRows.length}`)
   console.log('\n   🔑 Senha de todos os usuários: senha123')
   console.log('   📋 Usuários criados:')
   for (const u of users.slice(0, 5))
