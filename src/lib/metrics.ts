@@ -44,13 +44,23 @@ export const httpRequestsInFlight = new Gauge({
   registers: [registry],
 })
 
-// ── Business metrics hook ────────────────────────────────────────────────────
-// Para métricas de negócio, importe `registry` neste arquivo (ou no módulo de
-// destino) e crie o Counter/Gauge/Histogram em escopo de módulo, sempre com
-// `registers: [registry]`. Ex.:
-//
-//   export const eventsCreatedTotal = new Counter({
-//     name: 'events_created_total',
-//     help: 'Total de eventos criados',
-//     registers: [registry],
-//   })
+// ── Business metrics ─────────────────────────────────────────────────────────
+
+// Quantas vezes a geração de sugestões caiu no template em vez da IA. `reason`
+// distingue falha do LLM, saída inválida ou descarte total (piso). Sobe em
+// silêncio hoje — esta métrica é o alarme de "IA degradada/offline".
+export const suggestionsEnhancerFallbackTotal = new Counter({
+  name: 'suggestions_enhancer_fallback_total',
+  help: 'Sugestões que caíram no template em vez da IA, por motivo',
+  labelNames: ['reason'],
+  registers: [registry],
+})
+
+// Chamadas à API do Places por tipo de busca. Text Search e Nearby Search são
+// SKUs de custo diferentes — esta métrica acompanha o volume (e o custo) de cada.
+export const placesSearchTotal = new Counter({
+  name: 'places_search_total',
+  help: 'Chamadas à API do Places por tipo de busca (custo por SKU)',
+  labelNames: ['type'],
+  registers: [registry],
+})

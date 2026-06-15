@@ -140,6 +140,9 @@ export async function getMe(userId: string) {
     eventsCount: _count.events,
     hasPassword: password !== null,
     consent,
+    // Teto do raio de recomendação de spots — o client usa como max do slider
+    // (em vez de hardcodar) e como teto do raio salvo. Acompanha o env.
+    spotMaxRadiusKm: env.SPOT_MAX_RADIUS_KM,
   }
 }
 

@@ -66,6 +66,19 @@ describe('GET /users/me', () => {
     expect(after.json()).toMatchObject({ isPremium: true })
   })
 
+  it('expõe o raio salvo e o teto de spots (slider do mobile)', async () => {
+    const user = await makeUser({ spotRadiusKm: 25 })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    // spotRadiusKm = default do slider; spotMaxRadiusKm = max (sem hardcode).
+    expect(res.json()).toMatchObject({ spotRadiusKm: 25, spotMaxRadiusKm: 50 })
+  })
+
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({ method: 'GET', url: '/users/me' })
     expect(res.statusCode).toBe(401)

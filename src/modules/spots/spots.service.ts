@@ -1,4 +1,6 @@
 import { cache } from '../../lib/cache'
+import { env } from '../../lib/env'
+import type { EventCategory } from '../../lib/event-categories'
 import { getPlacesClient } from '../../lib/places'
 import { placeTypesForCategories } from '../../lib/places/place-category-map'
 import {
@@ -17,6 +19,7 @@ import {
   enqueueSpotJoined,
   enqueueSpotPublished,
 } from '../notifications/notification-queue'
+import { findSpotRadius, updateSpotRadius } from '../users/users.repository'
 import {
   cancelSpotById,
   consumeGenerationQuota,
@@ -44,9 +47,18 @@ const FREE_DAILY_QUOTA = 5
 const PREMIUM_DAILY_QUOTA = 25
 const SUGGESTIONS_TTL_SECONDS = 15 * 60
 
-/** Célula de ~1km (2 casas decimais) para a chave de cache por região. */
-function gridCell(value: number): string {
-  return (Math.round(value * 100) / 100).toFixed(2)
+const KM_PER_DEGREE = 111
+
+/**
+ * Snap da coordenada à célula de cache derivada do raio. Quanto maior o raio,
+ * mais grossa a célula: numa busca regional, usuários a poucos km veem resultados
+ * quase idênticos — engrossar eleva o cache hit e corta custo. Célula ~ raio/4
+ * (mínimo ~1km), em graus.
+ */
+function gridCell(value: number, radiusKm: number): string {
+  const cellKm = Math.max(1, radiusKm / 4)
+  const sizeDeg = cellKm / KM_PER_DEGREE
+  return (Math.round(value / sizeDeg) * sizeDeg).toFixed(4)
 }
 
 const MAX_ACTIVE_SPOTS = 5
@@ -245,30 +257,76 @@ export async function renewSpot(id: string, requesterId: string) {
   return shapeSpot(updated, counts.get(updated.conversationId) ?? 0)
 }
 
+// Raio default quando o usuário não tem valor salvo (linha ausente). Espelha o
+// default do notifyRadiusKm — a coluna já nasce 10, então é só um piso defensivo.
+const DEFAULT_SPOT_RADIUS_KM = 10
+
+// Puxa um pool largo de candidatos: a IA filtra/ranqueia, então mais matéria-prima
+// = recomendação mais robusta. 20 é o teto do Places (New).
+const SEARCH_LIMIT = 20
+
+// Teto de sanidade: a Text Search usa viés (não trava), podendo trazer algo
+// absurdamente longe. Descarta candidatos além de N× o raio do alcance.
+const DISTANCE_CAP_MULTIPLIER = 2
+
+// Quantas sugestões devolver ao cliente, no máximo (UX enxuta; já ranqueadas).
+const MAX_SUGGESTIONS = 8
+
 /**
- * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places perto
- * do ponto, filtrados pelas preferências do usuário. Consome 1 da quota diária
- * (5 free / 25 premium) ANTES de buscar — conta mesmo em cache hit; sem
- * preferências, nem consome (400). Cache por célula de ~1km + categorias.
+ * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places em torno
+ * do ponto, no raio do `reach` escolhido. Dois modos:
+ * - Texto livre (`query`): Text Search guiada SÓ pela intenção (ignora perfil).
+ * - Perfil (sem `query`): Nearby Search pelas categorias preferidas (exige perfil).
+ * Consome 1 da quota diária (5 free / 25 premium) ANTES de buscar — conta mesmo
+ * em cache hit. O resultado ENRIQUECIDO (copy + ranqueamento) é cacheado junto.
  */
 export async function generateSuggestions(
   userId: string,
   body: SuggestionsBody,
 ) {
-  const categories = await findUserPreferredCategories(userId)
-  if (categories.length === 0) {
-    throw {
-      statusCode: 400,
-      message: 'Configure suas preferências de rolê para gerar sugestões',
+  const intent = body.query
+
+  // Raio: override do request (validado contra o teto, como no setNotifyRadius)
+  // ou o valor salvo do usuário (clampado ao teto, caso o env tenha baixado).
+  const maxKm = env.SPOT_MAX_RADIUS_KM
+  let radiusKm: number
+  if (body.radiusKm !== undefined) {
+    if (body.radiusKm > maxKm) {
+      throw {
+        statusCode: 400,
+        message: `Raio máximo permitido: ${maxKm}km`,
+        code: 'SPOT_RADIUS_TOO_LARGE',
+      }
     }
+    radiusKm = body.radiusKm
+  } else {
+    const saved = (await findSpotRadius(userId)) ?? DEFAULT_SPOT_RADIUS_KM
+    radiusKm = Math.min(saved, maxKm)
   }
-  // Nenhuma preferência mapeia para tipo do Places (ex.: só TECH/BUSINESS):
-  // a busca devolveria locais aleatórios. Barra ANTES de consumir quota.
-  if (placeTypesForCategories(categories).length === 0) {
-    throw {
-      statusCode: 400,
-      message: 'Suas preferências de rolê ainda não têm sugestões de locais',
+  const radiusMeters = radiusKm * 1000
+
+  // Sem intenção em texto, a busca depende das preferências de perfil. Com
+  // intenção, o texto basta — perfil é ignorado (decisão de produto).
+  let sortedCats: EventCategory[] = []
+  if (!intent) {
+    const categories = await findUserPreferredCategories(userId)
+    if (categories.length === 0) {
+      throw {
+        statusCode: 400,
+        message: 'Configure suas preferências de rolê para gerar sugestões',
+        code: 'SPOT_NO_PREFERENCES',
+      }
     }
+    // Nenhuma preferência mapeia para tipo do Places (ex.: só TECH/BUSINESS):
+    // a busca devolveria locais aleatórios. Barra ANTES de consumir quota.
+    if (placeTypesForCategories(categories).length === 0) {
+      throw {
+        statusCode: 400,
+        message: 'Suas preferências de rolê ainda não têm sugestões de locais',
+        code: 'SPOT_PREFERENCES_NO_PLACES',
+      }
+    }
+    sortedCats = [...categories].sort()
   }
 
   const isPremium = await getUserPremiumStatus(userId)
@@ -283,31 +341,51 @@ export async function generateSuggestions(
     }
   }
 
-  const sortedCats = [...categories].sort()
+  // Chave de cache: célula geográfica + raio + (intenção OU categorias). A
+  // intenção entra normalizada para casar textos equivalentes na mesma região.
   const key = cache.key(
     'spots:suggestions',
-    gridCell(body.latitude),
-    gridCell(body.longitude),
-    sortedCats.join(','),
+    gridCell(body.latitude, radiusKm),
+    gridCell(body.longitude, radiusKm),
+    `r:${radiusKm}`,
+    intent ? `q:${intent.toLowerCase()}` : sortedCats.join(','),
   )
   // Busca ANTES de consumir: se o Places/IA falhar, a quota não é gasta. Cache
-  // hit também passa por aqui e consome — decisão de produto. O resultado
-  // ENRIQUECIDO (candidatos + copy + ranqueamento) é cacheado junto, então
-  // Places E IA rodam só no cache miss.
+  // hit também passa por aqui e consome — decisão de produto. Places E IA rodam
+  // só no cache miss.
   let suggestions = await cache.get<EnhancedCandidate[]>(key)
   if (!suggestions) {
-    const candidates = await getPlacesClient().searchNearby({
-      latitude: body.latitude,
-      longitude: body.longitude,
-      categories: sortedCats,
-    })
-    suggestions = await getSuggestionEnhancer().enhance(candidates, {
+    const found = intent
+      ? await getPlacesClient().searchText({
+          textQuery: intent,
+          latitude: body.latitude,
+          longitude: body.longitude,
+          radiusMeters,
+          limit: SEARCH_LIMIT,
+        })
+      : await getPlacesClient().searchNearby({
+          latitude: body.latitude,
+          longitude: body.longitude,
+          categories: sortedCats,
+          radiusMeters,
+          limit: SEARCH_LIMIT,
+        })
+    // Teto de distância: corta o que ficou absurdamente longe do alcance pedido.
+    const within = found.filter(
+      (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
+    )
+    const enhanced = await getSuggestionEnhancer().enhance(within, {
       preferredCategories: sortedCats,
+      ...(intent && { intent }),
     })
+    // Cap de itens: devolve só as melhores (já ranqueadas pela IA).
+    suggestions = enhanced.slice(0, MAX_SUGGESTIONS)
     await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)
   }
 
-  // Consome agora (sucesso garantido). Atômico = teto à prova de corrida.
+  // Consume atômico — teto à prova de corrida. O pre-flight acima (custo) não
+  // garante a vaga: sob concorrência extrema duas reqs passam o pre-flight e a
+  // segunda perde a corrida aqui (allowed=false → 429). Caso feliz é dominante.
   const quota = await consumeGenerationQuota(userId, limit)
   if (!quota.allowed) {
     throw {
@@ -317,4 +395,20 @@ export async function generateSuggestions(
   }
 
   return { suggestions, remaining: Math.max(0, limit - quota.used) }
+}
+
+/**
+ * Configura o raio salvo (km) da recomendação de spots. Espelha o setNotifyRadius:
+ * enforça o teto SPOT_MAX_RADIUS_KM aqui (se o env baixar, raios acima param de
+ * ser aceitos — sem degradação silenciosa).
+ */
+export async function setSpotRadius(userId: string, radiusKm: number) {
+  if (radiusKm > env.SPOT_MAX_RADIUS_KM) {
+    throw {
+      statusCode: 400,
+      message: `Raio máximo permitido: ${env.SPOT_MAX_RADIUS_KM}km`,
+      code: 'SPOT_RADIUS_TOO_LARGE',
+    }
+  }
+  return updateSpotRadius(userId, radiusKm)
 }

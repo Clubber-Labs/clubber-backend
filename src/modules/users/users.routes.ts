@@ -7,6 +7,19 @@ import {
 import { rateLimit } from '../../lib/rate-limit'
 import { getUserEvents } from '../events/events.controller'
 import { userEventsQuerySchema } from '../events/events.schema'
+// Preferências de usuário que vivem sob /users/me/*: os handlers ficam nos
+// módulos donos da lógica (notifications/spots), mas a URL de usuário é
+// registrada aqui, para coesão do roteamento /users/me/*.
+import {
+  updateLocationHandler,
+  updateNotificationPrefsHandler,
+} from '../notifications/notifications.controller'
+import {
+  updateLocationSchema,
+  updateNotificationPrefsSchema,
+} from '../notifications/notifications.schema'
+import { patchSpotPrefs } from '../spots/spots.controller'
+import { updateSpotPrefsSchema } from '../spots/spots.schema'
 import {
   deactivateAccountHandler,
   deleteUserHandler,
@@ -130,5 +143,33 @@ export async function usersRoutes(app: FastifyInstance) {
     '/users/me/avatar',
     { onRequest: [app.authenticate] },
     uploadUserAvatar,
+  )
+
+  // Preferências sob /users/me/* — handlers nos módulos donos (notifications/spots).
+  api.patch(
+    '/users/me/location',
+    {
+      schema: { body: updateLocationSchema },
+      onRequest: [app.authenticate],
+    },
+    updateLocationHandler,
+  )
+
+  api.patch(
+    '/users/me/notification-prefs',
+    {
+      schema: { body: updateNotificationPrefsSchema },
+      onRequest: [app.authenticate],
+    },
+    updateNotificationPrefsHandler,
+  )
+
+  api.patch(
+    '/users/me/spot-prefs',
+    {
+      schema: { body: updateSpotPrefsSchema },
+      onRequest: [app.authenticate],
+    },
+    patchSpotPrefs,
   )
 }

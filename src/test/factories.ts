@@ -78,6 +78,7 @@ export async function makeUser(
     suspendedAt?: Date | null
     suspendedUntil?: Date | null
     suspensionReason?: string | null
+    spotRadiusKm?: number
   } = {},
 ) {
   const id = uid()
@@ -109,6 +110,9 @@ export async function makeUser(
       suspendedAt: overrides.suspendedAt ?? null,
       suspendedUntil: overrides.suspendedUntil ?? null,
       suspensionReason: overrides.suspensionReason ?? null,
+      ...(overrides.spotRadiusKm !== undefined && {
+        spotRadiusKm: overrides.spotRadiusKm,
+      }),
     },
   })
 }

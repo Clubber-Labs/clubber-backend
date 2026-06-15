@@ -8,6 +8,13 @@ export type PlaceCandidate = {
   longitude: number
   category: EventCategory
   address: string | null
+  // Sinais de qualidade/relevância para o ranqueamento da IA. `null` quando o
+  // Places não traz o dado; `distanceMeters` é sempre calculado do ponto da busca.
+  rating: number | null
+  userRatingCount: number | null
+  priceLevel: string | null
+  openNow: boolean | null
+  distanceMeters: number
 }
 
 export type SearchNearbyParams = {
@@ -19,7 +26,17 @@ export type SearchNearbyParams = {
   limit?: number
 }
 
-/** Provedor de busca de estabelecimentos por proximidade (Google Places). */
+/** Busca por intenção em texto livre (Text Search). O ponto é só viés, não trava. */
+export type SearchTextParams = {
+  textQuery: string
+  latitude: number
+  longitude: number
+  radiusMeters?: number
+  limit?: number
+}
+
+/** Provedor de busca de estabelecimentos (Google Places). */
 export interface IPlacesClient {
   searchNearby(params: SearchNearbyParams): Promise<PlaceCandidate[]>
+  searchText(params: SearchTextParams): Promise<PlaceCandidate[]>
 }

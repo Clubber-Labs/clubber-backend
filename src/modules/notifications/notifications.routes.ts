@@ -6,16 +6,12 @@ import {
   readAllNotificationsHandler,
   readNotificationHandler,
   registerDeviceHandler,
-  updateLocationHandler,
-  updateNotificationPrefsHandler,
 } from './notifications.controller'
 import {
   deviceTokenParamsSchema,
   listNotificationsQuerySchema,
   notificationIdParamsSchema,
   registerDeviceSchema,
-  updateLocationSchema,
-  updateNotificationPrefsSchema,
 } from './notifications.schema'
 
 export async function notificationsRoutes(app: FastifyInstance) {
@@ -63,23 +59,5 @@ export async function notificationsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     deleteDeviceHandler,
-  )
-
-  // Localização (proximidade) + preferências
-  app.patch(
-    '/users/me/location',
-    {
-      schema: { body: updateLocationSchema },
-      onRequest: [app.authenticate],
-    },
-    updateLocationHandler,
-  )
-  app.patch(
-    '/users/me/notification-prefs',
-    {
-      schema: { body: updateNotificationPrefsSchema },
-      onRequest: [app.authenticate],
-    },
-    updateNotificationPrefsHandler,
   )
 }

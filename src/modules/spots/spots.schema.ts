@@ -62,9 +62,20 @@ export const listSpotsQuerySchema = z
   })
 
 // Geração de sugestões: ponto em torno do qual buscar (centro do mapa / posição).
+// `radiusKm` sobrescreve o raio salvo do usuário (spotRadiusKm) só nesta geração;
+// `query` é a intenção em texto livre (quando presente, a busca segue só o texto
+// e ignora as preferências de perfil). Validação do raio espelha a de notificação.
 export const suggestionsSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
+  radiusKm: z.coerce.number().int().min(2).optional(),
+  query: z.string().trim().min(3).max(120).optional(),
+})
+
+// Configuração do raio salvo de spots (PATCH /users/me/spot-prefs) — espelha o
+// updateNotificationPrefsSchema. O teto (SPOT_MAX_RADIUS_KM) é enforçado no service.
+export const updateSpotPrefsSchema = z.object({
+  spotRadiusKm: z.coerce.number().int().min(2),
 })
 
 export type CreateSpotBody = z.infer<typeof createSpotSchema>
@@ -72,3 +83,4 @@ export type UpdateSpotBody = z.infer<typeof updateSpotSchema>
 export type SpotParam = z.infer<typeof spotParamSchema>
 export type ListSpotsQuery = z.infer<typeof listSpotsQuerySchema>
 export type SuggestionsBody = z.infer<typeof suggestionsSchema>
+export type UpdateSpotPrefsBody = z.infer<typeof updateSpotPrefsSchema>

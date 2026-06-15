@@ -70,6 +70,10 @@ model User {
   locationGeohash   String?
   locationUpdatedAt DateTime?
   notifyRadiusKm    Int       @default(10)
+  // Raio de interesse (km) para a recomendação de spots — espelha o
+  // notifyRadiusKm. Default por usuário, sobrescrevível por request na geração;
+  // teto em SPOT_MAX_RADIUS_KM.
+  spotRadiusKm      Int       @default(10)
 
   // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta

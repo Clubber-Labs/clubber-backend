@@ -10,6 +10,11 @@ export type EnhancedCandidate = PlaceCandidate & {
 export type EnhanceContext = {
   /** Categorias preferidas do usuário — sinal de ranqueamento. */
   preferredCategories: EventCategory[]
+  /**
+   * Intenção em texto livre do usuário (ex.: "bar com música ao vivo"). Quando
+   * presente, é o sinal dominante de ranqueamento — as preferências são ignoradas.
+   */
+  intent?: string
 }
 
 /**

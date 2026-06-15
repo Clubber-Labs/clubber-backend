@@ -5,6 +5,7 @@ import type {
   SpotParam,
   SuggestionsBody,
   UpdateSpotBody,
+  UpdateSpotPrefsBody,
 } from './spots.schema'
 import {
   cancelSpot,
@@ -16,6 +17,7 @@ import {
   listOwnSpots,
   listSpotsOnMap,
   renewSpot,
+  setSpotRadius,
 } from './spots.service'
 
 export async function postSpot(request: FastifyRequest, reply: FastifyReply) {
@@ -60,6 +62,15 @@ export async function postSuggestions(
 ) {
   const body = request.body as SuggestionsBody
   const result = await generateSuggestions(request.user.sub, body)
+  return reply.send(result)
+}
+
+export async function patchSpotPrefs(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { spotRadiusKm } = request.body as UpdateSpotPrefsBody
+  const result = await setSpotRadius(request.user.sub, spotRadiusKm)
   return reply.send(result)
 }
 
