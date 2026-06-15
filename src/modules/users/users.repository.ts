@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import {
   activeUserWhere,
   DELETED_DISPLAY_LASTNAME,
@@ -7,6 +7,9 @@ import {
 import type { EventCategory } from '../../lib/event-categories'
 import { prisma } from '../../lib/prisma'
 import type { CreateUserBody } from './users.schema'
+
+// Teto de categorias preferidas retornadas (explícitas + inferidas do histórico).
+const PREFERRED_CATEGORIES_LIMIT = 3
 
 const userPublicListSelect = {
   id: true,
@@ -606,4 +609,63 @@ export async function anonymizeUserTx(
     }
     return true
   })
+}
+
+/**
+ * Categorias preferidas do usuário: as EXPLÍCITAS (escolhidas no perfil) têm
+ * prioridade; quando há menos que o limite, completa com as inferidas do
+ * histórico (eventos criados ou com presença), sem repetir.
+ */
+export async function findUserPreferredCategories(
+  userId: string,
+): Promise<EventCategory[]> {
+  const explicit = await prisma.userCategoryPreference.findMany({
+    where: { userId },
+    select: { category: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  const result: EventCategory[] = explicit.map((p) => p.category)
+  if (result.length >= PREFERRED_CATEGORIES_LIMIT) {
+    return result.slice(0, PREFERRED_CATEGORIES_LIMIT)
+  }
+
+  // Evento tem N categorias: unnest expande cada uma numa linha, então um
+  // evento de 2 categorias conta para as duas no ranking do histórico.
+  const rows = await prisma.$queryRaw<{ category: EventCategory }[]>(
+    Prisma.sql`
+      SELECT cat AS category
+      FROM events e
+      LEFT JOIN event_attendances a
+        ON a."eventId" = e.id
+        AND a."userId" = ${userId}
+        AND a.type IN ('CONFIRMED', 'INTERESTED')
+      CROSS JOIN LATERAL unnest(e.categories) AS cat
+      WHERE e."authorId" = ${userId} OR a."userId" = ${userId}
+      GROUP BY cat
+      ORDER BY COUNT(*) DESC, cat ASC
+    `,
+  )
+
+  for (const row of rows) {
+    if (result.length >= PREFERRED_CATEGORIES_LIMIT) break
+    if (!result.includes(row.category)) result.push(row.category)
+  }
+
+  return result
+}
+
+/**
+ * Interesses do 2º nível salvos pelo usuário (subcategorias de venue + gêneros).
+ * Explícito-only (v1): sem inferência por histórico — eventos legados não têm
+ * subcategoria. Ordenado por afinidade (createdAt).
+ */
+export async function findUserPreferredSubcategories(
+  userId: string,
+): Promise<string[]> {
+  const rows = await prisma.userSubcategoryPreference.findMany({
+    where: { userId },
+    select: { subcategory: true },
+    orderBy: { createdAt: 'asc' },
+  })
+  return rows.map((r) => r.subcategory)
 }

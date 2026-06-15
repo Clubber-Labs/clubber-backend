@@ -17,16 +17,17 @@ import {
   findActiveParticipant,
   reactivateParticipant,
 } from '../chat/chat.repository'
-import {
-  findUserPreferredCategories,
-  findUserPreferredSubcategories,
-} from '../feed/feed.repository'
 import { areMutualFollowers } from '../follows/follows.repository'
 import {
   enqueueSpotJoined,
   enqueueSpotPublished,
 } from '../notifications/notification-queue'
-import { findSpotRadius, updateSpotRadius } from '../users/users.repository'
+import {
+  findSpotRadius,
+  findUserPreferredCategories,
+  findUserPreferredSubcategories,
+  updateSpotRadius,
+} from '../users/users.repository'
 import {
   cancelSpotById,
   consumeGenerationQuota,

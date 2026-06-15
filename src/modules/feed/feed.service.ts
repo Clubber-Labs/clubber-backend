@@ -5,13 +5,13 @@ import {
   rankEvent,
 } from '../../lib/event-ranker'
 import { findDistancesForEvents, type LatLng } from '../../lib/spatial'
+import { findUserPreferredCategories } from '../users/users.repository'
 import {
   findDiscoveryCandidateIds,
   findFollowingIds,
   findFriendInteractionCounts,
   findPromotedPinCandidates,
   findSocialCandidateIds,
-  findUserPreferredCategories,
   hydrateEvents,
 } from './feed.repository'
 import type { FeedQuery } from './feed.schema'
