@@ -83,3 +83,11 @@ export const socialFilterEmptyTotal = new Counter({
   help: 'Gerações em que o filtro de venue social zerou uma lista não-vazia',
   registers: [registry],
 })
+
+// Quantos candidatos foram descartados por conteúdo adulto (nome de casa de
+// swing/liberal/strip etc.). Filtro HARD de content-safety — acompanha o volume.
+export const adultVenueFilteredTotal = new Counter({
+  name: 'spots_adult_venue_filtered_total',
+  help: 'Candidatos descartados por conteúdo adulto no nome',
+  registers: [registry],
+})

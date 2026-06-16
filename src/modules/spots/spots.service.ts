@@ -1,8 +1,12 @@
 import { cache } from '../../lib/cache'
 import { env } from '../../lib/env'
 import { type EventCategory, listCategories } from '../../lib/event-categories'
-import { socialFilterEmptyTotal } from '../../lib/metrics'
+import {
+  adultVenueFilteredTotal,
+  socialFilterEmptyTotal,
+} from '../../lib/metrics'
 import { getPlacesClient, type PlaceCandidate } from '../../lib/places'
+import { isAdultVenue } from '../../lib/places/adult-venue'
 import { isSocialVenue } from '../../lib/places/social-venue'
 import { interestLabels } from '../../lib/subcategories'
 import {
@@ -413,12 +417,18 @@ export async function generateSuggestions(
     const within = [...byId.values()].filter(
       (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
     )
+    // Content-safety: descarta venues adultos (swing/liberal/strip/termas...) pelo
+    // NOME — o Places os tipa como night_club/bar, então o filtro estrutural não
+    // os pega. Filtro HARD: NUNCA bypassado (melhor 0 sugestões que conteúdo
+    // adulto num app de público jovem). Aplicado antes do social/piso.
+    const safe = within.filter((c) => !isAdultVenue(c.name))
+    adultVenueFilteredTotal.inc(within.length - safe.length)
     // Filtro estrutural de venue social (pelos types do Places) ANTES da IA. Piso:
     // se zerar uma lista não-vazia (só vieram não-sociais), bypassa para não
     // devolver 0 sugestões após gastar quota — e alarma a métrica.
-    const social = within.filter((c) => isSocialVenue(c.types))
-    if (within.length > 0 && social.length === 0) socialFilterEmptyTotal.inc()
-    const forAI = social.length > 0 ? social : within
+    const social = safe.filter((c) => isSocialVenue(c.types))
+    if (safe.length > 0 && social.length === 0) socialFilterEmptyTotal.inc()
+    const forAI = social.length > 0 ? social : safe
 
     const enhanced = await getSuggestionEnhancer().enhance(forAI, { criterion })
     // Cap de itens: devolve só as melhores (já ranqueadas pela IA).

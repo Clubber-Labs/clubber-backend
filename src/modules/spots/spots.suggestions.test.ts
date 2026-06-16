@@ -381,6 +381,33 @@ describe('POST /spots/suggestions', () => {
     expect(ids).not.toContain('loja1')
   })
 
+  it('descarta venue adulto pelo nome mesmo tipado como night_club', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    // Casa de swing/strip vem do Places como night_club (tipo social) — só o
+    // nome denuncia. Filtro de content-safety deve removê-la.
+    fakePlaces.override = (p) => [
+      {
+        ...baseCandidate(p, 'balada-ok'),
+        name: 'Balada Boa',
+        types: ['night_club'],
+      },
+      {
+        ...baseCandidate(p, 'swing'),
+        name: 'Clube de Swing Privê',
+        types: ['night_club'],
+      },
+    ]
+
+    const res = await suggest(user.id)
+
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('balada-ok')
+    expect(ids).not.toContain('swing')
+  })
+
   it('piso: se o filtro social zera tudo, ainda devolve algo e consome quota', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')
