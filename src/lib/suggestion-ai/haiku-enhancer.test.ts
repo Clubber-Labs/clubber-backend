@@ -126,7 +126,7 @@ describe('HaikuSuggestionEnhancer.enhance', () => {
     expect(await fallbackCount('llm_error')).toBe(before + 1)
   })
 
-  it('manda os sinais (distância, rating, aberto-agora) no payload da IA', async () => {
+  it('manda só os sinais de ranqueamento (distância, notoriedade); nota/preço/aberto ficam fora', async () => {
     let sent: { content: string } | undefined
     const { client } = stubClient({ ranked: [] }, (body) => {
       const messages = (body as { messages: { content: string }[] }).messages
@@ -138,6 +138,8 @@ describe('HaikuSuggestionEnhancer.enhance', () => {
         candidate({
           placeId: 'a',
           rating: 4.8,
+          userRatingCount: 250,
+          priceLevel: 'PRICE_LEVEL_EXPENSIVE',
           distanceMeters: 350,
           openNow: false,
         }),
@@ -146,9 +148,13 @@ describe('HaikuSuggestionEnhancer.enhance', () => {
     )
 
     const payload = JSON.parse(sent?.content ?? '{}')
+    // Entram no ranqueamento: distância (desempate fraco) e notoriedade.
     expect(payload.places[0].distanceMeters).toBe(350)
-    expect(payload.places[0].rating).toBe(4.8)
-    expect(payload.places[0].openNow).toBe(false)
+    expect(payload.places[0].userRatingCount).toBe(250)
+    // Fora do ranqueamento (mas seguem no candidato/saída).
+    expect(payload.places[0].rating).toBeUndefined()
+    expect(payload.places[0].openNow).toBeUndefined()
+    expect(payload.places[0].priceLevel).toBeUndefined()
   })
 
   it('inclui o intent no payload quando presente', async () => {
