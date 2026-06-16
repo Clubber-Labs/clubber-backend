@@ -438,6 +438,10 @@ model Event {
   longitude   Float
   address     String?
   categories  EventCategory[]
+  // Subcategorias/gêneros (chaves de interesse config — src/lib/subcategories.ts).
+  // text[] (não enum), validado no input. Casa com as preferências do usuário no
+  // ranking do feed e nas notificações de proximidade (match de 2º nível).
+  subcategories String[]      @default([])
   isPublic    Boolean         @default(true)
   isFeatured  Boolean         @default(false)
   maxCapacity Int?
@@ -471,6 +475,7 @@ model Event {
   @@index([isPublic, date])
   @@index([isFeatured, date, id])
   @@index([categories], type: Gin)
+  @@index([subcategories], type: Gin)
   // Join de visibilidade do autor (visibleAuthorWhere) na hidratação do mapa.
   @@index([authorId])
   @@map("events")
@@ -509,6 +514,8 @@ model EventSeries {
   longitude   Float?
   address     String?
   categories  EventCategory[]
+  // Template de subcategorias: o reconciler clona daqui para cada ocorrência.
+  subcategories String[]      @default([])
   maxCapacity Int?
   isPublic    Boolean         @default(true)
   durationMs  Int?
@@ -985,6 +992,9 @@ model Spot {
   title             String
   description       String?
   categories        EventCategory[]
+  // Subcategorias/gêneros do rolê (chaves de interesse config). Imutáveis após a
+  // criação (como categorias/local), usadas no match de proximidade de 2º nível.
+  subcategories     String[]        @default([])
   visibility        SpotVisibility  @default(PUBLIC)
   placeId           String
   latitude          Float
@@ -1008,6 +1018,7 @@ model Spot {
   // Lembrete: spots ativos vencendo ainda não lembrados.
   @@index([renewalNotifiedAt, endsAt, canceledAt], map: "spots_renewal_reminder_idx")
   @@index([categories], type: Gin)
+  @@index([subcategories], type: Gin)
   @@map("spots")
 }
 
