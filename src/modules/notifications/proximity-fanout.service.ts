@@ -49,6 +49,7 @@ export async function runEventCreatedFanout(
           longitude: event.longitude,
           latitude: event.latitude,
           categories: event.categories,
+          subcategories: event.subcategories,
           authorId: event.authorId,
         },
         {

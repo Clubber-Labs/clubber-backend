@@ -61,6 +61,7 @@ async function fanOutNearby(
     longitude: spot.longitude,
     latitude: spot.latitude,
     categories: spot.categories,
+    subcategories: spot.subcategories,
     authorId: spot.creatorId,
     visibility: spot.visibility,
   }

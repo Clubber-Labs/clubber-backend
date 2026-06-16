@@ -2,12 +2,19 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { EventCategory } from '../../lib/event-categories'
 import { buildApp } from '../../test/app'
-import { makeBlock, makeUser } from '../../test/factories'
+import {
+  makeBlock,
+  makeUser,
+  makeUserSubcategoryPreference,
+} from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { revokeAllConsents, updateConsent } from '../consent/consent.service'
 import { anonymizeUserTx } from '../users/users.repository'
 import { reconcileLocationRetention } from './location-retention.reconciler'
-import { findUsersToNotifyNearEvent } from './proximity.repository'
+import {
+  findUsersToNotifyNearEvent,
+  findUsersToNotifyNearSpot,
+} from './proximity.repository'
 
 let app: FastifyInstance
 
@@ -19,6 +26,7 @@ const EVENT = {
   longitude: -49.26819,
   latitude: -25.38116,
   categories: ['MUSIC'] as EventCategory[],
+  subcategories: [] as string[],
 }
 const GEOHASH_NEAR = '6gkzwg' // mesmo ponto do evento (dist ~0)
 const GEOHASH_MID = '6gkzwj' // ~3.5km do evento
@@ -244,6 +252,47 @@ describe('findUsersToNotifyNearEvent', () => {
     expect(ids).not.toContain(onlySports.id)
   })
 
+  it('notifica por subcategoria preferida mesmo sem casar a categoria', async () => {
+    const author = await makeUser()
+    // Sem preferência de categoria; só o interesse fino (PARTY_BALADA).
+    const subFan = await makeNotifiableUser({ category: null })
+    await makeUserSubcategoryPreference(subFan.id, 'PARTY_BALADA')
+    // Quem não compartilha nem categoria nem subcategoria fica de fora.
+    const unrelated = await makeNotifiableUser({ category: null })
+    await makeUserSubcategoryPreference(unrelated.id, 'NIGHTLIFE_BAR')
+
+    const ids = await findUsersToNotifyNearEvent(
+      { ...EVENT, subcategories: ['PARTY_BALADA'], authorId: author.id },
+      SCAN,
+    )
+    expect(ids).toContain(subFan.id)
+    expect(ids).not.toContain(unrelated.id)
+  })
+
+  it('a categoria cobre, mesmo com subcategoria não-preferida no evento', async () => {
+    const author = await makeUser()
+    // Prefere a CATEGORIA (MUSIC, default) mas NÃO a subcategoria do evento — o
+    // evento carrega subcategoria, então subPref é um EXISTS vivo (não o FALSE de
+    // array vazio): mesmo assim catPref deve cobrir e incluir o usuário.
+    const catFan = await makeNotifiableUser()
+    await makeUserSubcategoryPreference(catFan.id, 'NIGHTLIFE_BAR')
+    // Não casa nem categoria nem subcategoria → de fora.
+    const unrelated = await makeNotifiableUser({ category: null })
+    await makeUserSubcategoryPreference(unrelated.id, 'NIGHTLIFE_BAR')
+
+    const ids = await findUsersToNotifyNearEvent(
+      {
+        ...EVENT,
+        categories: ['MUSIC'],
+        subcategories: ['GENRE_FUNK'],
+        authorId: author.id,
+      },
+      SCAN,
+    )
+    expect(ids).toContain(catFan.id)
+    expect(ids).not.toContain(unrelated.id)
+  })
+
   it('exclui sem categoria, sem consentimentos, velho, sem localização, bloqueado e o autor', async () => {
     // O autor é totalmente elegível (perto + categoria + consent) — mas nunca
     // recebe a notificação da própria criação.
@@ -269,6 +318,51 @@ describe('findUsersToNotifyNearEvent', () => {
     expect(ids).not.toContain(stale.id)
     expect(ids).not.toContain(noLocation.id)
     expect(ids).not.toContain(blocked.id)
+  })
+})
+
+// Descoberta (alcance premium) = preferência INVERTIDA: AND NOT (catPref OR
+// subPref). Testar direto no repositório, não via runSpotPublishedFanout: lá a
+// passada de audiência já notifica quem prefere a subcategoria com o MESMO
+// dedupeKey, então o dedupe mascara se o ramo NOT subPref está certo. Aqui a
+// borda De Morgan fica observável.
+describe('findUsersToNotifyNearSpot — preferência de 2 níveis na descoberta', () => {
+  const spotTarget = (creatorId: string) => ({
+    ...EVENT, // categories: ['MUSIC']
+    subcategories: ['PARTY_BALADA'],
+    authorId: creatorId,
+    visibility: 'PUBLIC' as const,
+  })
+
+  it('descoberta EXCLUI quem prefere a subcategoria do spot (NOT subPref)', async () => {
+    const creator = await makeUser()
+    // Prefere a SUBcategoria do spot (não a categoria) → audiência, não descoberta.
+    const subFan = await makeNotifiableUser({ category: 'SPORTS' })
+    await makeUserSubcategoryPreference(subFan.id, 'PARTY_BALADA')
+    // Não prefere nem categoria nem subcategoria → alvo legítimo de descoberta.
+    const neutral = await makeNotifiableUser({ category: 'SPORTS' })
+
+    const ids = await findUsersToNotifyNearSpot(spotTarget(creator.id), SCAN, {
+      discovery: true,
+    })
+    // NOT (false OR true) = false → subFan fora; neutral (NOT false) entra.
+    expect(ids).not.toContain(subFan.id)
+    expect(ids).toContain(neutral.id)
+  })
+
+  it('audiência INCLUI quem prefere a subcategoria do spot (subPref cobre)', async () => {
+    const creator = await makeUser()
+    const subFan = await makeNotifiableUser({ category: 'SPORTS' })
+    await makeUserSubcategoryPreference(subFan.id, 'PARTY_BALADA')
+    const neutral = await makeNotifiableUser({ category: 'SPORTS' })
+
+    const ids = await findUsersToNotifyNearSpot(spotTarget(creator.id), SCAN, {
+      discovery: false,
+    })
+    // (false OR true) → subFan entra; neutral (false OR false) fora — o mesmo
+    // par de usuários inverte exatamente entre audiência e descoberta.
+    expect(ids).toContain(subFan.id)
+    expect(ids).not.toContain(neutral.id)
   })
 })
 

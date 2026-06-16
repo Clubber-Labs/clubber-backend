@@ -91,6 +91,24 @@ describe('runSpotPublishedFanout (SPOT_NEARBY)', () => {
     expect(n).not.toBeNull()
   })
 
+  it('categoria-pai cobre spot taguado (usuário prefere só a categoria)', async () => {
+    const creator = await makeUser()
+    // Prefere a categoria (MUSIC) mas não a subcategoria que o spot carrega: o
+    // match hierárquico inclui pela categoria (catPref), mesmo com subPref vivo.
+    const user = await makeNearbyUser('MUSIC')
+    const spot = await makeNearbySpot(creator.id, {
+      subcategories: ['GENRE_FUNK'],
+    })
+
+    const { notified } = await runSpotPublishedFanout(spot.id)
+
+    expect(notified).toBe(1)
+    const n = await testPrisma.notification.findFirst({
+      where: { userId: user.id, type: 'SPOT_NEARBY', spotId: spot.id },
+    })
+    expect(n).not.toBeNull()
+  })
+
   it('é idempotente: re-run não duplica', async () => {
     const creator = await makeUser()
     await makeNearbyUser()

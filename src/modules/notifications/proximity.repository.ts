@@ -16,7 +16,33 @@ export type ProximityTarget = {
   longitude: number
   latitude: number
   categories: EventCategory[]
+  /** Tags finas do evento/spot (subcategorias de venue + gêneros). Pode ser []. */
+  subcategories: string[]
   authorId: string
+}
+
+/**
+ * Predicado de preferência de 2 níveis: o usuário prefere AO MENOS UMA das
+ * categorias OU AO MENOS UMA das subcategorias do evento/spot. Espelha o match
+ * hierárquico do feed (categoria cobre o grosso; subcategoria refina). Quando o
+ * alvo não tem subcategoria, o ramo fino vira FALSE (cai só na categoria) —
+ * evitando a ambiguidade de `= ANY('{}')` com array vazio.
+ */
+function preferenceMatch(target: ProximityTarget): Prisma.Sql {
+  const catPref = Prisma.sql`EXISTS (
+        SELECT 1 FROM user_category_preferences ucp
+        WHERE ucp."userId" = u.id
+          AND ucp.category::text = ANY(${target.categories})
+      )`
+  const subPref =
+    target.subcategories.length > 0
+      ? Prisma.sql`EXISTS (
+        SELECT 1 FROM user_subcategory_preferences usp
+        WHERE usp."userId" = u.id
+          AND usp.subcategory = ANY(${target.subcategories})
+      )`
+      : Prisma.sql`FALSE`
+  return Prisma.sql`(${catPref} OR ${subPref})`
 }
 
 export type ProximityScan = {
@@ -39,9 +65,9 @@ export type ProximityScan = {
  * (`ST_Distance <= notifyRadiusKm*1000 + meia-diagonal`) roda só sobre os
  * candidatos — padrão "filtro na camada certa" do CLAUDE.md. Demais predicados:
  * freshness (TTL), consentimento (push + locationPrecise, não revogado),
- * interseção de categorias (o usuário prefere AO MENOS UMA das categorias do
- * evento), conta ativa, não-autor e sem bloqueio entre as partes (espelha a
- * exclusão de bloqueio do chat.repository).
+ * preferência de 2 níveis (o usuário prefere AO MENOS UMA categoria OU
+ * subcategoria do evento — ver preferenceMatch), conta ativa, não-autor e sem
+ * bloqueio entre as partes (espelha a exclusão de bloqueio do chat.repository).
  */
 export async function findUsersToNotifyNearEvent(
   target: ProximityTarget,
@@ -65,11 +91,7 @@ export async function findUsersToNotifyNearEvent(
       AND c."revokedAt" IS NULL
       AND c."pushNotifications" = true
       AND c."locationPrecise" = true
-      AND EXISTS (
-        SELECT 1 FROM user_category_preferences ucp
-        WHERE ucp."userId" = u.id
-          AND ucp.category::text = ANY(${target.categories})
-      )
+      AND ${preferenceMatch(target)}
       AND NOT EXISTS (
         SELECT 1 FROM blocks b
         WHERE (b."blockerId" = u.id AND b."blockedId" = ${target.authorId})
@@ -88,8 +110,8 @@ export type SpotProximityTarget = ProximityTarget & {
 }
 
 /**
- * Versão de spot da query invertida: igual ao evento (proximidade + categoria
- * preferida + consentimento + bloqueio), MAIS o filtro de visibilidade — spot
+ * Versão de spot da query invertida: igual ao evento (proximidade + preferência
+ * de 2 níveis + consentimento + bloqueio), MAIS o filtro de visibilidade — spot
  * FRIENDS só alcança quem segue mutuamente o criador. `authorId` = criador.
  */
 export async function findUsersToNotifyNearSpot(
@@ -103,14 +125,12 @@ export async function findUsersToNotifyNearSpot(
   const cursor = scan.cursorId
     ? Prisma.sql`AND u.id > ${scan.cursorId}`
     : Prisma.empty
-  const preferenceExists = Prisma.sql`EXISTS (
-        SELECT 1 FROM user_category_preferences ucp
-        WHERE ucp."userId" = u.id
-          AND ucp.category::text = ANY(${target.categories})
-      )`
+  // discovery inverte a preferência de 2 níveis: alcança quem NÃO prefere nem a
+  // categoria nem a subcategoria do spot (alcance premium fora do gosto).
+  const match = preferenceMatch(target)
   const preference = opts.discovery
-    ? Prisma.sql`AND NOT ${preferenceExists}`
-    : Prisma.sql`AND ${preferenceExists}`
+    ? Prisma.sql`AND NOT ${match}`
+    : Prisma.sql`AND ${match}`
   const visibility =
     target.visibility === 'FRIENDS'
       ? Prisma.sql`AND EXISTS (
