@@ -1,12 +1,15 @@
 import { cache } from '../../lib/cache'
 import { env } from '../../lib/env'
-import type { EventCategory } from '../../lib/event-categories'
+import { type EventCategory, listCategories } from '../../lib/event-categories'
+import { socialFilterEmptyTotal } from '../../lib/metrics'
 import { getPlacesClient, type PlaceCandidate } from '../../lib/places'
-import { buildProfileSearchQueries } from '../../lib/places/search-query'
+import { isSocialVenue } from '../../lib/places/social-venue'
 import { interestLabels } from '../../lib/subcategories'
 import {
   type EnhancedCandidate,
+  getProfileQueryComposer,
   getSuggestionEnhancer,
+  MAX_PROFILE_QUERIES,
 } from '../../lib/suggestion-ai'
 import { getUserPremiumStatus } from '../billing/billing.service'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
@@ -278,12 +281,16 @@ const DISTANCE_CAP_MULTIPLIER = 2
 const MAX_SUGGESTIONS = 8
 
 /**
- * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places em torno
- * do ponto, no raio do `reach` escolhido. Dois modos:
- * - Texto livre (`query`): Text Search guiada SÓ pela intenção (ignora perfil).
- * - Perfil (sem `query`): Nearby Search pelas categorias preferidas (exige perfil).
- * Consome 1 da quota diária (5 free / 25 premium) ANTES de buscar — conta mesmo
- * em cache hit. O resultado ENRIQUECIDO (copy + ranqueamento) é cacheado junto.
+ * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places (sempre
+ * Text Search) em torno do ponto, no raio escolhido. Dois modos que convergem num
+ * CRITÉRIO único de busca/ranqueamento:
+ * - Texto livre (`query`): o próprio texto é a busca e o critério (ignora perfil).
+ * - Perfil (sem `query`): a IA compõe 1-2 frases de busca a partir do perfil
+ *   (categorias + interesses); as MESMAS frases viram o critério de ranqueamento.
+ * Os candidatos passam por um filtro estrutural de venue social (pelos `types` do
+ * Places) antes da IA ranquear e escrever a copy. Consome 1 da quota diária (5
+ * free / 25 premium) — conta mesmo em cache hit. O resultado ENRIQUECIDO é
+ * cacheado junto (Places + IA rodam só no cache miss).
  */
 export async function generateSuggestions(
   userId: string,
@@ -311,10 +318,13 @@ export async function generateSuggestions(
   const radiusMeters = radiusKm * 1000
 
   // Sem intenção em texto, a busca depende das preferências de perfil. Com
-  // intenção, o texto basta — perfil é ignorado (decisão de produto).
+  // intenção, o texto basta — perfil é ignorado (decisão de produto). Os rótulos
+  // (ordem de preferência) alimentam a IA que compõe a query no cache miss; as
+  // chaves ordenadas só compõem a chave de cache (estável).
+  let profileCategoryLabels: string[] = []
+  let profileInterestLabels: string[] = []
   let sortedCats: EventCategory[] = []
   let sortedSubcats: string[] = []
-  let searchQueries: string[] = []
   if (!intent) {
     const categories = await findUserPreferredCategories(userId)
     if (categories.length === 0) {
@@ -325,11 +335,11 @@ export async function generateSuggestions(
       }
     }
     const subcats = await findUserPreferredSubcategories(userId)
-    // Busca por SIGNIFICADO (Text Search): o perfil vira frases — o gênero
-    // ("eletrônica") entra na busca de verdade, em vez de ser ignorado pelo tipo
-    // do Places (Nearby). Toda categoria tem rótulo, então sempre há ao menos uma
-    // frase (TECH/BUSINESS passam a ser pesquisáveis por texto).
-    searchQueries = buildProfileSearchQueries(categories, subcats)
+    const categoryLabel = new Map(
+      listCategories().map((c) => [c.value, c.label]),
+    )
+    profileCategoryLabels = categories.map((c) => categoryLabel.get(c) ?? c)
+    profileInterestLabels = interestLabels(subcats)
     sortedCats = [...categories].sort()
     sortedSubcats = [...subcats].sort()
   }
@@ -362,48 +372,55 @@ export async function generateSuggestions(
   // só no cache miss.
   let suggestions = await cache.get<EnhancedCandidate[]>(key)
   if (!suggestions) {
-    let found: PlaceCandidate[]
+    // Critério único: o texto livre OU as frases que a IA compõe do perfil. As
+    // frases servem a dois propósitos — são as buscas do Places E o critério de
+    // ranqueamento (sem recomputar). Composer resiliente: se a IA não devolve
+    // nada, cai nos rótulos de categoria (perfil não-vazio garante ≥1 frase).
+    let searchQueries: string[]
     if (intent) {
-      found = await getPlacesClient().searchText({
-        textQuery: intent,
-        latitude: body.latitude,
-        longitude: body.longitude,
-        radiusMeters,
-        limit: SEARCH_LIMIT,
-      })
+      searchQueries = [intent]
     } else {
-      // Perfil: uma Text Search por frase composta, em paralelo, mescladas e
-      // deduplicadas por placeId (o mesmo lugar pode casar mais de uma frase).
-      const perQuery = await Promise.all(
-        searchQueries.map((textQuery) =>
-          getPlacesClient().searchText({
-            textQuery,
-            latitude: body.latitude,
-            longitude: body.longitude,
-            radiusMeters,
-            limit: SEARCH_LIMIT,
-          }),
-        ),
-      )
-      const byId = new Map<string, PlaceCandidate>()
-      for (const c of perQuery.flat()) {
-        if (!byId.has(c.placeId)) byId.set(c.placeId, c)
-      }
-      found = [...byId.values()]
+      const composed = await getProfileQueryComposer().composeProfileQueries({
+        categories: profileCategoryLabels,
+        interests: profileInterestLabels,
+      })
+      searchQueries =
+        composed.length > 0
+          ? composed
+          : profileCategoryLabels.slice(0, MAX_PROFILE_QUERIES)
+    }
+    const criterion = searchQueries.join('; ')
+
+    // Uma Text Search por frase, em paralelo, mescladas e deduplicadas por placeId
+    // (o mesmo lugar pode casar mais de uma frase). Vale para os dois modos —
+    // texto livre é só uma frase.
+    const perQuery = await Promise.all(
+      searchQueries.map((textQuery) =>
+        getPlacesClient().searchText({
+          textQuery,
+          latitude: body.latitude,
+          longitude: body.longitude,
+          radiusMeters,
+          limit: SEARCH_LIMIT,
+        }),
+      ),
+    )
+    const byId = new Map<string, PlaceCandidate>()
+    for (const c of perQuery.flat()) {
+      if (!byId.has(c.placeId)) byId.set(c.placeId, c)
     }
     // Teto de distância: corta o que ficou absurdamente longe do alcance pedido.
-    const within = found.filter(
+    const within = [...byId.values()].filter(
       (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
     )
-    const enhanced = await getSuggestionEnhancer().enhance(within, {
-      preferredCategories: sortedCats,
-      // Interesses finos (subcategorias + gêneros) em rótulo pt-BR — sinal extra
-      // de relevância para a IA (gênero não veio do Places, mas refina o gosto).
-      ...(sortedSubcats.length > 0 && {
-        preferredSubcategories: interestLabels(sortedSubcats),
-      }),
-      ...(intent && { intent }),
-    })
+    // Filtro estrutural de venue social (pelos types do Places) ANTES da IA. Piso:
+    // se zerar uma lista não-vazia (só vieram não-sociais), bypassa para não
+    // devolver 0 sugestões após gastar quota — e alarma a métrica.
+    const social = within.filter((c) => isSocialVenue(c.types))
+    if (within.length > 0 && social.length === 0) socialFilterEmptyTotal.inc()
+    const forAI = social.length > 0 ? social : within
+
+    const enhanced = await getSuggestionEnhancer().enhance(forAI, { criterion })
     // Cap de itens: devolve só as melhores (já ranqueadas pela IA).
     suggestions = enhanced.slice(0, MAX_SUGGESTIONS)
     await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)

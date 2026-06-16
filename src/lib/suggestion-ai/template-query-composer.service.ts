@@ -1,11 +1,8 @@
-import type {
-  IProfileQueryComposer,
-  SuggestionProfile,
+import {
+  type IProfileQueryComposer,
+  MAX_PROFILE_QUERIES,
+  type SuggestionProfile,
 } from './profile-query-composer.interface'
-
-// Teto de frases por geração: cada frase é uma Text Search billable. As mais
-// específicas (interesses) vêm primeiro, então o corte preserva o sinal mais fino.
-export const MAX_PROFILE_QUERIES = 2
 
 /**
  * Frases determinísticas a partir do perfil — interesses finos antes (sinal mais

@@ -1,3 +1,7 @@
+// Teto de frases por geração: cada frase é uma Text Search billable. As mais
+// específicas (interesses) vêm primeiro, então o corte preserva o sinal mais fino.
+export const MAX_PROFILE_QUERIES = 2
+
 /** Perfil destilado para compor a busca: rótulos pt-BR (não enums/chaves). */
 export type SuggestionProfile = {
   /** Rótulos das categorias preferidas (ex.: "Gastronomia", "Balada"). */

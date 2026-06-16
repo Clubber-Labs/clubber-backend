@@ -8,6 +8,7 @@ import {
 } from '../../test/factories'
 import { fakeEnhancer } from '../../test/fake-enhancer'
 import { fakePlaces } from '../../test/fake-places'
+import { fakeQueryComposer } from '../../test/fake-query-composer'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -66,9 +67,8 @@ describe('POST /spots/suggestions', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.suggestions.length).toBeGreaterThan(0)
-    // O perfil vira frase de busca (rótulo da categoria), não Nearby por tipo.
+    // O perfil vira frase de busca composta pela IA (aqui, o rótulo da categoria).
     expect(fakePlaces.lastText?.textQuery).toBe('Festa')
-    expect(fakePlaces.lastNearby).toBeNull()
     // A camada de IA escreveu a copy de cada candidato.
     expect(body.suggestions[0].suggestedTitle).toMatch(/^IA:/)
     expect(body.remaining).toBe(4) // 5 free - 1
@@ -105,9 +105,10 @@ describe('POST /spots/suggestions', () => {
     await suggest(user.id)
     await suggest(user.id)
 
-    // Resultado enriquecido é cacheado junto: Places E IA rodam uma vez só.
+    // Resultado enriquecido é cacheado junto: Places, composer E IA rodam uma vez.
     expect(fakePlaces.calls).toBe(1)
     expect(fakeEnhancer.calls).toBe(1)
+    expect(fakeQueryComposer.calls).toBe(1)
   })
 
   it('respeita a quota diária do usuário free (6ª geração → 429)', async () => {
@@ -209,13 +210,13 @@ describe('POST /spots/suggestions', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    // Roteou para a busca por texto, não a por categoria.
+    // O texto é a busca; o composer de perfil NÃO é chamado.
     expect(fakePlaces.lastText?.textQuery).toBe('bar com música ao vivo')
-    expect(fakePlaces.lastNearby).toBeNull()
+    expect(fakeQueryComposer.calls).toBe(0)
     expect(res.json().suggestions.length).toBeGreaterThan(0)
   })
 
-  it('texto livre ignora o perfil (não chama a busca por categoria)', async () => {
+  it('texto livre ignora o perfil (não compõe query do perfil)', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')
 
@@ -227,7 +228,8 @@ describe('POST /spots/suggestions', () => {
     })
 
     expect(fakePlaces.lastText?.textQuery).toBe('exposição de arte')
-    expect(fakePlaces.lastNearby).toBeNull()
+    // Prova forte de que o perfil é ignorado: o composer não roda no modo-texto.
+    expect(fakeQueryComposer.calls).toBe(0)
   })
 
   it('descarta candidatos além do teto de distância do alcance', async () => {
@@ -321,29 +323,30 @@ describe('POST /spots/suggestions', () => {
     expect(fakePlaces.calls).toBe(2)
   })
 
-  it('subcategoria de venue entra na busca por texto (cobre a categoria-pai)', async () => {
+  it('subcategoria de venue chega ao composer e vira a busca por texto', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'GASTRONOMY')
     await makeUserSubcategoryPreference(user.id, 'GASTRONOMY_JAPONESA')
+    // Fixa a frase que a IA compõe para isolar o roteamento.
+    fakeQueryComposer.nextQueries = ['Japonesa']
 
     await suggest(user.id)
 
-    // O rótulo da subcategoria vira a frase; não há mais Nearby por tipo.
+    // O interesse (rótulo) chega ao composer e a frase composta vira a busca.
+    expect(fakeQueryComposer.lastProfile?.interests).toContain('Japonesa')
     expect(fakePlaces.lastText?.textQuery).toBe('Japonesa')
-    expect(fakePlaces.lastNearby).toBeNull()
   })
 
-  it('gênero DRIVA a busca por texto (o que o Nearby por tipo ignorava)', async () => {
+  it('gênero entra como interesse na composição da query', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')
     await makeUserSubcategoryPreference(user.id, 'GENRE_FUNK')
 
     await suggest(user.id)
 
-    // O gênero (ancorado num venue) passa a ser a busca — antes era ignorado
-    // porque o Places não tem tipo pra estilo musical.
-    expect(fakePlaces.lastText?.textQuery).toBe('balada de funk')
-    expect(fakePlaces.lastNearby).toBeNull()
+    // O gênero (rótulo "Funk") é repassado ao composer como interesse — é a IA
+    // que o transforma na busca ("festas de funk"), não um hack hardcoded.
+    expect(fakeQueryComposer.lastProfile?.interests).toContain('Funk')
   })
 
   it('subcategorias diferentes não compartilham cache', async () => {
@@ -357,8 +360,53 @@ describe('POST /spots/suggestions', () => {
     await suggest(a.id)
     await suggest(b.id)
 
-    // Chaves de cache distintas (subcat no key) → 2 buscas no Places.
-    expect(fakePlaces.calls).toBe(2)
+    // Chaves de cache distintas (subcat no key) → 2 gerações (composer 2x).
+    expect(fakeQueryComposer.calls).toBe(2)
+  })
+
+  it('filtro estrutural descarta venue não-social (loja) e mantém o social (bar)', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    fakePlaces.override = (p) => [
+      { ...baseCandidate(p, 'bar1'), types: ['bar'] },
+      { ...baseCandidate(p, 'loja1'), types: ['clothing_store', 'store'] },
+    ]
+
+    const res = await suggest(user.id)
+
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('bar1')
+    expect(ids).not.toContain('loja1')
+  })
+
+  it('piso: se o filtro social zera tudo, ainda devolve algo e consome quota', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    // Só vieram não-sociais: o filtro bypassa para não devolver lista vazia.
+    fakePlaces.override = (p) => [
+      { ...baseCandidate(p, 'loja1'), types: ['clothing_store', 'store'] },
+    ]
+
+    const res = await suggest(user.id)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().suggestions.length).toBeGreaterThan(0)
+    expect(res.json().remaining).toBe(4) // quota foi consumida
+  })
+
+  it('composer sem saída cai nos rótulos do perfil e ainda gera', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+    // IA não devolve frase: o service usa os rótulos de categoria do perfil.
+    fakeQueryComposer.nextQueries = []
+
+    const res = await suggest(user.id)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().suggestions.length).toBeGreaterThan(0)
+    expect(fakePlaces.lastText?.textQuery).toBe('Festa')
   })
 
   it('retorna 401 sem autenticação', async () => {

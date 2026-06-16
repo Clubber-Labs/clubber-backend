@@ -3,14 +3,12 @@ import { zodOutputFormat } from '@anthropic-ai/sdk/helpers/zod'
 import { z } from 'zod'
 import { logger } from '../logger'
 import { profileQueryComposerFallbackTotal } from '../metrics'
-import type {
-  IProfileQueryComposer,
-  SuggestionProfile,
-} from './profile-query-composer.interface'
 import {
-  fallbackProfileQueries,
+  type IProfileQueryComposer,
   MAX_PROFILE_QUERIES,
-} from './template-query-composer.service'
+  type SuggestionProfile,
+} from './profile-query-composer.interface'
+import { fallbackProfileQueries } from './template-query-composer.service'
 
 const MODEL = 'claude-haiku-4-5'
 const MAX_TOKENS = 256

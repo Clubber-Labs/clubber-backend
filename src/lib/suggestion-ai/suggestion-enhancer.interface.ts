@@ -1,4 +1,3 @@
-import type { EventCategory } from '../event-categories'
 import type { PlaceCandidate } from '../places'
 
 /** Candidato do Places enriquecido com copy convidativa para o balão. */
@@ -8,18 +7,13 @@ export type EnhancedCandidate = PlaceCandidate & {
 }
 
 export type EnhanceContext = {
-  /** Categorias preferidas do usuário — sinal de ranqueamento. */
-  preferredCategories: EventCategory[]
   /**
-   * Intenção em texto livre do usuário (ex.: "bar com música ao vivo"). Quando
-   * presente, é o sinal dominante de ranqueamento — as preferências são ignoradas.
+   * Critério ÚNICO de ranqueamento — a intenção da busca contra a qual os
+   * candidatos são ordenados. É o texto livre do usuário (modo-intenção) ou as
+   * frases que a IA compôs do perfil (modo-perfil). Unifica os dois modos: o
+   * ranqueador sempre ordena por aderência a este critério.
    */
-  intent?: string
-  /**
-   * Interesses finos em rótulo (subcategorias de venue + gêneros musicais) —
-   * sinal extra de relevância, mais específico que a categoria.
-   */
-  preferredSubcategories?: string[]
+  criterion: string
 }
 
 /**

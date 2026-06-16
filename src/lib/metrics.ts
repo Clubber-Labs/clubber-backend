@@ -73,3 +73,13 @@ export const placesSearchTotal = new Counter({
   labelNames: ['type'],
   registers: [registry],
 })
+
+// Quantas gerações tiveram o filtro de venue social zerando uma lista não-vazia
+// (todos os candidatos eram não-sociais). Nesses casos o filtro é bypassado para
+// não devolver 0 sugestões após gastar quota — este contador é o alarme de
+// "filtro agressivo demais" (recalibrar a whitelist/blacklist).
+export const socialFilterEmptyTotal = new Counter({
+  name: 'spots_social_filter_empty_total',
+  help: 'Gerações em que o filtro de venue social zerou uma lista não-vazia',
+  registers: [registry],
+})
