@@ -30,6 +30,7 @@ describe('isAdultVenue', () => {
       'Restaurante Essex', // "essex" não casa "sex"
       'Cervejaria Liberdade', // "liberdade" não casa "liberal"
       'Swingueira do Amor', // "swingueira" é gênero de festa, não swing adulto
+      'Bar do Gogó', // "gogó" (garganta) ≠ go-go bar
       'Café Cultura',
       'Pizzaria Napolitana',
       'Casa de Show Opinião',

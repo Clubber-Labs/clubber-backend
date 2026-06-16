@@ -24,11 +24,13 @@ const SOCIAL_CATEGORIES = new Set<EventCategory>([
   'MARKETS',
 ])
 
-// Tipos sociais que o Places (New) emite mas a taxonomia não lista nominalmente
-// (cozinhas específicas, variações de bar, casas de evento). Validados no probe
-// real (Curitiba): sem eles, casas de show (live_music_venue) e restaurantes de
-// cozinha específica eram descartados. NÃO inclui o genérico 'food' (casaria
-// supermercado): restaurante sempre vem com o tipo 'restaurant'.
+// Reforço/extensão da whitelist social. A maioria são tipos que o Places (New)
+// emite mas a taxonomia não lista nominalmente (cozinhas específicas, variações de
+// bar, casas de evento). Alguns (restaurant, bar) já vêm da taxonomia e estão aqui
+// de propósito: repeti-los (o Set dedupa) fixa o núcleo social explícito, imune a
+// futuras edições nas subcategorias. Validados no probe real (Curitiba): sem eles,
+// casas de show (live_music_venue) e restaurantes de cozinha específica eram
+// descartados. NÃO inclui o genérico 'food' (casaria supermercado).
 const SOCIAL_EXTRA_TYPES = [
   'restaurant',
   'fine_dining_restaurant',

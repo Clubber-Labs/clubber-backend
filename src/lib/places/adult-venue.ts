@@ -7,7 +7,10 @@
 
 // Termos casados por palavra (com prefixo \w* onde a flexão é segura). Curado
 // para alta precisão — evita falsos positivos conhecidos: "swingueira" (gênero de
-// festa, não swing), "sexta" (≠ sex), "liberdade" (≠ liberal), "privado" (≠ privê).
+// festa, não swing), "sexta" (≠ sex), "liberdade" (≠ liberal), "privado" (≠ privê),
+// "gogó" (garganta, ex.: "Bar do Gogó" — não é go-go bar). O strip/cabaré já está
+// coberto por strip/pole/lap/table dance, e a IA tem seu próprio descarte adulto
+// como segunda barreira; num filtro HARD (sem backstop) preferimos não arriscar FP.
 const ADULT_TERMS = [
   'swing',
   'swinger',
@@ -36,10 +39,11 @@ const ADULT_TERMS = [
   'pole ?dance',
   'lap ?dance',
   'table ?dance',
-  'gogo',
 ]
 
-const ADULT_RE = new RegExp(`\\b(${ADULT_TERMS.join('|')})\\b`, 'i')
+// Sem flag 'i': normalize() já minúscula a entrada e os termos são todos lowercase
+// — case fica concentrado num único ponto (a normalização), não duplicado aqui.
+const ADULT_RE = new RegExp(`\\b(${ADULT_TERMS.join('|')})\\b`)
 
 /** Minúsculas + remoção de acentos, para casar "erótico"/"privê" sem variações. */
 function normalize(text: string): string {

@@ -122,7 +122,7 @@ export class AiSuggestionEnhancer implements ISuggestionEnhancer {
       }
       return result
     } catch (err) {
-      logger.warn({ err }, 'enhance via Haiku falhou — usando template')
+      logger.warn({ err }, `enhance via IA (${MODEL}) falhou — usando template`)
       suggestionsEnhancerFallbackTotal.inc({ reason: 'llm_error' })
       return fallback(candidates)
     }

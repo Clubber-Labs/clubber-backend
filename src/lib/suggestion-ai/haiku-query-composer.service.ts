@@ -63,7 +63,7 @@ export class HaikuProfileQueryComposer implements IProfileQueryComposer {
     } catch (err) {
       logger.warn(
         { err },
-        'composeProfileQueries via Haiku falhou — usando template',
+        `composeProfileQueries via IA (${MODEL}) falhou — usando template`,
       )
       profileQueryComposerFallbackTotal.inc({ reason: 'llm_error' })
       return fallbackProfileQueries(profile)
