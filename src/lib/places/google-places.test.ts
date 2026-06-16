@@ -19,115 +19,12 @@ function mockFetch(places: unknown[]) {
 
 const CENTER = { latitude: -23.5614, longitude: -46.6559 }
 
-describe('GooglePlacesService.searchNearby', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('pede os sinais de qualidade no FieldMask', async () => {
-    const spy = mockFetch([])
-    await new GooglePlacesService('key').searchNearby({
-      ...CENTER,
-      categories: ['ART'],
-    })
-
-    const headers = spy.mock.calls[0]?.[1]?.headers as Record<string, string>
-    const fieldMask = headers['X-Goog-FieldMask']
-    expect(fieldMask).toContain('places.rating')
-    expect(fieldMask).toContain('places.userRatingCount')
-    expect(fieldMask).toContain('places.priceLevel')
-    expect(fieldMask).toContain('places.currentOpeningHours.openNow')
-  })
-
-  it('mapeia rating, contagem, faixa de preço e aberto-agora', async () => {
-    mockFetch([
-      {
-        id: 'p1',
-        displayName: { text: 'MASP' },
-        location: { latitude: -23.5614, longitude: -46.6559 },
-        types: ['museum'],
-        formattedAddress: 'Av. Paulista, 1578',
-        rating: 4.7,
-        userRatingCount: 92000,
-        priceLevel: 'PRICE_LEVEL_MODERATE',
-        currentOpeningHours: { openNow: true },
-      },
-    ])
-
-    const [place] = await new GooglePlacesService('key').searchNearby({
-      ...CENTER,
-      categories: ['ART'],
-    })
-
-    expect(place.rating).toBe(4.7)
-    expect(place.userRatingCount).toBe(92000)
-    expect(place.priceLevel).toBe('PRICE_LEVEL_MODERATE')
-    expect(place.openNow).toBe(true)
-    expect(place.distanceMeters).toBe(0) // está no centro da busca
-  })
-
-  it('calcula distanceMeters do ponto da busca até o local', async () => {
-    mockFetch([
-      {
-        id: 'p2',
-        displayName: { text: 'Itaú Cultural' },
-        location: { latitude: -23.5704, longitude: -46.6459 },
-        types: ['art_gallery'],
-      },
-    ])
-
-    const [place] = await new GooglePlacesService('key').searchNearby({
-      ...CENTER,
-      categories: ['ART'],
-    })
-
-    expect(place.distanceMeters).toBeGreaterThan(1200)
-    expect(place.distanceMeters).toBeLessThan(1500)
-  })
-
-  it('busca por popularidade no raio pedido (Nearby)', async () => {
-    const spy = mockFetch([])
-    await new GooglePlacesService('key').searchNearby({
-      ...CENTER,
-      categories: ['ART'],
-      radiusMeters: 40000,
-      limit: 20,
-    })
-
-    const body = JSON.parse(spy.mock.calls[0]?.[1]?.body as string)
-    expect(body.rankPreference).toBe('POPULARITY')
-    expect(body.maxResultCount).toBe(20)
-    expect(body.locationRestriction.circle.radius).toBe(40000)
-  })
-
-  it('usa null quando o Places não traz os sinais', async () => {
-    mockFetch([
-      {
-        id: 'p3',
-        displayName: { text: 'Local sem dados' },
-        location: { latitude: -23.5614, longitude: -46.6559 },
-        types: ['museum'],
-      },
-    ])
-
-    const [place] = await new GooglePlacesService('key').searchNearby({
-      ...CENTER,
-      categories: ['ART'],
-    })
-
-    expect(place.rating).toBeNull()
-    expect(place.userRatingCount).toBeNull()
-    expect(place.priceLevel).toBeNull()
-    expect(place.openNow).toBeNull()
-  })
-})
-
 describe('GooglePlacesService.searchText', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('chama o endpoint de texto com a intenção e viés de localização', async () => {
+  it('chama o endpoint de texto com a intenção, viés e os sinais no FieldMask', async () => {
     const before = await searchCount('text')
     const spy = mockFetch([])
     await new GooglePlacesService('key').searchText({
@@ -137,7 +34,7 @@ describe('GooglePlacesService.searchText', () => {
       limit: 20,
     })
 
-    // Conta o SKU de Text Search (mais caro) para acompanhar o custo.
+    // Conta o SKU de Text Search para acompanhar o custo.
     expect(await searchCount('text')).toBe(before + 1)
 
     const [url, init] = spy.mock.calls[0] as [string, RequestInit]
@@ -147,19 +44,27 @@ describe('GooglePlacesService.searchText', () => {
     expect(body.maxResultCount).toBe(20)
     // Viés (não trava): permite resultados além do raio quando relevantes.
     expect(body.locationBias.circle.radius).toBe(15000)
-    const headers = init.headers as Record<string, string>
-    expect(headers['X-Goog-FieldMask']).toContain('places.rating')
+    const fieldMask = (init.headers as Record<string, string>)[
+      'X-Goog-FieldMask'
+    ]
+    expect(fieldMask).toContain('places.types')
+    expect(fieldMask).toContain('places.rating')
+    expect(fieldMask).toContain('places.userRatingCount')
+    expect(fieldMask).toContain('places.priceLevel')
+    expect(fieldMask).toContain('places.currentOpeningHours.openNow')
   })
 
-  it('mapeia candidatos com sinais e distância (igual à Nearby)', async () => {
+  it('mapeia types, rating, contagem, faixa de preço e aberto-agora', async () => {
     mockFetch([
       {
         id: 't1',
         displayName: { text: 'Bar do Zé' },
-        location: { latitude: -23.5704, longitude: -46.6459 },
-        types: ['bar'],
+        location: { latitude: -23.5614, longitude: -46.6559 },
+        types: ['bar', 'point_of_interest'],
+        formattedAddress: 'Rua X, 100',
         rating: 4.4,
         userRatingCount: 1200,
+        priceLevel: 'PRICE_LEVEL_MODERATE',
         currentOpeningHours: { openNow: true },
       },
     ])
@@ -172,7 +77,49 @@ describe('GooglePlacesService.searchText', () => {
     expect(place.placeId).toBe('t1')
     expect(place.types).toContain('bar') // tipos crus do Places, sem inferência
     expect(place.rating).toBe(4.4)
+    expect(place.userRatingCount).toBe(1200)
+    expect(place.priceLevel).toBe('PRICE_LEVEL_MODERATE')
     expect(place.openNow).toBe(true)
+    expect(place.distanceMeters).toBe(0) // está no centro da busca
+  })
+
+  it('calcula distanceMeters do ponto da busca até o local', async () => {
+    mockFetch([
+      {
+        id: 't2',
+        displayName: { text: 'Itaú Cultural' },
+        location: { latitude: -23.5704, longitude: -46.6459 },
+        types: ['cultural_center'],
+      },
+    ])
+
+    const [place] = await new GooglePlacesService('key').searchText({
+      textQuery: 'centro cultural',
+      ...CENTER,
+    })
+
     expect(place.distanceMeters).toBeGreaterThan(1200)
+    expect(place.distanceMeters).toBeLessThan(1500)
+  })
+
+  it('usa null quando o Places não traz os sinais', async () => {
+    mockFetch([
+      {
+        id: 't3',
+        displayName: { text: 'Local sem dados' },
+        location: { latitude: -23.5614, longitude: -46.6559 },
+        types: ['museum'],
+      },
+    ])
+
+    const [place] = await new GooglePlacesService('key').searchText({
+      textQuery: 'museu',
+      ...CENTER,
+    })
+
+    expect(place.rating).toBeNull()
+    expect(place.userRatingCount).toBeNull()
+    expect(place.priceLevel).toBeNull()
+    expect(place.openNow).toBeNull()
   })
 })

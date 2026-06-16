@@ -1,22 +1,19 @@
 import { haversineMeters } from '../geo/distance'
 import { placesSearchTotal } from '../metrics'
-import { placeTypesForCategories } from './place-category-map'
 import type {
   IPlacesClient,
   PlaceCandidate,
-  SearchNearbyParams,
   SearchTextParams,
 } from './places.interface'
 
 const BASE = 'https://places.googleapis.com/v1/places'
-const NEARBY_ENDPOINT = `${BASE}:searchNearby`
 const TEXT_ENDPOINT = `${BASE}:searchText`
 const DEFAULT_RADIUS_M = 1500
 const DEFAULT_LIMIT = 10
 const REQUEST_TIMEOUT_MS = 5000
 
-// FieldMask único para as duas buscas: pede só o necessário (controla o tier de
-// cobrança) + os sinais de qualidade/relevância para o ranqueamento da IA.
+// FieldMask da Text Search: pede só o necessário (controla o tier de cobrança) +
+// os sinais de qualidade/relevância (types, userRatingCount) para o ranqueamento.
 const FIELD_MASK = [
   'places.id',
   'places.displayName',
@@ -42,39 +39,12 @@ type GooglePlace = {
 }
 
 /**
- * Impl real do Google Places API (New) — Nearby Search (por preferências) e Text
- * Search (por intenção em texto livre). Não roda em testes (o setup injeta o fake
- * via setPlacesClient); em produção exige a chave.
+ * Impl real do Google Places API (New) — Text Search (busca semântica por uma
+ * frase de intenção). Não roda em testes (o setup injeta o fake via
+ * setPlacesClient); em produção exige a chave.
  */
 export class GooglePlacesService implements IPlacesClient {
   constructor(private readonly apiKey: string) {}
-
-  async searchNearby(params: SearchNearbyParams): Promise<PlaceCandidate[]> {
-    // Tipos precisos resolvidos pelo caller (subcategoria) têm prioridade; senão
-    // deriva das categorias.
-    const includedTypes =
-      params.includedTypes ?? placeTypesForCategories(params.categories)
-    const body = {
-      ...(includedTypes.length > 0 && { includedTypes }),
-      maxResultCount: params.limit ?? DEFAULT_LIMIT,
-      // POPULARITY (e não DISTANCE) para que o raio amplo traga os melhores rolês
-      // da região, não só os mais colados no usuário. A IA rebalanceia depois.
-      rankPreference: 'POPULARITY',
-      locationRestriction: {
-        circle: {
-          center: { latitude: params.latitude, longitude: params.longitude },
-          radius: params.radiusMeters ?? DEFAULT_RADIUS_M,
-        },
-      },
-    }
-    return this.search(
-      NEARBY_ENDPOINT,
-      'nearby',
-      body,
-      params.latitude,
-      params.longitude,
-    )
-  }
 
   async searchText(params: SearchTextParams): Promise<PlaceCandidate[]> {
     const body = {
@@ -89,28 +59,20 @@ export class GooglePlacesService implements IPlacesClient {
         },
       },
     }
-    return this.search(
-      TEXT_ENDPOINT,
-      'text',
-      body,
-      params.latitude,
-      params.longitude,
-    )
+    return this.search(body, params.latitude, params.longitude)
   }
 
-  /** Request + parse + mapeamento compartilhados entre as duas buscas. */
+  /** Request + parse + mapeamento da Text Search. */
   private async search(
-    endpoint: string,
-    type: 'nearby' | 'text',
     body: unknown,
     centerLat: number,
     centerLng: number,
   ): Promise<PlaceCandidate[]> {
-    // Conta a chamada (billable) por tipo de SKU, antes de disparar o request.
-    placesSearchTotal.inc({ type })
+    // Conta a chamada (billable) — acompanha o volume e o custo da Text Search.
+    placesSearchTotal.inc({ type: 'text' })
     let res: Response
     try {
-      res = await fetch(endpoint, {
+      res = await fetch(TEXT_ENDPOINT, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

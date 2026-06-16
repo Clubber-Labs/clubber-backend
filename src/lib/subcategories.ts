@@ -16,8 +16,10 @@ import { GENRE_KEYS, GENRES, listGenres } from './genres'
  * + um rótulo, sem migration. As chaves são identificadores estáveis e neutros,
  * namespaced pelo pai; o rótulo exibível vive em SUBCATEGORY_LABELS.
  *
- * PARTIÇÃO: cada tipo do Google Places aparece em UMA única subcategoria. Isso
- * mantém o mapa reverso (tipo → categoria) determinístico — ver place-category-map.
+ * PARTIÇÃO: cada tipo do Google Places aparece em UMA única subcategoria (logo,
+ * numa única categoria). Mantém determinístico quem é "venue social" para a
+ * recomendação de spots — ver lib/places/social-venue, que deriva a whitelist
+ * dos placeTypes das categorias sociais.
  */
 export type Subcategory = {
   key: string

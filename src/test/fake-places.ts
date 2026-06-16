@@ -1,7 +1,6 @@
 import type {
   IPlacesClient,
   PlaceCandidate,
-  SearchNearbyParams,
   SearchTextParams,
 } from '../lib/places'
 
@@ -26,32 +25,17 @@ function fakeCandidate(
 
 /**
  * Places fake para testes: não chama a API do Google. Devolve candidatos
- * determinísticos e conta as chamadas (`calls`, e `lastNearby`/`lastText` com os
- * params recebidos) para verificar cache hit e roteamento. Injetado via
- * setPlacesClient no setup.ts.
+ * determinísticos e conta as chamadas (`calls`, e `lastText` com os params
+ * recebidos) para verificar cache hit e roteamento. Injetado via setPlacesClient
+ * no setup.ts.
  */
 export class FakePlacesService implements IPlacesClient {
   calls = 0
-  lastNearby: SearchNearbyParams | null = null
   lastText: SearchTextParams | null = null
-  /** Sobrescreva para roteirizar o retorno da busca (Nearby ou Text) num cenário. */
+  /** Sobrescreva para roteirizar o retorno da Text Search num cenário. */
   override:
     | ((params: { latitude: number; longitude: number }) => PlaceCandidate[])
     | null = null
-
-  async searchNearby(params: SearchNearbyParams): Promise<PlaceCandidate[]> {
-    this.calls++
-    this.lastNearby = params
-    if (this.override) return this.override(params)
-    return params.categories.map((category, i) =>
-      fakeCandidate({
-        placeId: `fake_${category}`,
-        latitude: params.latitude + i * 0.0001,
-        longitude: params.longitude + i * 0.0001,
-        distanceMeters: i * 100,
-      }),
-    )
-  }
 
   async searchText(params: SearchTextParams): Promise<PlaceCandidate[]> {
     this.calls++
@@ -70,7 +54,6 @@ export class FakePlacesService implements IPlacesClient {
 
   reset(): void {
     this.calls = 0
-    this.lastNearby = null
     this.lastText = null
     this.override = null
   }

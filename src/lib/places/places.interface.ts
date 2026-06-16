@@ -1,5 +1,3 @@
-import type { EventCategory } from '../event-categories'
-
 /** Candidato de local retornado pela busca (efêmero — não persiste). */
 export type PlaceCandidate = {
   placeId: string
@@ -18,20 +16,6 @@ export type PlaceCandidate = {
   distanceMeters: number
 }
 
-export type SearchNearbyParams = {
-  latitude: number
-  longitude: number
-  /** Categorias de interesse (preferências do usuário) → tipos do Places. */
-  categories: EventCategory[]
-  /**
-   * Tipos do Places já resolvidos pelo caller (busca precisa por subcategoria).
-   * Quando presente, têm prioridade sobre os derivados de `categories`.
-   */
-  includedTypes?: string[]
-  radiusMeters?: number
-  limit?: number
-}
-
 /** Busca por intenção em texto livre (Text Search). O ponto é só viés, não trava. */
 export type SearchTextParams = {
   textQuery: string
@@ -43,6 +27,5 @@ export type SearchTextParams = {
 
 /** Provedor de busca de estabelecimentos (Google Places). */
 export interface IPlacesClient {
-  searchNearby(params: SearchNearbyParams): Promise<PlaceCandidate[]>
   searchText(params: SearchTextParams): Promise<PlaceCandidate[]>
 }
