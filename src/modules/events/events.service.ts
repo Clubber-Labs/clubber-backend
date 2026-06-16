@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { interestMatchesCategories } from '../../lib/subcategories'
 import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
@@ -377,6 +378,22 @@ export async function editEvent(
     data.endDate === undefined ? event.endDate : data.endDate
   if (effectiveEndDate && effectiveEndDate <= effectiveDate) {
     throw { statusCode: 400, message: 'endDate deve ser depois de date' }
+  }
+
+  // Coerência das tags contra o estado EFETIVO: mexer em categories e/ou
+  // subcategories não pode deixar uma subcategoria órfã (sem categoria-pai).
+  // Encolher categories sem limpar a subcategoria correspondente também cai aqui.
+  if (data.categories !== undefined || data.subcategories !== undefined) {
+    const effectiveCategories = data.categories ?? event.categories
+    const effectiveSubcategories = data.subcategories ?? event.subcategories
+    for (const key of effectiveSubcategories) {
+      if (!interestMatchesCategories(key, effectiveCategories)) {
+        throw {
+          statusCode: 400,
+          message: `A subcategoria "${key}" não pertence a nenhuma categoria selecionada`,
+        }
+      }
+    }
   }
 
   const updated = await updateEvent(id, data)

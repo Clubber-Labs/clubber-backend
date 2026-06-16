@@ -328,6 +328,33 @@ describe('reconcileRecurringSeries (reposição de horizonte)', () => {
     expect(after).toBeLessThanOrEqual(52)
   })
 
+  it('ocorrências repostas herdam as subcategorias do template', async () => {
+    const author = await makeUser({ isPremium: true })
+    const start = new Date('2026-06-01T20:00:00Z')
+    const series = await makeEventSeries(author.id, {
+      frequency: 'WEEKLY',
+      categories: ['PARTY'],
+      subcategories: ['PARTY_BALADA'],
+    })
+    await makeEvent(author.id, {
+      seriesId: series.id,
+      date: start,
+      subcategories: ['PARTY_BALADA'],
+    })
+
+    await reconcileRecurringSeries(new Date(start.getTime() + 7 * DAY))
+
+    // As ocorrências geradas (posteriores à âncora) clonam do template da série.
+    const replenished = await testPrisma.event.findMany({
+      where: { seriesId: series.id, date: { gt: start } },
+      select: { subcategories: true },
+    })
+    expect(replenished.length).toBeGreaterThan(0)
+    for (const occ of replenished) {
+      expect(occ.subcategories).toEqual(['PARTY_BALADA'])
+    }
+  })
+
   it('é idempotente: rodar duas vezes não duplica ocorrências', async () => {
     const author = await makeUser({ isPremium: true })
     const start = new Date('2026-06-01T20:00:00Z')

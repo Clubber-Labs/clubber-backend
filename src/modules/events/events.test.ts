@@ -1023,6 +1023,75 @@ describe('POST /events', () => {
     )
   })
 
+  it('cria evento com subcategorias coerentes e devolve todas', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Sushi e show',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: -49.3,
+        categories: ['GASTRONOMY', 'PARTY'],
+        // venue (pai GASTRONOMY) + gênero (transversal a PARTY).
+        subcategories: ['GASTRONOMY_JAPONESA', 'GENRE_FUNK'],
+        isPublic: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().subcategories).toEqual(
+      expect.arrayContaining(['GASTRONOMY_JAPONESA', 'GENRE_FUNK']),
+    )
+  })
+
+  it('rejeita subcategoria de venue cujo pai não está nas categorias (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Tag órfã',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: -49.3,
+        categories: ['PARTY'],
+        // GASTRONOMY_JAPONESA é filha de GASTRONOMY, ausente das categorias.
+        subcategories: ['GASTRONOMY_JAPONESA'],
+        isPublic: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejeita gênero quando nenhuma categoria de vida noturna foi escolhida (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Funk no museu?',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: -25.4,
+        longitude: -49.3,
+        // GENRE_FUNK se aplica a PARTY/MUSIC/NIGHTLIFE — ART não habilita.
+        categories: ['ART'],
+        subcategories: ['GENRE_FUNK'],
+        isPublic: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
   it('rejeita evento com mais de 5 categorias (400)', async () => {
     const user = await makeUser()
 
@@ -1262,6 +1331,43 @@ describe('PUT /events/:id', () => {
       url: `/events/${eventId}`,
       headers: { authorization: `Bearer ${token(app, user.id)}` },
       body: { endDate: badEnd.toISOString() },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('atualiza categorias e subcategorias coerentes juntas', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id, {
+      categories: ['GASTRONOMY'],
+      subcategories: ['GASTRONOMY_JAPONESA'],
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { categories: ['NIGHTLIFE'], subcategories: ['NIGHTLIFE_BAR'] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().subcategories).toEqual(['NIGHTLIFE_BAR'])
+  })
+
+  it('rejeita encolher categorias deixando subcategoria órfã (400)', async () => {
+    const user = await makeUser()
+    // Subcategoria de GASTRONOMY; ao tirar GASTRONOMY das categorias sem limpar
+    // a tag, ela fica órfã — a validação efetiva no service barra com 400.
+    const event = await makeEvent(user.id, {
+      categories: ['GASTRONOMY', 'PARTY'],
+      subcategories: ['GASTRONOMY_JAPONESA'],
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { categories: ['PARTY'] },
     })
 
     expect(res.statusCode).toBe(400)

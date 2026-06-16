@@ -10,6 +10,7 @@ export type OccurrenceContent = {
   longitude: number
   address: string | null
   categories: EventCategory[]
+  subcategories: string[]
   isPublic: boolean
   maxCapacity: number | null
   authorId: string

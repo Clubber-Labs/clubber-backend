@@ -65,6 +65,7 @@ export async function reconcileRecurringSeries(now = new Date()) {
         longitude: s.longitude,
         address: s.address,
         categories: s.categories,
+        subcategories: s.subcategories,
         isPublic: s.isPublic,
         maxCapacity: s.maxCapacity,
         authorId: s.authorId,

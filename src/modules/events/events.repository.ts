@@ -372,6 +372,10 @@ export async function findEventAccess(id: string) {
       authorId: true,
       date: true,
       endDate: true,
+      // Estado atual de categorias/subcategorias: o editEvent valida a coerência
+      // das tags contra as categorias EFETIVAS (payload + armazenado).
+      categories: true,
+      subcategories: true,
     },
   })
 }
@@ -389,6 +393,7 @@ export async function findEventForFanout(id: string) {
       latitude: true,
       longitude: true,
       categories: true,
+      subcategories: true,
       authorId: true,
       isPublic: true,
       canceledAt: true,

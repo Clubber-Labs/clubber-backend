@@ -141,6 +141,7 @@ export async function makeEvent(
     /** Atalho legado: uma categoria única (vira `[category]`). */
     category?: EventCategory
     categories?: EventCategory[]
+    subcategories?: string[]
     date?: Date
     endDate?: Date | null
     canceledAt?: Date | null
@@ -166,6 +167,9 @@ export async function makeEvent(
       categories:
         overrides.categories ??
         (overrides.category ? [overrides.category] : ['PARTY']),
+      ...(overrides.subcategories && {
+        subcategories: overrides.subcategories,
+      }),
       isPublic: overrides.isPublic ?? true,
       isFeatured: overrides.isFeatured ?? false,
       canceledAt: overrides.canceledAt ?? null,
@@ -191,6 +195,7 @@ export async function makeEventSeries(
     /** Atalho legado: uma categoria única (vira `[category]`). */
     category?: EventCategory
     categories?: EventCategory[]
+    subcategories?: string[]
     maxCapacity?: number | null
     isPublic?: boolean
     durationMs?: number | null
@@ -214,6 +219,9 @@ export async function makeEventSeries(
       categories:
         overrides.categories ??
         (overrides.category ? [overrides.category] : ['PARTY']),
+      ...(overrides.subcategories && {
+        subcategories: overrides.subcategories,
+      }),
       maxCapacity: overrides.maxCapacity ?? null,
       isPublic: overrides.isPublic ?? true,
       durationMs: overrides.durationMs ?? null,
@@ -581,6 +589,7 @@ export async function makeSpot(
     title?: string
     description?: string | null
     categories?: EventCategory[]
+    subcategories?: string[]
     visibility?: 'PUBLIC' | 'FRIENDS'
     placeId?: string
     latitude?: number
@@ -611,6 +620,9 @@ export async function makeSpot(
       title: overrides.title ?? `Rolê ${id}`,
       description: overrides.description ?? null,
       categories: overrides.categories ?? ['PARTY'],
+      ...(overrides.subcategories && {
+        subcategories: overrides.subcategories,
+      }),
       visibility: overrides.visibility ?? 'PUBLIC',
       placeId: overrides.placeId ?? `place_${id}`,
       latitude: overrides.latitude ?? -25.4,

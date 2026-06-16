@@ -86,6 +86,41 @@ describe('POST /spots', () => {
     expect(participants[0]).toMatchObject({ userId: user.id, role: 'ADMIN' })
   })
 
+  it('publica o spot com subcategorias coerentes e as devolve', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({
+        categories: ['NIGHTLIFE', 'PARTY'],
+        subcategories: ['NIGHTLIFE_BAR', 'GENRE_PAGODE_SAMBA'],
+      }),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().subcategories).toEqual(
+      expect.arrayContaining(['NIGHTLIFE_BAR', 'GENRE_PAGODE_SAMBA']),
+    )
+  })
+
+  it('rejeita subcategoria incoerente com as categorias do spot (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({
+        categories: ['PARTY'],
+        // pai (NIGHTLIFE) ausente das categorias do rolê.
+        subcategories: ['NIGHTLIFE_BAR'],
+      }),
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({
       method: 'POST',
