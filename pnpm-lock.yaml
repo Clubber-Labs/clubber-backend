@@ -8,6 +8,7 @@ overrides:
   fast-uri: '>=3.1.2'
   effect: '>=3.20.0'
   defu: '>=6.1.5'
+  undici: ^7.28.0
 
 importers:
 
@@ -2759,8 +2760,8 @@ packages:
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
-  undici@7.27.2:
-    resolution: {integrity: sha512-uZsKNuzQxDMUY6M3pIMvy5tvlGmtq8XJ2oLAkfRKGNu+1VQAIvLy2xIVG5ATZl5wDXl/tddByAWCizRbOme+TA==}
+  undici@7.28.0:
+    resolution: {integrity: sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==}
     engines: {node: '>=20.18.1'}
 
   unpipe@1.0.0:
@@ -4671,7 +4672,7 @@ snapshots:
     dependencies:
       promise-limit: 2.7.0
       promise-retry: 2.0.1
-      undici: 7.27.2
+      undici: 7.28.0
 
   exsolve@1.0.8: {}
 
@@ -5607,7 +5608,7 @@ snapshots:
 
   undici-types@7.18.2: {}
 
-  undici@7.27.2: {}
+  undici@7.28.0: {}
 
   unpipe@1.0.0: {}
 
