@@ -1,4 +1,4 @@
-import fastifyWebsocket, { type WebSocket } from '@fastify/websocket'
+import type { WebSocket } from '@fastify/websocket'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { CHAT_CHANNEL, type RealtimeEvent, realtime } from '../../lib/realtime'
 import { redis } from '../../lib/redis'
@@ -32,8 +32,8 @@ const TOKEN_RECHECK_MS = 60_000
  * sempre limpos no close/error.
  */
 export async function chatGateway(app: FastifyInstance) {
-  await app.register(fastifyWebsocket)
-
+  // @fastify/websocket é registrado uma única vez no server.ts (raiz) — ver a
+  // nota lá sobre o ERR_HTTP_SOCKET_ASSIGNED. Aqui só herdamos o suporte.
   const log = app.log.child({ module: 'chat-ws' })
   const registry = createSocketRegistry()
 

@@ -1,4 +1,4 @@
-import fastifyWebsocket, { type WebSocket } from '@fastify/websocket'
+import type { WebSocket } from '@fastify/websocket'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import {
   NOTIFICATIONS_CHANNEL,
@@ -18,13 +18,14 @@ export function notificationFrame(notification: unknown): string {
 /**
  * Camada FINA de entrega ao vivo (foreground) de notificações. A persistência
  * in-app é a fonte da verdade (feita no service); aqui só repassamos o evento já
- * publicado no Redis aos sockets locais do destinatário. Registrar o
- * @fastify/websocket de novo é seguro: o plugin é deduplicado por nome
- * (fastify-plugin), então convive com o gateway do chat. Espelha chat.gateway.
+ * publicado no Redis aos sockets locais do destinatário. Espelha chat.gateway.
+ *
+ * NÃO registra @fastify/websocket aqui: ele é registrado uma única vez no
+ * server.ts (raiz). Registrar dentro de cada gateway adicionava um 2º listener
+ * de 'upgrade' no http.Server compartilhado (a dedup do fastify-plugin não cruza
+ * escopos encapsulados irmãos), causando ERR_HTTP_SOCKET_ASSIGNED a cada conexão.
  */
 export async function notificationsGateway(app: FastifyInstance) {
-  await app.register(fastifyWebsocket)
-
   const log = app.log.child({ module: 'notifications-ws' })
   const registry = createSocketRegistry()
 

@@ -10,6 +10,7 @@ import fastifyMultipart from '@fastify/multipart'
 import { fastifyRateLimit } from '@fastify/rate-limit'
 import fastifyStatic from '@fastify/static'
 import { fastifySwagger } from '@fastify/swagger'
+import fastifyWebsocket from '@fastify/websocket'
 import ScalarApiReference from '@scalar/fastify-api-reference'
 import { fastify } from 'fastify'
 import {
@@ -145,6 +146,14 @@ app.register(fastifyJwt, {
 })
 
 registerAuthDecorators(app)
+
+// WebSocket registrado UMA ÚNICA VEZ, aqui no escopo raiz, ANTES das rotas. O
+// onUpgrade do @fastify/websocket vive no http.Server compartilhado; registrar
+// o plugin DENTRO de cada gateway (chat/notificações) adicionava DOIS listeners
+// de 'upgrade' — a dedup do fastify-plugin não cruza escopos encapsulados irmãos
+// —, então cada handshake chamava onUpgrade duas vezes e a 2ª falhava com
+// ERR_HTTP_SOCKET_ASSIGNED (ruído nos logs). Os gateways herdam o suporte daqui.
+app.register(fastifyWebsocket)
 
 app.register(fastifySwagger, {
   openapi: {
