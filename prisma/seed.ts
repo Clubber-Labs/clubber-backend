@@ -38,6 +38,22 @@ const CATEGORIES = [
 
 const ATTENDANCE_TYPES = [AttendanceType.CONFIRMED, AttendanceType.INTERESTED]
 
+// Pool ponderado pra categoria primária do evento: shows (MUSIC) e baladas
+// (NIGHTLIFE) têm prioridade, então aparecem com bem mais frequência no feed.
+const CATEGORY_WEIGHTS: Record<(typeof CATEGORIES)[number], number> = {
+  MUSIC: 5,
+  NIGHTLIFE: 5,
+  PARTY: 2,
+  GASTRONOMY: 1,
+  SPORTS: 1,
+  ART: 1,
+  TECH: 1,
+  EDUCATION: 1,
+}
+const WEIGHTED_CATEGORIES = CATEGORIES.flatMap((c) =>
+  Array.from({ length: CATEGORY_WEIGHTS[c] }, () => c),
+)
+
 // ─── conteúdo realista (PT) ─────────────────────────────────────────────────────
 
 const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
@@ -49,11 +65,16 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
     'Festa à Fantasia',
   ],
   MUSIC: [
-    'Show da Banda Lua Cheia',
-    'Noite de MPB no Bar do Zé',
-    'Festival de Rock Curitiba',
-    'Sarau de Jazz ao Vivo',
-    'Tributo ao Legião Urbana',
+    'Show do Jorge & Mateus na Pedreira',
+    'Henrique & Juliano ao Vivo',
+    'Festival Turá Curitiba',
+    'Show do Nando Reis',
+    'Maneva em Turnê',
+    'Show da Marília Mendonça Cover',
+    'Tributo ao Charlie Brown Jr.',
+    'Show do Djonga — Turnê Nova',
+    'Festival João Rock — Caravana',
+    'Show do Seu Jorge — Músicas para Churrasco',
   ],
   SPORTS: [
     'Pelada de Domingo no Parque',
@@ -64,16 +85,16 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
   ],
   ART: [
     'Exposição de Fotografia Urbana',
-    'Oficina de Cerâmica',
     'Vernissage na Galeria do Largo',
     'Mostra de Arte Independente',
-    'Workshop de Aquarela',
+    'Stand-up Comedy no Teatro',
+    'Sessão de Cinema ao Ar Livre',
   ],
   GASTRONOMY: [
     'Festival de Food Trucks',
     'Jantar Harmonizado com Vinhos',
     'Feira Gastronômica do Largo',
-    'Aula de Massas Italianas',
+    'Festival de Inverno — Fondue & Vinho',
     'Rota da Cerveja Artesanal',
   ],
   TECH: [
@@ -84,18 +105,18 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
     'Café com Código',
   ],
   NIGHTLIFE: [
+    'Show de DJ no Rooftop',
+    'Quinta do Sertanejo ao Vivo',
     'Balada Eletrônica no Centro',
-    'Quinta do Sertanejo',
-    'Karaokê Night',
-    'Happy Hour Prolongado',
-    'Festa Open Bar',
+    'Pagode da Vila',
+    'Festa Open Bar com Banda ao Vivo',
   ],
   EDUCATION: [
     'Palestra sobre Finanças Pessoais',
-    'Curso de Fotografia para Iniciantes',
     'Roda de Conversa sobre Carreira',
     'Workshop de Oratória',
     'Clube do Livro',
+    'Talk Show com Convidado Especial',
   ],
 }
 
@@ -203,19 +224,90 @@ const SPOT_MESSAGES = [
   'Tô levando mais um amigo',
 ]
 
-// Imagens (upload desacoplado → webp). URLs/keys fictícias no mesmo formato que
-// o provider gera (events/<id>/<n> e posts/<id>/<n>). size em bytes.
-const IMAGE_CDN = 'https://cdn.conectai.dev'
+// Imagens: capas temáticas coerentes com o evento. A fonte preferida é o
+// Unsplash (fotos reais e curadas); sem UNSPLASH_ACCESS_KEY caímos pro
+// loremflickr, então o seed nunca quebra. `key`/`format`/`size` espelham o que
+// o provider de upload gravaria.
 
-function fakeImage(folder: 'events' | 'posts', ownerId: string, order: number) {
+// Query de busca por categoria → capa temática coerente com o evento.
+const CATEGORY_IMAGE_QUERY: Record<string, string> = {
+  PARTY: 'party celebration',
+  MUSIC: 'concert live music',
+  SPORTS: 'sports',
+  ART: 'art exhibition',
+  GASTRONOMY: 'food restaurant',
+  TECH: 'technology conference',
+  NIGHTLIFE: 'nightclub party',
+  EDUCATION: 'lecture seminar',
+  OUTDOORS: 'outdoor nature',
+}
+const FALLBACK_IMAGE_QUERY = 'event celebration'
+
+// Hash estável (string → inteiro positivo) pra escolher/fixar a imagem.
+function stableLock(seed: string) {
+  let h = 0
+  for (let i = 0; i < seed.length; i++) {
+    h = (h * 31 + seed.charCodeAt(i)) | 0
+  }
+  return Math.abs(h)
+}
+
+// Pool de URLs do Unsplash por query — preenchido uma vez por query (não 1 req
+// por imagem). Vazio quando não há key ou a chamada falha → cai no loremflickr.
+const UNSPLASH_ACCESS_KEY = process.env.UNSPLASH_ACCESS_KEY
+const imagePoolByQuery = new Map<string, string[]>()
+
+async function loadImagePool(query: string) {
+  if (imagePoolByQuery.has(query)) return
+  if (!UNSPLASH_ACCESS_KEY) {
+    imagePoolByQuery.set(query, [])
+    return
+  }
+  try {
+    const res = await fetch(
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=30&orientation=landscape&content_filter=high`,
+      { headers: { Authorization: `Client-ID ${UNSPLASH_ACCESS_KEY}` } },
+    )
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = (await res.json()) as {
+      results?: { urls?: { regular?: string } }[]
+    }
+    const urls = (json.results ?? [])
+      .map((p) => p.urls?.regular)
+      .filter((u): u is string => Boolean(u))
+    imagePoolByQuery.set(query, urls)
+  } catch (e) {
+    console.warn(
+      `   ⚠️  Unsplash falhou para "${query}" (${e}) — usando loremflickr`,
+    )
+    imagePoolByQuery.set(query, [])
+  }
+}
+
+function fakeImage(
+  folder: 'events' | 'posts',
+  ownerId: string,
+  order: number,
+  query: string,
+) {
   const key = `${folder}/${ownerId}/${order}`
+  const pool = imagePoolByQuery.get(query) ?? []
+  const url = pool.length
+    ? pool[stableLock(key) % pool.length]
+    : `https://loremflickr.com/800/600/${query.replace(/\s+/g, ',')}?lock=${stableLock(key)}`
   return {
-    url: `${IMAGE_CDN}/${key}.webp`,
+    url,
     key,
-    format: 'webp',
+    format: 'jpg',
     size: faker.number.int({ min: 80_000, max: 1_200_000 }),
     order,
   }
+}
+
+// Avatar de perfil: foto de rosto real e estável por usuário (pravatar usa o
+// identificador em `?u=` pra sempre devolver a mesma imagem).
+function avatarUrl(seed: string) {
+  return `https://i.pravatar.cc/300?u=${encodeURIComponent(seed)}`
 }
 
 // Denúncias: motivos + textos curtos coerentes com cada motivo.
@@ -321,6 +413,7 @@ async function main() {
       birthdate: new Date('1990-01-01'),
       role: UserRole.ADMIN,
       isPremium: true,
+      avatarUrl: avatarUrl('admin@conectai.dev'),
     },
   })
 
@@ -334,6 +427,7 @@ async function main() {
       phone: '11900000001',
       birthdate: new Date('1995-01-01'),
       isPremium: true,
+      avatarUrl: avatarUrl('premium@conectai.dev'),
     },
   })
 
@@ -356,6 +450,8 @@ async function main() {
         .slice(0, 11)
         .padEnd(11, '0'),
       bio: i % 3 === 0 ? pick(BIOS) : null,
+      // ~80% com foto de perfil; 1 em 5 fica sem pra exercitar o fallback
+      avatarUrl: i % 5 === 0 ? null : avatarUrl(`seed-user-${i}`),
       isPrivate: i % 4 === 0, // 25% perfis privados
       birthdate: faker.date.birthdate({ min: 18, max: 40, mode: 'age' }),
     }
@@ -459,7 +555,8 @@ async function main() {
   const eventsData = users.flatMap((author, i) =>
     Array.from({ length: faker.number.int({ min: 1, max: 3 }) }).map((_, j) => {
       // Categoria primária dá o título; 0–2 extras exercitam o multi-categoria.
-      const primary = pick(CATEGORIES)
+      // Ponderada → shows e baladas dominam o feed.
+      const primary = pick(WEIGHTED_CATEGORIES)
       const extras = sample(
         CATEGORIES.filter((c) => c !== primary),
         faker.number.int({ min: 0, max: 2 }),
@@ -536,20 +633,35 @@ async function main() {
   )
 
   // ── 3c. Imagens de eventos (upload webp) ─────────────────────────────────────
-  // ~40% dos eventos públicos ganham 1–3 imagens, ordenadas por `order`.
+  // ~40% dos eventos públicos ganham 1–3 imagens, ordenadas por `order`. A capa
+  // segue a categoria primária do evento (1ª de `categories`).
   console.log('🖼️  Criando imagens de eventos...')
 
-  const eventImages = publicEvents.flatMap((event) =>
-    faker.datatype.boolean({ probability: 0.4 })
+  // Pré-carrega o pool de fotos do Pexels por query (1 req por query, não por
+  // imagem). Sem PEXELS_API_KEY os pools ficam vazios → loremflickr no fakeImage.
+  await Promise.all(
+    [
+      ...new Set([
+        ...Object.values(CATEGORY_IMAGE_QUERY),
+        FALLBACK_IMAGE_QUERY,
+      ]),
+    ].map(loadImagePool),
+  )
+  if (UNSPLASH_ACCESS_KEY) console.log('   📸 fotos via Unsplash')
+
+  const eventImages = publicEvents.flatMap((event) => {
+    const query =
+      CATEGORY_IMAGE_QUERY[event.categories[0]] ?? FALLBACK_IMAGE_QUERY
+    return faker.datatype.boolean({ probability: 0.4 })
       ? Array.from(
           { length: faker.number.int({ min: 1, max: 3 }) },
           (_, n) => ({
             eventId: event.id,
-            ...fakeImage('events', event.id, n),
+            ...fakeImage('events', event.id, n, query),
           }),
         )
-      : [],
-  )
+      : []
+  })
   await prisma.eventImage.createMany({ data: eventImages })
   console.log(`   ✓ ${eventImages.length} imagens de eventos`)
 
@@ -799,17 +911,27 @@ async function main() {
   console.log(`   ✓ ${posts.length} posts criados`)
 
   // ── 8b. Imagens em posts (upload webp) ───────────────────────────────────────
-  // ~40% dos posts ganham 1–4 imagens (RF: imagens em posts de evento).
+  // ~40% dos posts ganham 1–4 imagens (RF: imagens em posts de evento). A capa
+  // segue a categoria do evento do post, então combina com o tema.
   let postImageCount = 0
   if (posts.length > 0) {
-    const postImages = posts.flatMap((post) =>
-      faker.datatype.boolean({ probability: 0.4 })
+    const categoryByEventId = new Map(
+      events.map((e) => [e.id, e.categories[0]]),
+    )
+    const postImages = posts.flatMap((post) => {
+      const query =
+        CATEGORY_IMAGE_QUERY[categoryByEventId.get(post.eventId) ?? ''] ??
+        FALLBACK_IMAGE_QUERY
+      return faker.datatype.boolean({ probability: 0.4 })
         ? Array.from(
             { length: faker.number.int({ min: 1, max: 4 }) },
-            (_, n) => ({ postId: post.id, ...fakeImage('posts', post.id, n) }),
+            (_, n) => ({
+              postId: post.id,
+              ...fakeImage('posts', post.id, n, query),
+            }),
           )
-        : [],
-    )
+        : []
+    })
     await prisma.postImage.createMany({ data: postImages })
     postImageCount = postImages.length
     console.log(`   ✓ ${postImages.length} imagens em posts`)
