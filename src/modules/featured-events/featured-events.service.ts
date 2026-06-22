@@ -47,6 +47,16 @@ export async function addFeaturedEvent(
     }
   }
 
+  // Teto de duração: a quota mensal conta destaques (não tempo), então sem isto
+  // um único destaque poderia durar até a data do evento gastando só 1 crédito.
+  const maxDurationMs = env.PROMOTION_MAX_DURATION_DAYS * 24 * 60 * 60 * 1000
+  if (body.endsAt.getTime() - body.startsAt.getTime() > maxDurationMs) {
+    throw {
+      statusCode: 400,
+      message: `O destaque pode durar no máximo ${env.PROMOTION_MAX_DURATION_DAYS} dias`,
+    }
+  }
+
   const overlap = await findOverlappingActiveFeature(
     eventId,
     body.startsAt,

@@ -128,6 +128,49 @@ describe('POST /events/:id/featured', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('400 quando a duração excede o teto (PROMOTION_MAX_DURATION_DAYS)', async () => {
+    const author = await makeUser({ isPremium: true })
+    // Evento distante: assim quem barra a janela longa é o teto de duração, não
+    // o limite "endsAt <= data do evento".
+    const event = await makeEvent(author.id, {
+      date: inFuture(30 * 86_400_000),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/featured`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: {
+        startsAt: new Date().toISOString(),
+        endsAt: inFuture(8 * 86_400_000).toISOString(), // 8 dias > teto de 7
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('201 quando a duração é exatamente o teto (7 dias)', async () => {
+    const author = await makeUser({ isPremium: true })
+    const event = await makeEvent(author.id, {
+      date: inFuture(30 * 86_400_000),
+    })
+    // start/end da MESMA base pra a diferença ser exatamente 7 dias (o check é
+    // estrito `> teto`, então 7 dias cravados passa).
+    const start = new Date()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/featured`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: {
+        startsAt: start.toISOString(),
+        endsAt: new Date(start.getTime() + 7 * 86_400_000).toISOString(),
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+
   it('400 quando startsAt está no passado', async () => {
     const author = await makeUser({ isPremium: true })
     const event = await makeEvent(author.id, { date: inFuture(86_400_000) })

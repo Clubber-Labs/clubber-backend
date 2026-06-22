@@ -119,6 +119,10 @@ const baseSchema = z.object({
     .default(300000),
   // Quota mensal de promoções de evento por usuário premium (RF11.4+).
   PROMOTION_MONTHLY_LIMIT: z.coerce.number().int().positive().default(3),
+  // Duração máxima de UM destaque (em dias). A quota mensal conta destaques,
+  // não tempo; sem este teto um único destaque poderia durar até a data do
+  // evento, monopolizando o feed gastando só 1 dos N créditos do mês.
+  PROMOTION_MAX_DURATION_DAYS: z.coerce.number().int().positive().default(7),
   // Digest "melhor pra você": no máx. 1 push de promoção por usuário a cada
   // COOLDOWN_DAYS, escolhendo o promovido mais relevante perto dele. Volume
   // por usuário (não por promoção) — anti-spam by design.
@@ -459,6 +463,7 @@ export const env = {
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,
+  PROMOTION_MAX_DURATION_DAYS: parsed.PROMOTION_MAX_DURATION_DAYS,
   PROMOTION_DIGEST_ENABLED: parsed.PROMOTION_DIGEST_ENABLED,
   PROMOTION_DIGEST_INTERVAL_MS: parsed.PROMOTION_DIGEST_INTERVAL_MS,
   PROMOTION_DIGEST_COOLDOWN_DAYS: parsed.PROMOTION_DIGEST_COOLDOWN_DAYS,
