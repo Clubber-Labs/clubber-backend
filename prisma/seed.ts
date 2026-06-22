@@ -7,6 +7,7 @@ import {
   type Prisma,
   PrismaClient,
   type SpotVisibility,
+  SubscriptionStatus,
   UserRole,
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
@@ -478,6 +479,36 @@ async function main() {
   console.log('   🛡️  Admin fixo: admin@conectai.dev (admin_demo)')
   console.log('   ⭐ Premium fixo: premium@conectai.dev (premium_demo)')
   console.log('   📧 Login: qualquer email acima | Senha: senha123')
+
+  // ── 1b. Assinaturas premium ──────────────────────────────────────────────────
+  // Invariante: todo usuário com isPremium=true tem uma subscription ATIVA
+  // correspondente. O app deriva a UI de billing do par (isPremium, subscription);
+  // um premium SEM subscription faz upgrade.tsx e manage.tsx se redirecionarem em
+  // loop (Maximum update depth) — upgrade manda pra manage por ser premium, manage
+  // manda de volta pra upgrade por não achar assinatura.
+  console.log('💳 Criando assinaturas premium...')
+  const subNow = new Date()
+  const subPeriodEnd = new Date(subNow.getTime() + 30 * 24 * 60 * 60 * 1000)
+  const premiumPriceId =
+    process.env.STRIPE_PREMIUM_PRICE_ID ?? 'price_seed_premium'
+  const premiumUsers = [adminDemo, premiumDemo]
+  await Promise.all(
+    premiumUsers.map((user) =>
+      prisma.subscription.create({
+        data: {
+          userId: user.id,
+          stripeSubscriptionId: `sub_seed_${user.username}`,
+          stripePriceId: premiumPriceId,
+          status: SubscriptionStatus.ACTIVE,
+          currentPeriodStart: subNow,
+          currentPeriodEnd: subPeriodEnd,
+        },
+      }),
+    ),
+  )
+  console.log(
+    `   ✓ ${premiumUsers.length} assinaturas ATIVAS (admin + premium)`,
+  )
 
   // ── 2. Follows ───────────────────────────────────────────────────────────────
   console.log('🔗 Criando follows...')
