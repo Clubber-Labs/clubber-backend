@@ -133,9 +133,18 @@ export async function chatGateway(app: FastifyInstance) {
     online: boolean,
     localEdge: boolean,
   ) {
-    const count = online
-      ? await presenceConnect(userId)
-      : await presenceDisconnect(userId)
+    let count: number | null
+    try {
+      count = online
+        ? await presenceConnect(userId)
+        : await presenceDisconnect(userId)
+    } catch (err) {
+      // Redis transiente: best-effort, cai no fallback local (instância única).
+      // Sem o catch, a rejeição escaparia do `void` no call site e viraria
+      // unhandled rejection (derruba o processo no Node ≥15).
+      log.error({ err, userId, online }, 'falha no contador de presença')
+      count = null
+    }
     const isEdge =
       count === null
         ? localEdge

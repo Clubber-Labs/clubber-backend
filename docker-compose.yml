@@ -42,7 +42,7 @@ services:
   # O Prisma fala com ele via DATABASE_POOL_URL e desabilita prepared statements
   # (pgbouncer=true), exigido pelo transaction mode.
   pgbouncer:
-    image: edoburu/pgbouncer:latest
+    image: edoburu/pgbouncer:v1.25.2-p0
     profiles: ["cluster"]
     environment:
       DB_HOST: postgres

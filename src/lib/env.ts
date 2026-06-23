@@ -21,11 +21,10 @@ const baseSchema = z.object({
   // Pool client-side do Prisma por instância. Opcionais: ajustam tamanho do pool
   // e o timeout de aquisição de conexão (segundos). Defaults preservam o atual.
   DATABASE_CONNECTION_LIMIT: z.coerce.number().int().positive().optional(),
-  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce
-    .number()
-    .int()
-    .nonnegative()
-    .default(10),
+  // .positive() (não .nonnegative()): no Prisma, pool_timeout=0 DESLIGA o timeout
+  // de aquisição — sob carga, requests ficariam pendurados pra sempre em vez de
+  // falhar com erro visível. Consistente com os demais campos de intervalo.
+  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(10),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET não configurado'),
   // Validade do token de SESSÃO. Antes os tokens eram emitidos sem `exp` e
   // valiam para sempre — um token vazado dava acesso permanente, sem rotação.
