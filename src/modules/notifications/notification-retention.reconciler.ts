@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { deleteNotificationsOlderThan } from './notification.repository'
 
@@ -34,7 +35,9 @@ export function startNotificationRetentionReconciler(
     // Evita sobreposição de ticks na mesma instância.
     if (isReconciling) return
     isReconciling = true
-    reconcileNotificationRetention(retentionDays)
+    runWithLock('notification-retention', reconcilerLockTtl(intervalMs), () =>
+      reconcileNotificationRetention(retentionDays),
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'notification retention failed')
       })

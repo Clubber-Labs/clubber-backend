@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { env } from '../../lib/env'
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { prisma } from '../../lib/prisma'
 import { realtime } from '../../lib/realtime'
@@ -220,7 +221,11 @@ export function startPromotedDigestReconciler(intervalMs: number) {
   timer = setInterval(() => {
     if (isRunning) return
     isRunning = true
-    runPromotedDigest()
+    runWithLock(
+      'promoted-digest',
+      reconcilerLockTtl(intervalMs),
+      runPromotedDigest,
+    )
       .catch((err) => {
         digestLog.error({ err }, 'promoted digest reconciliation failed')
       })

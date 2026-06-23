@@ -17,3 +17,4 @@ load-tests/results/
 .claude/
 # Skills do Claude Code (geradas pelo harness na pasta do repo, não versionar)
 skills-lock.json
+dump.rdb

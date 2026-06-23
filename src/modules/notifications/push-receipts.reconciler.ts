@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { reconcilePushReceipts } from './notification-push.service'
 
@@ -34,7 +35,9 @@ export function startPushReceiptsReconciler(
   timer = setInterval(() => {
     if (isReconciling) return
     isReconciling = true
-    runPushReceiptsReconcile(delayMs)
+    runWithLock('push-receipts', reconcilerLockTtl(intervalMs), () =>
+      runPushReceiptsReconcile(delayMs),
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'push receipts reconcile failed')
       })

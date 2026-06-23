@@ -1,4 +1,5 @@
 import { env } from '../../lib/env'
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import {
@@ -130,7 +131,9 @@ export function startSpotLifecycleReconciler(
   timer = setInterval(() => {
     if (isReconciling) return
     isReconciling = true
-    reconcileSpotLifecycle(leadMs)
+    runWithLock('spot-lifecycle', reconcilerLockTtl(intervalMs), () =>
+      reconcileSpotLifecycle(leadMs),
+    )
       .catch((err) => reconcilerLog.error({ err }, 'spot lifecycle failed'))
       .finally(() => {
         isReconciling = false

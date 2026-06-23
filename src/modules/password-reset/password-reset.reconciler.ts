@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { deleteExpiredAndUsedCodes } from './password-reset.repository'
 
@@ -27,7 +28,11 @@ export function startPasswordResetCleanupReconciler(intervalMs: number) {
     // Evita sobreposição de ticks na mesma instância.
     if (isReconciling) return
     isReconciling = true
-    reconcilePasswordResetCodes()
+    runWithLock(
+      'password-reset',
+      reconcilerLockTtl(intervalMs),
+      reconcilePasswordResetCodes,
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'password reset cleanup failed')
       })

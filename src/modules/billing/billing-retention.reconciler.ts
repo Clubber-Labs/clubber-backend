@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { deleteWebhookEventsOlderThan } from './billing.repository'
 
@@ -36,7 +37,9 @@ export function startBillingRetentionReconciler(
     // Evita sobreposição de ticks na mesma instância.
     if (isReconciling) return
     isReconciling = true
-    reconcileBillingWebhookRetention(retentionDays)
+    runWithLock('billing-retention', reconcilerLockTtl(intervalMs), () =>
+      reconcileBillingWebhookRetention(retentionDays),
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'billing retention failed')
       })

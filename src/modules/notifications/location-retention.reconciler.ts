@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { clearStaleUserLocations } from '../users/users.repository'
 
@@ -33,7 +34,9 @@ export function startLocationRetentionReconciler(
   timer = setInterval(() => {
     if (isReconciling) return
     isReconciling = true
-    reconcileLocationRetention(ttlDays)
+    runWithLock('location-retention', reconcilerLockTtl(intervalMs), () =>
+      reconcileLocationRetention(ttlDays),
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'location retention failed')
       })

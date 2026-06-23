@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { prisma } from '../../lib/prisma'
 
@@ -42,7 +43,11 @@ export function startFeaturedEventsReconciler(intervalMs: number) {
     // ainda está rodando (interval menor que tempo de execução), pula.
     if (isReconciling) return
     isReconciling = true
-    reconcileFeaturedEvents()
+    runWithLock(
+      'featured-events',
+      reconcilerLockTtl(intervalMs),
+      reconcileFeaturedEvents,
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'featured-events reconciliation failed')
       })
