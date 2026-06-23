@@ -12,6 +12,29 @@ Stack self-hosted para visualizar métricas, traces e logs do backend:
 O backend roda no **host** (`pnpm dev`); a stack roda em containers e fala com o
 host via `host.docker.internal`.
 
+## Métricas de banco e pool
+
+A escala horizontal do banco (pool, read replicas) precisa de visibilidade em
+duas camadas:
+
+- **App / pool do Prisma** — expostas no próprio `/metrics` do backend via
+  `prisma.$metrics.prometheus()` (preview feature `metrics` no `schema.prisma`):
+  `prisma_pool_connections_open/busy/idle` (saturação do pool — sinal direto de
+  pressão), `prisma_client_queries_wait` (queries esperando conexão) e
+  histogramas de duração.
+- **Postgres** — via `postgres-exporter` (serviço no compose, job `postgres` no
+  Prometheus): conexões (`pg_stat_database_numbackends` vs.
+  `pg_settings_max_connections`), TPS, cache hit ratio e **`pg_replication_lag_seconds`**
+  (query customizada em `postgres-exporter/queries.yaml`). O lag é a métrica nº 1
+  quando há read replica — lag alto = `prismaRead` servindo leituras velhas.
+
+O dashboard **ConnectAI Database & Pool** (provisionado) reúne esses painéis.
+Para monitorar uma **réplica**, suba um segundo `postgres-exporter` com o
+`DATA_SOURCE_NAME` apontando para ela. Em produção na AWS (RDS/Aurora), não se
+roda exporter dentro da instância gerenciada — use **cloudwatch_exporter** ou
+**YACE** para trazer `ReplicaLag`, `DatabaseConnections`, CPU e o nº de réplicas
+do CloudWatch para o Prometheus.
+
 ## Subir a stack
 
 ```bash

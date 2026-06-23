@@ -34,6 +34,16 @@ describe('GET /metrics', () => {
     expect(body).toMatch(/http_requests_total\{[^}]*route="\/health"/)
   })
 
+  it('expõe as métricas de pool de conexão do Prisma', async () => {
+    await app.inject({ method: 'GET', url: '/health' })
+
+    const res = await app.inject({ method: 'GET', url: '/metrics' })
+
+    // prisma.$metrics.prometheus() expõe o estado do pool — saturação é o
+    // sinal de pressão no banco sob escala horizontal.
+    expect(res.body).toContain('prisma_pool_connections_open')
+  })
+
   it('não contabiliza o próprio /metrics', async () => {
     await app.inject({ method: 'GET', url: '/metrics' })
 

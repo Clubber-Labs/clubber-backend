@@ -15,6 +15,14 @@ scrape_configs:
         labels:
           service: connectai-backend
 
+  # Métricas do Postgres via postgres_exporter (conexões, TPS, cache hit,
+  # replication lag). Roda no mesmo compose, resolve pelo nome do serviço.
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: connectai-postgres
+
   - job_name: prometheus
     static_configs:
       - targets: ['localhost:9090']

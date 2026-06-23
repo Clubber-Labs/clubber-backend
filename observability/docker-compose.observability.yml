@@ -24,6 +24,25 @@ services:
     extra_hosts:
       - 'host.docker.internal:host-gateway'
 
+  # Exporter de métricas do Postgres (conexões, TPS, cache hit, replication lag).
+  # Aponta para o banco rodando no HOST (mesmo Postgres do docker-compose.yml ou
+  # do `pnpm dev`). Para monitorar uma RÉPLICA, suba um segundo exporter com o
+  # DATA_SOURCE_NAME apontando para ela. Em produção na AWS, troque por
+  # cloudwatch_exporter/YACE (não dá pra rodar exporter dentro do RDS gerenciado).
+  postgres-exporter:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.16.0
+    container_name: connectai-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: 'postgresql://postgres:postgres@host.docker.internal:5432/conectai_dev?sslmode=disable'
+      PG_EXPORTER_EXTEND_QUERY_PATH: '/etc/postgres-exporter/queries.yaml'
+    volumes:
+      - ./postgres-exporter/queries.yaml:/etc/postgres-exporter/queries.yaml:ro
+    ports:
+      - '9187:9187'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
   tempo:
     image: grafana/tempo:2.6.1
     container_name: connectai-tempo

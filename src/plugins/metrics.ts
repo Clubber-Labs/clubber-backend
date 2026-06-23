@@ -8,8 +8,24 @@ import {
   httpRequestsTotal,
   registry,
 } from '../lib/metrics'
+import { prisma } from '../lib/prisma'
 
 const METRICS_ROUTE = '/metrics'
+
+// Métricas do pool de conexões do Prisma (prisma_pool_connections_*) e
+// contadores de query, no formato Prometheus. Best-effort: erro aqui nunca
+// derruba o /metrics — devolve vazio e o restante das métricas segue exposto.
+// Emite só o cliente primário: dois blocos prisma_* duplicariam as linhas
+// `# TYPE`, que o parser do Prometheus rejeita.
+async function collectPrismaMetrics(): Promise<string> {
+  try {
+    return await prisma.$metrics.prometheus({
+      globalLabels: { service: 'connectai-backend' },
+    })
+  } catch {
+    return ''
+  }
+}
 
 // Usa o PADRÃO de rota (/events/:id), não a URL crua (/events/123), para evitar
 // explosão de cardinalidade nas labels. Requests sem rota casada (404) viram
@@ -73,7 +89,11 @@ async function metricsPluginFn(app: FastifyInstance) {
     token ? { onRequest: requireAuth } : {},
     async (_request, reply) => {
       reply.header('Content-Type', registry.contentType)
-      return registry.metrics()
+      const [appMetrics, dbMetrics] = await Promise.all([
+        registry.metrics(),
+        collectPrismaMetrics(),
+      ])
+      return dbMetrics ? `${appMetrics}\n${dbMetrics}` : appMetrics
     },
   )
 }
