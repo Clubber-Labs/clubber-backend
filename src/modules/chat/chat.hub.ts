@@ -124,6 +124,24 @@ export function localDeliveryRecipients(
   )
 }
 
+/**
+ * Decide a transição de presença GLOBAL a partir do contador de conexões
+ * agregado no Redis (entre instâncias). O registry local é por processo: sob
+ * múltiplas abas/instâncias, a primeira conexão de CADA instância pareceria
+ * "online" e a última de CADA instância pareceria "offline" — gerando online
+ * duplicado e offline falso. Decidir pela contagem global corrige isso: online
+ * só na primeira conexão (1) e offline só quando a última cai (<= 0).
+ */
+export function isPresenceOnlineTransition(countAfterConnect: number): boolean {
+  return countAfterConnect === 1
+}
+
+export function isPresenceOfflineTransition(
+  countAfterDisconnect: number,
+): boolean {
+  return countAfterDisconnect <= 0
+}
+
 /** JWT expirou? (claim `exp` em segundos; ausência = sem expiração). */
 export function isTokenExpired(
   claims: { exp?: number },

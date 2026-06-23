@@ -4,6 +4,8 @@ import {
   type ClientSocket,
   createSocketRegistry,
   dispatchEvent,
+  isPresenceOfflineTransition,
+  isPresenceOnlineTransition,
   isTokenExpired,
   localDeliveryRecipients,
   messageFrame,
@@ -54,6 +56,17 @@ describe('createSocketRegistry', () => {
     const reg = createSocketRegistry()
     const a = fakeSocket()
     expect(reg.remove('fantasma', a.socket)).toBe(false)
+  })
+
+  it('transição de presença global: online só na 1ª conexão, offline só em <=0', () => {
+    // Online só quando o contador global chega a 1 (primeira conexão entre
+    // todas as instâncias); conexões seguintes não reanunciam.
+    expect(isPresenceOnlineTransition(1)).toBe(true)
+    expect(isPresenceOnlineTransition(2)).toBe(false)
+    // Offline só quando a última conexão cai (contador zera/negativa).
+    expect(isPresenceOfflineTransition(0)).toBe(true)
+    expect(isPresenceOfflineTransition(-1)).toBe(true)
+    expect(isPresenceOfflineTransition(1)).toBe(false)
   })
 
   it('deliver entrega só a sockets abertos e conta os envios', () => {

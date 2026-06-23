@@ -5,9 +5,16 @@ import { redis } from '../../lib/redis'
 import {
   createSocketRegistry,
   dispatchEvent,
+  isPresenceOfflineTransition,
+  isPresenceOnlineTransition,
   isTokenExpired,
   localDeliveryRecipients,
 } from './chat.hub'
+import {
+  presenceConnect,
+  presenceDisconnect,
+  presenceRefresh,
+} from './chat.presence'
 import {
   findActiveParticipantUserIds,
   findConversationPartnerIds,
@@ -115,6 +122,29 @@ export async function chatGateway(app: FastifyInstance) {
     }
   }
 
+  /**
+   * Resolve a transição de presença pelo contador GLOBAL (Redis) e anuncia só na
+   * borda real (primeira conexão / última desconexão entre TODAS as instâncias).
+   * Sem Redis, usa a transição do registry local (`localEdge`) — num só processo
+   * ela já é a verdade global.
+   */
+  async function resolvePresence(
+    userId: string,
+    online: boolean,
+    localEdge: boolean,
+  ) {
+    const count = online
+      ? await presenceConnect(userId)
+      : await presenceDisconnect(userId)
+    const isEdge =
+      count === null
+        ? localEdge
+        : online
+          ? isPresenceOnlineTransition(count)
+          : isPresenceOfflineTransition(count)
+    if (isEdge) await announcePresence(userId, online)
+  }
+
   /** Sinais efêmeros vindos do cliente (apenas "digitando" no v1). */
   async function handleInbound(userId: string, raw: string) {
     let msg: { type?: string; conversationId?: string; isTyping?: boolean }
@@ -152,12 +182,9 @@ export async function chatGateway(app: FastifyInstance) {
       }
       const userId = claims.sub
 
-      const cameOnline = registry.add(userId, socket)
-      if (cameOnline) void announcePresence(userId, true)
-      log.info(
-        { userId, online: cameOnline, sockets: registry.onlineCount() },
-        'socket conectado',
-      )
+      const localFirst = registry.add(userId, socket)
+      void resolvePresence(userId, true, localFirst)
+      log.info({ userId, sockets: registry.onlineCount() }, 'socket conectado')
 
       // Heartbeat: ping periódico; encerra sockets que pararam de responder.
       let alive = true
@@ -171,6 +198,8 @@ export async function chatGateway(app: FastifyInstance) {
           return
         }
         alive = false
+        // Renova o TTL do contador de presença enquanto o socket está vivo.
+        void presenceRefresh(userId)
         try {
           socket.ping()
         } catch {
@@ -193,9 +222,9 @@ export async function chatGateway(app: FastifyInstance) {
       const cleanup = () => {
         clearInterval(heartbeat)
         clearInterval(tokenCheck)
-        const wentOffline = registry.remove(userId, socket)
-        if (wentOffline) void announcePresence(userId, false)
-        log.info({ userId, offline: wentOffline }, 'socket desconectado')
+        const localLast = registry.remove(userId, socket)
+        void resolvePresence(userId, false, localLast)
+        log.info({ userId }, 'socket desconectado')
       }
       socket.on('close', cleanup)
       socket.on('error', cleanup)
