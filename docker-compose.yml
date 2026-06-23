@@ -35,6 +35,32 @@ services:
       timeout: 3s
       retries: 5
 
+  # ── PgBouncer (pooler de conexão, transaction mode) ─────────────────────────
+  # Sobe SÓ com o profile `cluster`. Multiplexa as conexões das N réplicas da API
+  # num pool pequeno de conexões reais ao Postgres (DEFAULT_POOL_SIZE), evitando
+  # que o nº de conexões cresça com réplicas × connection_limit e sature o banco.
+  # O Prisma fala com ele via DATABASE_POOL_URL e desabilita prepared statements
+  # (pgbouncer=true), exigido pelo transaction mode.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    profiles: ["cluster"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: conectai_dev
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: "1000"
+      DEFAULT_POOL_SIZE: "20"
+      AUTH_TYPE: scram-sha-256
+    depends_on:
+      postgres:
+        condition: service_healthy
+    expose:
+      - "5432"
+    restart: unless-stopped
+
   # ── Cluster de teste de carga (Seção 4.1.15 / RNF05.1) ──────────────────────
   # Sobe SÓ com o profile `cluster`; o fluxo normal (`up -d postgres redis`,
   # launch.sh) não é afetado. Demonstra escalabilidade horizontal: N réplicas da
@@ -49,7 +75,11 @@ services:
       - .env.local
     # ...e repõe DB/Redis para os nomes de serviço da rede do compose.
     environment:
+      # DATABASE_URL = Postgres DIRETO (migrations rodam por aqui no boot).
       DATABASE_URL: postgresql://postgres:postgres@postgres:5432/conectai_dev
+      # DATABASE_POOL_URL = runtime via PgBouncer (transaction mode). O Prisma
+      # roteia as queries por aqui e desabilita prepared statements.
+      DATABASE_POOL_URL: postgresql://postgres:postgres@pgbouncer:5432/conectai_dev
       REDIS_URL: redis://redis:6379
       NODE_ENV: development
       PORT: "3333"
@@ -69,6 +99,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      pgbouncer:
+        condition: service_started
     expose:
       - "3333"
     # 1 vCPU por réplica: a varredura 1->2->3 réplicas mede o ganho ~linear

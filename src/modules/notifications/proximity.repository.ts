@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import type { EventCategory } from '../../lib/event-categories'
-import { prisma } from '../../lib/prisma'
+import { prismaRead } from '../../lib/prisma'
 
 // NOTA DE LOCALIZAÇÃO: as queries de lib/spatial.ts são primitivas geométricas
 // reutilizáveis sobre EVENTOS (bbox/raio/KNN). Esta é uma query de DOMÍNIO de
@@ -63,7 +63,9 @@ export type ProximityScan = {
  * Pré-filtro `ST_DWithin` com raio MÁXIMO constante usa o índice GiST
  * (users_location_idx) e corta a tabela; o refino por linha
  * (`ST_Distance <= notifyRadiusKm*1000 + meia-diagonal`) roda só sobre os
- * candidatos — padrão "filtro na camada certa" do CLAUDE.md. Demais predicados:
+ * candidatos — padrão "filtro na camada certa" do CLAUDE.md. ST_DWithin e
+ * ST_Distance usam use_spheroid=false (esfera, não esferoide): ~0,3% de erro,
+ * absorvido pela folga da meia-diagonal, e bem mais barato de CPU. Demais predicados:
  * freshness (TTL), consentimento (push + locationPrecise, não revogado),
  * preferência de 2 níveis (o usuário prefere AO MENOS UMA categoria OU
  * subcategoria do evento — ver preferenceMatch), conta ativa, não-autor e sem
@@ -78,13 +80,13 @@ export async function findUsersToNotifyNearEvent(
     ? Prisma.sql`AND u.id > ${scan.cursorId}`
     : Prisma.empty
 
-  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u.id
     FROM users u
     JOIN user_consents c ON c."userId" = u.id
     WHERE u.location IS NOT NULL
-      AND ST_DWithin(u.location, ${point}, ${scan.maxRadiusKm * 1000})
-      AND ST_Distance(u.location, ${point}) <= u."notifyRadiusKm" * 1000 + ${CELL_HALF_DIAGONAL_M}
+      AND ST_DWithin(u.location, ${point}, ${scan.maxRadiusKm * 1000}, false)
+      AND ST_Distance(u.location, ${point}, false) <= u."notifyRadiusKm" * 1000 + ${CELL_HALF_DIAGONAL_M}
       AND u."locationUpdatedAt" > now() - (${scan.ttlDays} * interval '1 day')
       AND u."accountStatus" = 'ACTIVE'
       AND u.id <> ${target.authorId}
@@ -145,13 +147,13 @@ export async function findUsersToNotifyNearSpot(
         )`
       : Prisma.empty
 
-  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u.id
     FROM users u
     JOIN user_consents c ON c."userId" = u.id
     WHERE u.location IS NOT NULL
-      AND ST_DWithin(u.location, ${point}, ${scan.maxRadiusKm * 1000})
-      AND ST_Distance(u.location, ${point}) <= u."notifyRadiusKm" * 1000 + ${CELL_HALF_DIAGONAL_M}
+      AND ST_DWithin(u.location, ${point}, ${scan.maxRadiusKm * 1000}, false)
+      AND ST_Distance(u.location, ${point}, false) <= u."notifyRadiusKm" * 1000 + ${CELL_HALF_DIAGONAL_M}
       AND u."locationUpdatedAt" > now() - (${scan.ttlDays} * interval '1 day')
       AND u."accountStatus" = 'ACTIVE'
       AND u.id <> ${target.authorId}

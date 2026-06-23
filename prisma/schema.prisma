@@ -4,7 +4,11 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider      = "prisma-client-js"
+  provider = "prisma-client-js"
+  // `metrics`: habilita prisma.$metrics.prometheus() (pool de conexões e
+  // contadores de query) exposto no /metrics — saturação do pool é o sinal
+  // direto de pressão no banco sob escala horizontal.
+  previewFeatures = ["metrics"]
   // `native` cobre o dev local; `debian-openssl-3.0.x` é o runtime da imagem
   // Docker (node:24-slim / bookworm) usada nos testes de carga.
   binaryTargets = ["native", "debian-openssl-3.0.x"]

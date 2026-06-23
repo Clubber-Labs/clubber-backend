@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { findAccountsDueForAnonymization } from './users.repository'
 import { anonymizeAccount } from './users.service'
@@ -33,7 +34,11 @@ export function startAccountDeletionReconciler(intervalMs: number) {
     // Evita sobreposição de ticks na mesma instância.
     if (isReconciling) return
     isReconciling = true
-    reconcileAccountDeletions()
+    runWithLock(
+      'account-deletion',
+      reconcilerLockTtl(intervalMs),
+      reconcileAccountDeletions,
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'account deletion reconciliation failed')
       })

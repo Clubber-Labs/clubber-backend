@@ -170,7 +170,10 @@ export async function listEventsForMap(
 // viewer) — o estado do viewer e o ranking de amigos são hidratados por cima a
 // cada request, como em listEvents. friendsOnly não é cacheável (depende da
 // rede do viewer).
-const VIEWPORT_CACHE_TTL_SECONDS = 20
+// 45s: o tile é viewer-agnóstico e o mapa tolera alguns segundos de defasagem.
+// TTL maior eleva o hit-rate (menos varredura PostGIS no primário) sem custo
+// perceptível de frescor — eventos novos aparecem no próximo ciclo de cache.
+const VIEWPORT_CACHE_TTL_SECONDS = 45
 // Passo da grade que "encaixa" o bbox num tile canônico (~0.05° ≈ 5,5 km).
 // Pans/zooms pequenos caem no mesmo tile → alto hit-rate sob carga. O tile
 // CONTÉM o bbox pedido (floor/ceil), então a resposta é superconjunto da área

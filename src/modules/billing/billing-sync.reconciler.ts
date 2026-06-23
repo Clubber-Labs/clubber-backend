@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { findStaleActiveSubscriptions } from './billing.repository'
 import { syncSubscriptionFromStripe } from './billing.service'
@@ -66,7 +67,9 @@ export function startBillingSyncReconciler(
     // Evita sobreposição de ticks na mesma instância.
     if (isReconciling) return
     isReconciling = true
-    reconcileStaleSubscriptions(graceMs)
+    runWithLock('billing-sync', reconcilerLockTtl(intervalMs), () =>
+      reconcileStaleSubscriptions(graceMs),
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'billing sync failed')
       })

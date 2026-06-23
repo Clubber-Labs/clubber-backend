@@ -25,6 +25,7 @@ import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
 import { buildLoggerOptions } from './lib/logger'
 import { rebuildFromDb as rebuildModerationDenylist } from './lib/moderation-denylist'
+import { prisma, prismaRead } from './lib/prisma'
 import { redis } from './lib/redis'
 import { genReqId } from './lib/request-id'
 import { adminConsentRoutes } from './modules/admin-consent/admin-consent.routes'
@@ -202,6 +203,9 @@ app.register(notificationsGateway)
 
 app.addHook('onClose', async () => {
   await stopNotificationsWorker()
+  // Desconecta a réplica só quando é um cliente distinto (com réplica
+  // configurada). Sem réplica, prismaRead === prisma e não se desconecta 2×.
+  if (prismaRead !== prisma) await prismaRead.$disconnect()
   if (redis) await redis.quit()
 })
 

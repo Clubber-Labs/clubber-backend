@@ -2,7 +2,29 @@ import path from 'node:path'
 import { z } from 'zod'
 
 const baseSchema = z.object({
+  // URL DIRETA do Postgres. Default do runtime e a URL usada por migrations/DDL
+  // (que não funcionam sob pooling em transaction mode). Em dev/test/CI é a única
+  // setada — o comportamento atual fica preservado.
   DATABASE_URL: z.url(),
+  // Pooling de conexão (escala horizontal). Quando setada, aponta para um
+  // PgBouncer em transaction mode e o Prisma roteia as queries de runtime por
+  // ela (ver lib/prisma.ts), desabilitando prepared statements (pgbouncer=true).
+  // Opcional: sem ela, o runtime usa DATABASE_URL direto.
+  DATABASE_POOL_URL: z.url().optional(),
+  // Read replica (split leitura/escrita). DATABASE_REPLICA_URL é a réplica
+  // direta; DATABASE_REPLICA_POOL_URL é a réplica atrás de um PgBouncer. Quando
+  // setadas, leituras viewer-agnósticas e lag-tolerantes (descoberta geo) vão
+  // para a réplica (ver lib/prisma.ts → prismaRead). Sem elas, prismaRead aponta
+  // para o primário — dev/test/single-node sem mudança.
+  DATABASE_REPLICA_URL: z.url().optional(),
+  DATABASE_REPLICA_POOL_URL: z.url().optional(),
+  // Pool client-side do Prisma por instância. Opcionais: ajustam tamanho do pool
+  // e o timeout de aquisição de conexão (segundos). Defaults preservam o atual.
+  DATABASE_CONNECTION_LIMIT: z.coerce.number().int().positive().optional(),
+  // .positive() (não .nonnegative()): no Prisma, pool_timeout=0 DESLIGA o timeout
+  // de aquisição — sob carga, requests ficariam pendurados pra sempre em vez de
+  // falhar com erro visível. Consistente com os demais campos de intervalo.
+  DATABASE_POOL_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(10),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET não configurado'),
   // Validade do token de SESSÃO. Antes os tokens eram emitidos sem `exp` e
   // valiam para sempre — um token vazado dava acesso permanente, sem rotação.
@@ -420,6 +442,11 @@ export function resolveCloudinaryCredentials(): CloudinaryCredentials {
 
 export const env = {
   DATABASE_URL: parsed.DATABASE_URL,
+  DATABASE_POOL_URL: parsed.DATABASE_POOL_URL,
+  DATABASE_REPLICA_URL: parsed.DATABASE_REPLICA_URL,
+  DATABASE_REPLICA_POOL_URL: parsed.DATABASE_REPLICA_POOL_URL,
+  DATABASE_CONNECTION_LIMIT: parsed.DATABASE_CONNECTION_LIMIT,
+  DATABASE_POOL_TIMEOUT_SECONDS: parsed.DATABASE_POOL_TIMEOUT_SECONDS,
   JWT_SECRET: parsed.JWT_SECRET,
   JWT_EXPIRES_IN: parsed.JWT_EXPIRES_IN,
   REFRESH_TOKEN_EXPIRES_IN: parsed.REFRESH_TOKEN_EXPIRES_IN,

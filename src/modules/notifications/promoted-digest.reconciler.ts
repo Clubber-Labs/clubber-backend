@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { env } from '../../lib/env'
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { prisma } from '../../lib/prisma'
 import { realtime } from '../../lib/realtime'
@@ -100,7 +101,8 @@ export async function runPromotedDigest(
               u.location,
               e.location,
               LEAST(u."notifyRadiusKm", ${env.NOTIFY_MAX_RADIUS_KM}) * 1000
-                + ${CELL_HALF_DIAGONAL_M}
+                + ${CELL_HALF_DIAGONAL_M},
+              false
             )
             AND NOT EXISTS (
               SELECT 1 FROM notifications n
@@ -120,7 +122,7 @@ export async function runPromotedDigest(
               SELECT 1 FROM user_category_preferences p
               WHERE p."userId" = u.id AND p.category = ANY(e.categories)
             ) DESC,
-            ST_Distance(u.location, e.location) ASC,
+            ST_Distance(u.location, e.location, false) ASC,
             (SELECT count(*) FROM event_attendances a2
               WHERE a2."eventId" = e.id) DESC,
             e.id ASC
@@ -220,7 +222,11 @@ export function startPromotedDigestReconciler(intervalMs: number) {
   timer = setInterval(() => {
     if (isRunning) return
     isRunning = true
-    runPromotedDigest()
+    runWithLock(
+      'promoted-digest',
+      reconcilerLockTtl(intervalMs),
+      runPromotedDigest,
+    )
       .catch((err) => {
         digestLog.error({ err }, 'promoted digest reconciliation failed')
       })

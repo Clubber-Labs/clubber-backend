@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { buildOccurrenceDates, RECURRENCE_MAX_OCCURRENCES } from './recurrence'
 import {
@@ -92,7 +93,11 @@ export function startRecurringEventsReconciler(intervalMs: number) {
   timer = setInterval(() => {
     if (isReconciling) return
     isReconciling = true
-    reconcileRecurringSeries()
+    runWithLock(
+      'recurring-events',
+      reconcilerLockTtl(intervalMs),
+      reconcileRecurringSeries,
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'recurring-events reconciliation failed')
       })

@@ -1,3 +1,4 @@
+import { reconcilerLockTtl, runWithLock } from '../../lib/leader-lock'
 import { logger } from '../../lib/logger'
 import { findAccountsDueForUnsuspension } from './users.repository'
 import { unsuspendUser } from './users.service'
@@ -33,7 +34,11 @@ export function startSuspensionReconciler(intervalMs: number) {
   timer = setInterval(() => {
     if (isReconciling) return
     isReconciling = true
-    reconcileSuspensions()
+    runWithLock(
+      'suspension',
+      reconcilerLockTtl(intervalMs),
+      reconcileSuspensions,
+    )
       .catch((err) => {
         reconcilerLog.error({ err }, 'suspension reconciliation failed')
       })
