@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client'
-import { prisma } from './prisma'
+import { prismaRead } from './prisma'
 
 export type Bbox = {
   north: number
@@ -10,6 +10,11 @@ export type Bbox = {
 
 export type LatLng = { latitude: number; longitude: number }
 
+// Estas queries rodam na RÉPLICA (prismaRead): são SELECTs puros de descoberta,
+// viewer-agnósticos, lag-tolerantes e já cacheados na frente — candidatas ideais
+// para tirar a varredura PostGIS (CPU-bound) do primário. A hidratação por id
+// (findMany no repository) fica no primário, onde o read-after-write é fresco.
+//
 // As queries usam ST_DWithin/ST_Distance com use_spheroid=false (último arg):
 // distância sobre a esfera, não o esferoide WGS84. ~0,3% de erro vs spheroid —
 // irrelevante para descoberta/ordenação de eventos por proximidade — e bem mais
@@ -34,7 +39,7 @@ export async function findEventIdsInBbox(
   bbox: Bbox,
   limit?: number,
 ): Promise<string[]> {
-  const rows = await prisma.$queryRaw<{ id: string }[]>(
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(
     Prisma.sql`
       SELECT e.id FROM events e
       WHERE ${visibilityPredicate()}
@@ -51,7 +56,7 @@ export async function findEventIdsWithinRadius(
   radiusKm: number,
 ): Promise<string[]> {
   const radiusMeters = radiusKm * 1000
-  const rows = await prisma.$queryRaw<{ id: string }[]>(
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(
     Prisma.sql`
       SELECT e.id FROM events e
       WHERE ${visibilityPredicate()}
@@ -76,7 +81,7 @@ export async function findDistancesForEvents(
 ): Promise<Map<string, number>> {
   if (eventIds.length === 0) return new Map()
   const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${center.longitude}, ${center.latitude}), 4326)::geography`
-  const rows = await prisma.$queryRaw<{ id: string; distance: number }[]>(
+  const rows = await prismaRead.$queryRaw<{ id: string; distance: number }[]>(
     Prisma.sql`
       SELECT e.id, ST_Distance(e.location, ${point}, false) AS distance
       FROM events e
@@ -96,7 +101,7 @@ export async function findEventIdsByDistance(
     radiusKm !== undefined
       ? Prisma.sql`AND ST_DWithin(e.location, ${point}, ${radiusKm * 1000}, false)`
       : Prisma.empty
-  const rows = await prisma.$queryRaw<{ id: string }[]>(
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(
     Prisma.sql`
       SELECT e.id FROM events e
       WHERE ${visibilityPredicate()}

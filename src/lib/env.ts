@@ -11,6 +11,13 @@ const baseSchema = z.object({
   // ela (ver lib/prisma.ts), desabilitando prepared statements (pgbouncer=true).
   // Opcional: sem ela, o runtime usa DATABASE_URL direto.
   DATABASE_POOL_URL: z.url().optional(),
+  // Read replica (split leitura/escrita). DATABASE_REPLICA_URL é a réplica
+  // direta; DATABASE_REPLICA_POOL_URL é a réplica atrás de um PgBouncer. Quando
+  // setadas, leituras viewer-agnósticas e lag-tolerantes (descoberta geo) vão
+  // para a réplica (ver lib/prisma.ts → prismaRead). Sem elas, prismaRead aponta
+  // para o primário — dev/test/single-node sem mudança.
+  DATABASE_REPLICA_URL: z.url().optional(),
+  DATABASE_REPLICA_POOL_URL: z.url().optional(),
   // Pool client-side do Prisma por instância. Opcionais: ajustam tamanho do pool
   // e o timeout de aquisição de conexão (segundos). Defaults preservam o atual.
   DATABASE_CONNECTION_LIMIT: z.coerce.number().int().positive().optional(),
@@ -437,6 +444,8 @@ export function resolveCloudinaryCredentials(): CloudinaryCredentials {
 export const env = {
   DATABASE_URL: parsed.DATABASE_URL,
   DATABASE_POOL_URL: parsed.DATABASE_POOL_URL,
+  DATABASE_REPLICA_URL: parsed.DATABASE_REPLICA_URL,
+  DATABASE_REPLICA_POOL_URL: parsed.DATABASE_REPLICA_POOL_URL,
   DATABASE_CONNECTION_LIMIT: parsed.DATABASE_CONNECTION_LIMIT,
   DATABASE_POOL_TIMEOUT_SECONDS: parsed.DATABASE_POOL_TIMEOUT_SECONDS,
   JWT_SECRET: parsed.JWT_SECRET,

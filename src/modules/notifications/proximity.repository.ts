@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import type { EventCategory } from '../../lib/event-categories'
-import { prisma } from '../../lib/prisma'
+import { prismaRead } from '../../lib/prisma'
 
 // NOTA DE LOCALIZAÇÃO: as queries de lib/spatial.ts são primitivas geométricas
 // reutilizáveis sobre EVENTOS (bbox/raio/KNN). Esta é uma query de DOMÍNIO de
@@ -80,7 +80,7 @@ export async function findUsersToNotifyNearEvent(
     ? Prisma.sql`AND u.id > ${scan.cursorId}`
     : Prisma.empty
 
-  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u.id
     FROM users u
     JOIN user_consents c ON c."userId" = u.id
@@ -147,7 +147,7 @@ export async function findUsersToNotifyNearSpot(
         )`
       : Prisma.empty
 
-  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+  const rows = await prismaRead.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT u.id
     FROM users u
     JOIN user_consents c ON c."userId" = u.id
