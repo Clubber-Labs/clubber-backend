@@ -11,8 +11,8 @@ import {
   sessionCloseReason,
 } from './chat.hub'
 import {
-  findActiveParticipantUserIds,
   findConversationPartnerIds,
+  findTypingRecipientUserIds,
   markDeliveredIfBehind,
   touchLastSeen,
 } from './chat.repository'
@@ -126,9 +126,13 @@ export async function chatGateway(app: FastifyInstance) {
       return
     }
     if (msg.type !== 'typing' || typeof msg.conversationId !== 'string') return
-    // Valida participação antes de propagar (evita spoof p/ conversa alheia).
-    const participantIds = await findActiveParticipantUserIds(
+    // Destinatários do typing já SEM quem bloqueou o remetente (ou foi bloqueado
+    // por ele) — typing não atravessa bloqueio, igual à presença. O remetente
+    // segue na lista (não há auto-bloqueio), então o includes abaixo continua
+    // validando participação e barra spoof p/ conversa alheia.
+    const participantIds = await findTypingRecipientUserIds(
       msg.conversationId,
+      userId,
     )
     if (!participantIds.includes(userId)) return
     await realtime.publish({

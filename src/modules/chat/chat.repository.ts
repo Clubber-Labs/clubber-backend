@@ -158,6 +158,34 @@ export async function findActiveParticipantUserIds(conversationId: string) {
   return rows.map((r) => r.userId)
 }
 
+/**
+ * Participantes ativos que devem RECEBER os sinais efêmeros de `senderId`
+ * (digitando) — exclui quem tem bloqueio em qualquer direção com ele. Espelha o
+ * filtro de presença (findConversationPartnerIds): typing não atravessa
+ * bloqueio. Separada de findActiveParticipantUserIds de propósito — aquela
+ * alimenta o fan-out de mensagem/notificação, que tem regras de bloqueio
+ * próprias e não deve herdar este filtro.
+ */
+export async function findTypingRecipientUserIds(
+  conversationId: string,
+  senderId: string,
+) {
+  const rows = await prisma.$queryRaw<{ userid: string }[]>(
+    Prisma.sql`
+      SELECT p."userId" AS userid
+      FROM conversation_participants p
+      WHERE p."conversationId" = ${conversationId}
+        AND p."leftAt" IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM blocks b
+          WHERE (b."blockerId" = ${senderId} AND b."blockedId" = p."userId")
+             OR (b."blockerId" = p."userId" AND b."blockedId" = ${senderId})
+        )
+    `,
+  )
+  return rows.map((r) => r.userid)
+}
+
 /** Usuários que compartilham alguma conversa ativa com `userId` (para presença). */
 export async function findConversationPartnerIds(userId: string) {
   const rows = await prisma.$queryRaw<{ userid: string }[]>(
