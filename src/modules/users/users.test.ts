@@ -293,6 +293,35 @@ describe('PATCH /users/me/avatar', () => {
 
     expect(res.statusCode).toBe(401)
   })
+
+  it('retorna 429 após 20 requisições no mesmo minuto', async () => {
+    const user = await makeUser()
+    // remoteAddress exclusivo isola o contador de rate-limit (keyGenerator
+    // default = req.ip) de outros testes/hooks que usam o IP default.
+    const headers = {
+      authorization: `Bearer ${token(app, user.id)}`,
+    }
+
+    for (let i = 0; i < 20; i++) {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/users/me/avatar',
+        headers,
+        remoteAddress: '203.0.113.25',
+      })
+      // Sem multipart o handler falha (4xx), mas o rate-limit roda no
+      // onRequest antes do handler — o que importa é não ser 429 ainda.
+      expect(res.statusCode).not.toBe(429)
+    }
+
+    const blocked = await app.inject({
+      method: 'PATCH',
+      url: '/users/me/avatar',
+      headers,
+      remoteAddress: '203.0.113.25',
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
 })
 
 describe('PUT /users/:id — conflitos de unique constraint', () => {

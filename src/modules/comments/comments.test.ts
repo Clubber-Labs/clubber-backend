@@ -68,6 +68,35 @@ describe('POST /events/:eventId/comments', () => {
 
     expect(res.statusCode).toBe(403)
   })
+
+  it('retorna 429 após 20 comentários no mesmo minuto', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    // remoteAddress exclusivo: isola o contador de rate-limit (keyGenerator
+    // default = req.ip) de qualquer outra chamada que use o IP default
+    const remoteAddress = '203.0.113.21'
+    const headers = { authorization: `Bearer ${token(app, user.id)}` }
+
+    for (let i = 0; i < 20; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/events/${event.id}/comments`,
+        headers,
+        remoteAddress,
+        body: { content: `c${i}` },
+      })
+      expect(res.statusCode).not.toBe(429)
+    }
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers,
+      remoteAddress,
+      body: { content: 'c20' },
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
 })
 
 describe('GET /events/:eventId/comments', () => {

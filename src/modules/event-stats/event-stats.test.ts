@@ -311,6 +311,36 @@ describe('POST /events/:id/analytics/share', () => {
 
     expect(res.statusCode).toBe(403)
   })
+
+  it('retorna 429 após exceder o rate limit de 60 no mesmo minuto', async () => {
+    const author = await makeUser({ isPremium: true })
+    const event = await makeEvent(author.id, { isPublic: true })
+    const viewer = await makeUser()
+    const headers = { authorization: `Bearer ${token(app, viewer.id)}` }
+    // remoteAddress exclusivo isola o contador de rate-limit (keyGenerator = req.ip)
+    // de qualquer outra chamada que use o IP default nos testes
+    const remoteAddress = '203.0.113.22'
+
+    for (let i = 0; i < 60; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: shareUrl(event.id),
+        headers,
+        payload: {},
+        remoteAddress,
+      })
+      expect(res.statusCode).not.toBe(429)
+    }
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: shareUrl(event.id),
+      headers,
+      payload: {},
+      remoteAddress,
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
 })
 
 describe('GET /events/:id/stats/export', () => {
