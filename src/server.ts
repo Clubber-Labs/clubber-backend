@@ -161,20 +161,27 @@ app.register(fastifyWebsocket, {
   options: { maxPayload: 64 * 1024 },
 })
 
-app.register(fastifySwagger, {
-  openapi: {
-    info: {
-      title: 'ConnectAI API',
-      description: 'API documentation for ConnectAI backend',
-      version: '1.0.0',
+// Documentação (Swagger spec + UI Scalar em /docs) só fora de produção: expor o
+// OpenAPI publicamente em prod entrega o mapa completo da superfície da API (toda
+// rota, parâmetro e schema) a um atacante. Em staging/dev segue ligada. Se algum
+// ambiente staging rodar com NODE_ENV=production e precisar dos docs, troque este
+// gate por uma env explícita (ex.: ENABLE_API_DOCS).
+if (env.NODE_ENV !== 'production') {
+  app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: 'ConnectAI API',
+        description: 'API documentation for ConnectAI backend',
+        version: '1.0.0',
+      },
     },
-  },
-  transform: jsonSchemaTransform,
-})
+    transform: jsonSchemaTransform,
+  })
 
-app.register(ScalarApiReference, {
-  routePrefix: '/docs',
-})
+  app.register(ScalarApiReference, {
+    routePrefix: '/docs',
+  })
+}
 
 app.register(healthRoutes)
 app.register(authRoutes)
