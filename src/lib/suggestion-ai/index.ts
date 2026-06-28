@@ -7,6 +7,19 @@ import type { ISuggestionEnhancer } from './suggestion-enhancer.interface'
 import { TemplateSuggestionEnhancer } from './template-enhancer.service'
 import { TemplateProfileQueryComposer } from './template-query-composer.service'
 
+// Timeout POR TENTATIVA (ms) das chamadas inline ao Claude em /spots/suggestions.
+// O SDK Anthropic tem timeout default de 10 min E ainda RETENTA timeouts
+// (maxRetries default 2) — pior caso ~30 min com o handler Fastify pendurado.
+// Limitamos os dois: o enhancer (Sonnet, até 2048 tokens) ganha mais folga que
+// o composer (Haiku, saída curta). Qualquer falha — incl. timeout — cai no
+// template determinístico (degradação graciosa), então o teto nunca quebra a
+// geração de sugestões; no pior caso troca IA por template.
+const ENHANCER_TIMEOUT_MS = 25_000
+const COMPOSER_TIMEOUT_MS = 12_000
+// 1 retentativa cobre erro transitório (429/5xx) sem multiplicar a espera do
+// usuário: o pior caso fica em timeout × (maxRetries + 1).
+const AI_MAX_RETRIES = 1
+
 let instance: ISuggestionEnhancer | null = null
 
 /**
@@ -17,7 +30,13 @@ let instance: ISuggestionEnhancer | null = null
 export function getSuggestionEnhancer(): ISuggestionEnhancer {
   if (instance) return instance
   instance = env.ANTHROPIC_API_KEY
-    ? new AiSuggestionEnhancer(new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }))
+    ? new AiSuggestionEnhancer(
+        new Anthropic({
+          apiKey: env.ANTHROPIC_API_KEY,
+          timeout: ENHANCER_TIMEOUT_MS,
+          maxRetries: AI_MAX_RETRIES,
+        }),
+      )
     : new TemplateSuggestionEnhancer()
   return instance
 }
@@ -38,7 +57,11 @@ export function getProfileQueryComposer(): IProfileQueryComposer {
   if (composerInstance) return composerInstance
   composerInstance = env.ANTHROPIC_API_KEY
     ? new HaikuProfileQueryComposer(
-        new Anthropic({ apiKey: env.ANTHROPIC_API_KEY }),
+        new Anthropic({
+          apiKey: env.ANTHROPIC_API_KEY,
+          timeout: COMPOSER_TIMEOUT_MS,
+          maxRetries: AI_MAX_RETRIES,
+        }),
       )
     : new TemplateProfileQueryComposer()
   return composerInstance
