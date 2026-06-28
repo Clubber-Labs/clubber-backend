@@ -6,9 +6,11 @@ import {
   dispatchEvent,
   isTokenExpired,
   localDeliveryRecipients,
+  MAX_SOCKETS_PER_USER,
   messageFrame,
   presenceFrame,
   receiptFrame,
+  sessionCloseReason,
   typingFrame,
   WS_OPEN,
 } from './chat.hub'
@@ -30,8 +32,14 @@ describe('createSocketRegistry', () => {
     const a = fakeSocket()
     const b = fakeSocket()
 
-    expect(reg.add('u1', a.socket)).toBe(true) // ficou online
-    expect(reg.add('u1', b.socket)).toBe(false) // segunda aba não conta
+    expect(reg.add('u1', a.socket)).toEqual({
+      accepted: true,
+      cameOnline: true,
+    })
+    expect(reg.add('u1', b.socket)).toEqual({
+      accepted: true,
+      cameOnline: false,
+    }) // segunda aba não vira online de novo
     expect(reg.isOnline('u1')).toBe(true)
     expect(reg.onlineCount()).toBe(1)
   })
@@ -79,6 +87,58 @@ describe('createSocketRegistry', () => {
     expect(reg.deliver(['u1'], 'oi')).toBe(2)
     expect(a.sent).toEqual(['oi'])
     expect(b.sent).toEqual(['oi'])
+  })
+})
+
+describe('createSocketRegistry — teto de conexões por usuário (anti-DoS)', () => {
+  it('aceita até o limite e rejeita o excedente sem registrar o socket', () => {
+    const reg = createSocketRegistry(2)
+    const a = fakeSocket()
+    const b = fakeSocket()
+    const c = fakeSocket()
+
+    expect(reg.add('u1', a.socket)).toEqual({
+      accepted: true,
+      cameOnline: true,
+    })
+    expect(reg.add('u1', b.socket)).toEqual({
+      accepted: true,
+      cameOnline: false,
+    })
+    // terceiro estoura o teto: não é aceito nem entra no registro
+    expect(reg.add('u1', c.socket)).toEqual({
+      accepted: false,
+      cameOnline: false,
+    })
+
+    // o socket rejeitado não foi registrado: não recebe entregas
+    expect(reg.deliver(['u1'], 'x')).toBe(2)
+    expect(c.sent).toEqual([])
+  })
+
+  it('o teto é por usuário — outro usuário não é afetado', () => {
+    const reg = createSocketRegistry(1)
+    expect(reg.add('u1', fakeSocket().socket).accepted).toBe(true)
+    expect(reg.add('u1', fakeSocket().socket).accepted).toBe(false)
+    expect(reg.add('u2', fakeSocket().socket).accepted).toBe(true)
+  })
+
+  it('liberar uma aba abre vaga para uma nova conexão', () => {
+    const reg = createSocketRegistry(1)
+    const a = fakeSocket()
+    const b = fakeSocket()
+    expect(reg.add('u1', a.socket).accepted).toBe(true)
+    expect(reg.add('u1', b.socket).accepted).toBe(false)
+    reg.remove('u1', a.socket)
+    expect(reg.add('u1', b.socket).accepted).toBe(true)
+  })
+
+  it('usa MAX_SOCKETS_PER_USER como teto padrão', () => {
+    const reg = createSocketRegistry()
+    for (let i = 0; i < MAX_SOCKETS_PER_USER; i++) {
+      expect(reg.add('u1', fakeSocket().socket).accepted).toBe(true)
+    }
+    expect(reg.add('u1', fakeSocket().socket).accepted).toBe(false)
   })
 })
 
@@ -162,6 +222,31 @@ describe('isTokenExpired', () => {
   })
   it('false quando não há exp (sem expiração)', () => {
     expect(isTokenExpired({}, 2000)).toBe(false)
+  })
+})
+
+describe('sessionCloseReason — revalidação periódica da sessão WS', () => {
+  const never = async () => false
+  const always = async () => true
+
+  it('token expirado → "token expired", sem consultar a denylist (lazy)', async () => {
+    let consulted = false
+    const reason = await sessionCloseReason({ exp: 1000 }, 2000, async () => {
+      consulted = true
+      return false
+    })
+    expect(reason).toBe('token expired')
+    expect(consulted).toBe(false) // short-circuit: não toca no Redis se expirou
+  })
+
+  it('conta entra na denylist após o handshake → "account suspended"', async () => {
+    expect(await sessionCloseReason({ exp: 3000 }, 2000, always)).toBe(
+      'account suspended',
+    )
+  })
+
+  it('sessão válida e não bloqueada → null (mantém aberta)', async () => {
+    expect(await sessionCloseReason({ exp: 3000 }, 2000, never)).toBeNull()
   })
 })
 

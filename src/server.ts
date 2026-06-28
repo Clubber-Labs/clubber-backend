@@ -153,7 +153,13 @@ registerAuthDecorators(app)
 // de 'upgrade' — a dedup do fastify-plugin não cruza escopos encapsulados irmãos
 // —, então cada handshake chamava onUpgrade duas vezes e a 2ª falhava com
 // ERR_HTTP_SOCKET_ASSIGNED (ruído nos logs). Os gateways herdam o suporte daqui.
-app.register(fastifyWebsocket)
+//
+// maxPayload limita cada frame inbound a 64 KiB. Os frames que o cliente envia
+// são só sinais efêmeros ("typing", JSON minúsculo); sem teto, um frame único
+// de ~100 MiB seria materializado em memória (vetor de DoS).
+app.register(fastifyWebsocket, {
+  options: { maxPayload: 64 * 1024 },
+})
 
 app.register(fastifySwagger, {
   openapi: {

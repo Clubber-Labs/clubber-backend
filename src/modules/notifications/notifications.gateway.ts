@@ -1,11 +1,13 @@
 import type { WebSocket } from '@fastify/websocket'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
+import { isBlocked } from '../../lib/moderation-denylist'
 import {
   NOTIFICATIONS_CHANNEL,
   type NotificationRealtimeEvent,
 } from '../../lib/realtime'
 import { redis } from '../../lib/redis'
-import { createSocketRegistry, isTokenExpired } from '../chat/chat.hub'
+import { authenticateWsToken } from '../../lib/ws-auth'
+import { createSocketRegistry, sessionCloseReason } from '../chat/chat.hub'
 
 const HEARTBEAT_MS = 30_000
 const TOKEN_RECHECK_MS = 60_000
@@ -54,18 +56,27 @@ export async function notificationsGateway(app: FastifyInstance) {
   app.get(
     '/ws/notifications',
     { websocket: true },
-    (socket: WebSocket, request: FastifyRequest) => {
+    async (socket: WebSocket, request: FastifyRequest) => {
       const token = (request.query as { token?: string }).token ?? ''
-      let claims: { sub: string; exp?: number }
-      try {
-        claims = app.jwt.verify<{ sub: string; exp?: number }>(token)
-      } catch {
+      const claims = await authenticateWsToken(app, token)
+      if (!claims) {
+        // Token inválido, de matrícula MFA, ou conta banida/suspensa (denylist).
         socket.close(4401, 'unauthorized')
         return
       }
       const userId = claims.sub
 
-      registry.add(userId, socket)
+      const { accepted } = registry.add(userId, socket)
+      if (!accepted) {
+        // Teto por usuário atingido: recusa ANTES de alocar timers/handlers,
+        // pra a conexão rejeitada não vazar heartbeat/tokenCheck.
+        log.warn(
+          { userId, sockets: registry.onlineCount() },
+          'limite de conexões WS por usuário atingido; recusando',
+        )
+        socket.close(4429, 'too many connections')
+        return
+      }
       log.info({ userId, sockets: registry.onlineCount() }, 'socket conectado')
 
       let alive = true
@@ -86,11 +97,21 @@ export async function notificationsGateway(app: FastifyInstance) {
         }
       }, HEARTBEAT_MS)
 
+      // Revalida a sessão periodicamente (o WS é persistente; espelha o REST que
+      // checa a cada request): fecha quando o JWT expira OU quando a conta entra
+      // na denylist de moderação DEPOIS do handshake (ban/suspensão em sessão).
       const tokenCheck = setInterval(() => {
-        if (isTokenExpired(claims, Math.floor(Date.now() / 1000))) {
-          log.info({ userId }, 'token expirado; fechando socket')
-          socket.close(4401, 'token expired')
-        }
+        void (async () => {
+          const reason = await sessionCloseReason(
+            claims,
+            Math.floor(Date.now() / 1000),
+            () => isBlocked(userId),
+          )
+          if (reason) {
+            log.info({ userId, reason }, 'encerrando socket na revalidação')
+            socket.close(4401, reason)
+          }
+        })()
       }, TOKEN_RECHECK_MS)
 
       const cleanup = () => {
