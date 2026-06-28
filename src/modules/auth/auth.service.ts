@@ -1,4 +1,4 @@
-import { compare } from 'bcryptjs'
+import { compare, hashSync } from 'bcryptjs'
 import { env } from '../../lib/env'
 import {
   buildOtpauthUrl,
@@ -59,11 +59,21 @@ async function verifyMfaCode(
   return consumeRecoveryCode(userId, hashRecoveryCode(code))
 }
 
+// Hash bcrypt fictício (cost 10, igual ao hash dos cadastros — ver users.service)
+// calculado uma vez no boot. Serve só para gastar o MESMO tempo de um compare
+// real quando a conta não existe, neutralizando enumeração por timing (abaixo).
+const DUMMY_PASSWORD_HASH = hashSync('placeholder-for-constant-time-login', 10)
+
 export async function validateLogin(data: LoginBody): Promise<LoginResult> {
   const user = await findUserByEmail(data.email)
   // Conta anonimizada é terminal: nega o login (defesa em profundidade — na
   // prática o email já é placeholder e o password é null).
   if (!user || !user.password || user.accountStatus === 'ANONYMIZED') {
+    // Anti-enumeração por timing: sem isto, conta inexistente respondia sem rodar
+    // bcrypt (rápido) e conta existente rodava o compare (lento) — a diferença
+    // revelava quais emails têm conta. Roda um compare descartável pra igualar o
+    // tempo das duas respostas.
+    await compare(data.password, DUMMY_PASSWORD_HASH)
     throw { statusCode: 401, message: 'Invalid credentials' }
   }
 
@@ -125,11 +135,19 @@ export type RotationResult =
   | { kind: 'rotated'; userId: string; previousTokenId: string }
   | { kind: 'grace'; userId: string }
 
-// Defesa em profundidade: conta anonimizada é terminal e não renova sessão —
-// espelha o bloqueio explícito do login (validateLogin). Revoga o que restar.
+// Defesa em profundidade: conta punida não renova sessão. Antes só barrava
+// ANONYMIZED, então uma conta BANNED/SUSPENDED seguia trocando o refresh por um
+// access novo indefinidamente — e a denylist do authenticate falha aberta sem
+// Redis. Este check lê o accountStatus do BANCO (autoritativo, independe do
+// Redis), fechando o gap no caminho de refresh. SUSPENDED expirada é barrada
+// aqui também, mas o próximo login a auto-cura (clearExpiredSuspension).
 async function assertSessionRenewable(userId: string) {
   const user = await findUserAccountStatus(userId)
-  if (user?.accountStatus === 'ANONYMIZED') {
+  const punished =
+    user?.accountStatus === 'ANONYMIZED' ||
+    user?.accountStatus === 'BANNED' ||
+    user?.accountStatus === 'SUSPENDED'
+  if (punished) {
     await revokeAllRefreshTokensForUser(userId)
     throw { statusCode: 401, message: 'Refresh token inválido' }
   }
