@@ -17,10 +17,13 @@ permissions:
 
 jobs:
   review:
-    # Ignora PRs em rascunho e PRs de bots (dependabot etc.)
+    # Ignora PRs em rascunho e qualquer evento iniciado por bot (dependabot e
+    # pushes do claude[bot] vindos do "Fix this →"): a própria claude-code-action
+    # recusa atores não-humanos (evita o loop review→fix→review), então deixar o
+    # job iniciar nesse caso só gera um check vermelho. sender.type cobre todos.
     if: |
       github.event.pull_request.draft == false &&
-      github.actor != 'dependabot[bot]'
+      github.event.sender.type != 'Bot'
     runs-on: ubuntu-latest
     # O secret CLAUDE_CODE_OAUTH_TOKEN é um Environment secret do ambiente
     # `claude`; sem declarar o environment, o GitHub não o injeta no job.
