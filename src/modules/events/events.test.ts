@@ -1524,6 +1524,35 @@ describe('POST /events/:id/images', () => {
 
     expect(res.statusCode).toBe(403)
   })
+
+  it('retorna 429 ao exceder o rate limit de upload (20/min)', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const auth = `Bearer ${token(app, author.id)}`
+    // remoteAddress exclusivo isola o contador de rate-limit (keyGenerator
+    // default = req.ip) de qualquer outra chamada nos testes.
+    const remoteAddress = '203.0.113.23'
+
+    for (let i = 0; i < 20; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/events/${event.id}/images`,
+        headers: { authorization: auth },
+        remoteAddress,
+      })
+      // Sem multipart o handler falha com 4xx, mas o rate-limit roda no
+      // onRequest (antes do handler) — o que importa é não ser 429.
+      expect(res.statusCode).not.toBe(429)
+    }
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: { authorization: auth },
+      remoteAddress,
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
 })
 
 // Bbox que cobre os eventos default (lat -25.4, lng -49.3).

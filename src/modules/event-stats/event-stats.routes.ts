@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { rateLimit } from '../../lib/rate-limit'
 import { requirePremium } from '../billing/billing.middleware'
 import {
   exportStatsHandler,
@@ -44,6 +45,9 @@ export async function eventStatsRoutes(app: FastifyInstance) {
     {
       schema: { params: eventStatsParamsSchema },
       onRequest: [app.authenticate],
+      // Tracking sem dedup grava uma linha por chamada; o teto barra a inflação
+      // de métricas/linhas. Generoso p/ não cortar view legítima ao navegar.
+      config: { rateLimit: rateLimit(120) },
     },
     trackViewHandler,
   )
@@ -53,6 +57,8 @@ export async function eventStatsRoutes(app: FastifyInstance) {
     {
       schema: { params: eventStatsParamsSchema },
       onRequest: [app.authenticate],
+      // Compartilhar é mais raro que visualizar; teto mais apertado.
+      config: { rateLimit: rateLimit(60) },
     },
     trackShareHandler,
   )

@@ -360,4 +360,42 @@ describe('POST /events/:eventId/posts/:postId/images', () => {
 
     expect(res.statusCode).toBe(401)
   })
+
+  it('retorna 429 ao exceder o rate limit de upload de imagens', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id)
+    // remoteAddress exclusivo isola o contador de rate-limit (keyGenerator = req.ip)
+    // de qualquer outra chamada que use o IP default no setup.
+    const remoteAddress = '203.0.113.24'
+    const authorization = `Bearer ${token(app, author.id)}`
+
+    for (let i = 0; i < 20; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/events/${event.id}/posts/${post.id}/images`,
+        headers: {
+          authorization,
+          'content-type': 'multipart/form-data; boundary=----X',
+        },
+        payload: '------X--\r\n',
+        remoteAddress,
+      })
+
+      expect(res.statusCode).not.toBe(429)
+    }
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/posts/${post.id}/images`,
+      headers: {
+        authorization,
+        'content-type': 'multipart/form-data; boundary=----X',
+      },
+      payload: '------X--\r\n',
+      remoteAddress,
+    })
+
+    expect(blocked.statusCode).toBe(429)
+  })
 })

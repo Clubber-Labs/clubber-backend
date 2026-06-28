@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   deletePost,
   getPosts,
@@ -33,7 +34,6 @@ export async function postsRoutes(app: FastifyInstance) {
     postPost,
   )
 
-  // Listar posts do evento
   api.get(
     '/events/:eventId/posts',
     {
@@ -59,6 +59,9 @@ export async function postsRoutes(app: FastifyInstance) {
     {
       schema: { params: postParamSchema },
       onRequest: [app.authenticate],
+      // Upload processa a imagem com sharp inline (CPU/memória); sem teto vira
+      // vetor de exaustão. Teto generoso p/ bursts de upload legítimos.
+      config: { rateLimit: rateLimit(20) },
     },
     uploadPostImageHandler,
   )

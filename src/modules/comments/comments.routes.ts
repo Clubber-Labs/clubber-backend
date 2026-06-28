@@ -4,6 +4,7 @@ import {
   validatorCompiler,
   type ZodTypeProvider,
 } from 'fastify-type-provider-zod'
+import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteEventComment,
   deletePostComment,
@@ -33,6 +34,9 @@ export async function commentsRoutes(app: FastifyInstance) {
     {
       schema: { params: eventCommentParamSchema, body: createCommentSchema },
       onRequest: [app.authenticate],
+      // Cada comentário dispara push para os interessados; sem teto, vira vetor
+      // de flood de notificação (dedupeKey único por comentário).
+      config: { rateLimit: rateLimit(20) },
     },
     postEventComment,
   )
@@ -64,6 +68,8 @@ export async function commentsRoutes(app: FastifyInstance) {
     {
       schema: { params: postCommentParamSchema, body: createCommentSchema },
       onRequest: [app.authenticate],
+      // Mesmo motivo do comentário em evento: limita o fan-out de push.
+      config: { rateLimit: rateLimit(20) },
     },
     postPostComment,
   )

@@ -37,6 +37,9 @@ export async function eventsRoutes(app: FastifyInstance) {
     {
       schema: { querystring: listEventsQuerySchema },
       onRequest: [app.authenticateOptional],
+      // Rota pública (auth opcional) que roda ranking espacial; sem teto, vira
+      // flood não autenticado de queries caras. Generoso (carga inicial + refresh).
+      config: { rateLimit: rateLimit(120) },
     },
     getEvents,
   )
@@ -46,6 +49,8 @@ export async function eventsRoutes(app: FastifyInstance) {
     {
       schema: { querystring: mapEventsQuerySchema },
       onRequest: [app.authenticateOptional],
+      // Heatmap espacial público; mesmo motivo do /events.
+      config: { rateLimit: rateLimit(120) },
     },
     getEventsMap,
   )
@@ -104,7 +109,13 @@ export async function eventsRoutes(app: FastifyInstance) {
 
   api.post(
     '/events/:id/images',
-    { schema: { params: eventParamSchema }, onRequest: [app.authenticate] },
+    {
+      schema: { params: eventParamSchema },
+      onRequest: [app.authenticate],
+      // Upload processa a imagem com sharp inline (CPU/memória); sem teto vira
+      // vetor de exaustão.
+      config: { rateLimit: rateLimit(20) },
+    },
     uploadEventImageHandler,
   )
 }

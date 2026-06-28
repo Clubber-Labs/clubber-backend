@@ -141,7 +141,12 @@ export async function usersRoutes(app: FastifyInstance) {
 
   api.patch(
     '/users/me/avatar',
-    { onRequest: [app.authenticate] },
+    {
+      onRequest: [app.authenticate],
+      // Upload processa a imagem com sharp inline (CPU/memória); sem teto vira
+      // vetor de exaustão.
+      config: { rateLimit: rateLimit(20) },
+    },
     uploadUserAvatar,
   )
 
