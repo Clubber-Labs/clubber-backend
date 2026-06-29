@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { RealtimeEvent } from '../../lib/realtime'
 import {
   type ClientSocket,
+  createFrameThrottle,
   createSocketRegistry,
   dispatchEvent,
   isTokenExpired,
   localDeliveryRecipients,
+  MAX_INBOUND_FRAMES_PER_WINDOW,
   MAX_SOCKETS_PER_USER,
   messageFrame,
   presenceFrame,
@@ -247,6 +249,38 @@ describe('sessionCloseReason — revalidação periódica da sessão WS', () => 
 
   it('sessão válida e não bloqueada → null (mantém aberta)', async () => {
     expect(await sessionCloseReason({ exp: 3000 }, 2000, never)).toBeNull()
+  })
+})
+
+describe('createFrameThrottle — anti-flood de frames por socket', () => {
+  it('permite até o teto na janela e bloqueia o excedente', () => {
+    const now = 1000
+    const throttle = createFrameThrottle(3, 1000, () => now)
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(false) // 4º frame na mesma janela
+  })
+
+  it('reseta o contador ao virar a janela', () => {
+    let now = 1000
+    const throttle = createFrameThrottle(2, 1000, () => now)
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(false)
+    now += 1000 // janela nova
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(true)
+    expect(throttle.allow()).toBe(false)
+  })
+
+  it('usa MAX_INBOUND_FRAMES_PER_WINDOW como teto padrão', () => {
+    const now = 0
+    const throttle = createFrameThrottle(undefined, undefined, () => now)
+    for (let i = 0; i < MAX_INBOUND_FRAMES_PER_WINDOW; i++) {
+      expect(throttle.allow()).toBe(true)
+    }
+    expect(throttle.allow()).toBe(false)
   })
 })
 

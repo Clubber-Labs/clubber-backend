@@ -5,12 +5,14 @@ import { CHAT_CHANNEL, type RealtimeEvent, realtime } from '../../lib/realtime'
 import { redis } from '../../lib/redis'
 import { authenticateWsToken } from '../../lib/ws-auth'
 import {
+  createFrameThrottle,
   createSocketRegistry,
   dispatchEvent,
   localDeliveryRecipients,
   sessionCloseReason,
 } from './chat.hub'
 import {
+  findActiveParticipant,
   findConversationPartnerIds,
   findTypingRecipientUserIds,
   markDeliveredIfBehind,
@@ -20,6 +22,11 @@ import {
 // Intervalos de manutenção da conexão.
 const HEARTBEAT_MS = 30_000
 const TOKEN_RECHECK_MS = 60_000
+
+// conversationId no schema é uuid (@default(uuid())). Valida o formato no frame
+// inbound antes de tocar o BD: uma string arbitrária causaria P2023 do Prisma.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
  * Camada FINA de entrega ao vivo. Toda a regra de negócio (persistência,
@@ -125,23 +132,42 @@ export async function chatGateway(app: FastifyInstance) {
     } catch {
       return
     }
-    if (msg.type !== 'typing' || typeof msg.conversationId !== 'string') return
-    // Destinatários do typing já SEM quem bloqueou o remetente (ou foi bloqueado
-    // por ele) — typing não atravessa bloqueio, igual à presença. O remetente
-    // segue na lista (não há auto-bloqueio), então o includes abaixo continua
-    // validando participação e barra spoof p/ conversa alheia.
-    const participantIds = await findTypingRecipientUserIds(
-      msg.conversationId,
-      userId,
-    )
-    if (!participantIds.includes(userId)) return
-    await realtime.publish({
-      type: 'typing',
-      conversationId: msg.conversationId,
-      participantIds,
-      userId,
-      isTyping: msg.isTyping === true,
-    })
+    // Valida o formato uuid do conversationId antes de tocar o BD: string
+    // arbitrária causaria P2023 do Prisma em vez de simplesmente não casar.
+    if (
+      msg.type !== 'typing' ||
+      typeof msg.conversationId !== 'string' ||
+      !UUID_RE.test(msg.conversationId)
+    ) {
+      return
+    }
+    const { conversationId } = msg
+    const isTyping = msg.isTyping === true
+    // try/catch externo: handleInbound roda em void (fire-and-forget), então um
+    // throw das queries (BD indisponível etc.) viraria unhandled rejection.
+    // Espelha announcePresence/markLocalDeliveries — erro aqui não derruba o processo.
+    try {
+      // Authz ANTES da query pesada: confirma participação com um lookup de 1
+      // linha (índice conversationId+userId). Não-participante (spoof p/ conversa
+      // alheia) é barrado sem rodar a query de fan-out de destinatários.
+      const member = await findActiveParticipant(conversationId, userId)
+      if (!member) return
+      // Destinatários do typing já SEM quem bloqueou o remetente — typing não
+      // atravessa bloqueio, igual à presença.
+      const participantIds = await findTypingRecipientUserIds(
+        conversationId,
+        userId,
+      )
+      await realtime.publish({
+        type: 'typing',
+        conversationId,
+        participantIds,
+        userId,
+        isTyping,
+      })
+    } catch (err) {
+      log.error({ err, userId }, 'falha ao processar frame inbound')
+    }
   }
 
   app.get(
@@ -210,7 +236,12 @@ export async function chatGateway(app: FastifyInstance) {
         })()
       }, TOKEN_RECHECK_MS)
 
+      // Throttle por socket: descarta frames acima do teto na janela ANTES de
+      // qualquer parse/query/publish — corta o flood de frames (cada um custava
+      // SELECT + PUBLISH) na origem. Combina com o cap de conexões por usuário.
+      const frameThrottle = createFrameThrottle()
       socket.on('message', (raw: Buffer) => {
+        if (!frameThrottle.allow()) return
         void handleInbound(userId, raw.toString())
       })
 
