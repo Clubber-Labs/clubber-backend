@@ -171,6 +171,21 @@ app.register(eventsRoutes)
 - **Repository nunca tem lógica de negócio**
 - Erros no service são lançados como `throw { statusCode, message }` e capturados no controller
 
+### Segurança de SQL — proibido SQL cru inseguro
+
+O projeto usa SQL cru em vários módulos (PostGIS, advisory locks, feed, proximidade, spots). Todo esse SQL **deve** ser parametrizado via tagged template `Prisma.sql` — cada `${valor}` vira um placeholder bindado (`$1`, `$2`...), nunca texto interpolado. Para SQL dinâmico, componha com:
+
+- **`Prisma.sql\`...\``** — fragmentos condicionais sem quebrar a parametrização
+- **`Prisma.join(ids)`** — cláusulas `IN (...)` com cada valor bindado individualmente
+- **`Prisma.empty`** — omitir um fragmento condicionalmente
+
+**Proibido** (são as únicas APIs do Prisma que aceitam string concatenada e abrem porta para SQL injection):
+
+- `$queryRawUnsafe` / `$executeRawUnsafe` — recebem a query como string
+- `Prisma.raw` — injeta um fragmento **sem** parametrizar
+
+Um teste de arquitetura ([src/lib/sql-safety.test.ts](src/lib/sql-safety.test.ts)) varre `src/` e `prisma/` e **falha o `pnpm test`** se qualquer uma dessas APIs aparecer no código. Não desabilite o teste para "passar" — se precisa de SQL dinâmico, use os helpers parametrizados acima.
+
 ---
 
 ## Code review do Copilot
