@@ -45,6 +45,13 @@ const baseSchema = z.object({
   // qualquer Origin com credentials em prod. Em dev/test, vazio = reflete a
   // Origin da requisição (comportamento permissivo, conveniente localmente).
   CORS_ALLOWED_ORIGINS: z.string().optional(),
+  // CSV de IPs/CIDRs dos proxies confiáveis na frente da API (ex.: o LB/Nginx/
+  // Cloudflare em produção). Alimenta o `trustProxy` do Fastify: só então o
+  // `request.ip` (usado pelo rate-limit) vem do X-Forwarded-For — e SÓ quando a
+  // conexão chega de um proxy listado, nunca de um X-Forwarded-For forjado pelo
+  // cliente. Vazio (dev/sem proxy) = trustProxy false = usa o IP do socket.
+  // Mesma env consumida pelo consent.controller para resolver o IP do auditado.
+  TRUSTED_PROXIES: z.string().default(''),
   PORT: z.coerce.number().int().positive().default(3333),
   NODE_ENV: z
     .enum(['development', 'test', 'production'])
@@ -448,6 +455,7 @@ export const env = {
       .filter(Boolean)
     return list && list.length > 0 ? list : undefined
   })(),
+  TRUSTED_PROXIES: parsed.TRUSTED_PROXIES,
   PORT: parsed.PORT,
   NODE_ENV: parsed.NODE_ENV,
   PUBLIC_URL: parsed.PUBLIC_URL,

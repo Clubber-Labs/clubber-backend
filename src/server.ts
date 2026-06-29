@@ -82,6 +82,13 @@ const app = fastify({
   // a validação fique centralizada no genReqId.
   genReqId,
   requestIdHeader: false,
+  // trustProxy resolve o request.ip (usado pelo rate-limit) a partir do
+  // X-Forwarded-For SÓ quando a conexão vem de um proxy listado em
+  // TRUSTED_PROXIES (LB/Nginx/Cloudflare em prod). Sem isso, atrás de um proxy o
+  // rate-limit viraria um balde global (todos com o IP do proxy); confiar
+  // cegamente no XFF (trustProxy:true) deixaria um atacante forjar o IP e furar
+  // o limite. Vazio (dev/sem proxy) = false = usa o IP do socket (inalterado).
+  trustProxy: env.TRUSTED_PROXIES || false,
   // Opções compartilhadas com o logger standalone (lib/logger) — redaction,
   // serializers e destino (stdout/pretty/Loki) num único lugar, sem drift.
   logger: buildLoggerOptions(),
@@ -121,6 +128,19 @@ if (env.RATE_LIMIT_ENABLED) {
   // toggle deixaria todo o throttling desligado em silêncio.
   app.log.warn(
     'RATE_LIMIT_ENABLED=false em produção — todo o throttling está desligado',
+  )
+}
+
+// Mesma rede de segurança para o trustProxy: em produção atrás de um proxy, sem
+// TRUSTED_PROXIES o request.ip vira o IP do proxy e o rate-limit degrada para um
+// balde global por proxy — silenciosamente. Avisa para o operador setar a env.
+if (
+  env.NODE_ENV === 'production' &&
+  env.RATE_LIMIT_ENABLED &&
+  !env.TRUSTED_PROXIES
+) {
+  app.log.warn(
+    'TRUSTED_PROXIES não configurado em produção — atrás de um proxy o rate-limit usa o IP do proxy como chave (balde global). Defina os IPs/CIDRs do proxy.',
   )
 }
 

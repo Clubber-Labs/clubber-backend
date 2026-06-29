@@ -47,6 +47,9 @@ export function buildApp() {
   const app = fastify({
     genReqId,
     requestIdHeader: false,
+    // Paridade com o server de produção: resolve request.ip via X-Forwarded-For
+    // só de proxies confiáveis (TRUSTED_PROXIES). Vazio nos testes = false.
+    trustProxy: env.TRUSTED_PROXIES || false,
   }).withTypeProvider<ZodTypeProvider>()
 
   app.setValidatorCompiler(validatorCompiler)
