@@ -112,11 +112,27 @@ export async function getUserById(id: string, viewerId?: string) {
 
   const { _count, ...rest } = user
 
-  const follow =
-    viewerId && viewerId !== id ? await findFollow(viewerId, id) : null
+  const isSelf = viewerId === id
+  const follow = viewerId && !isSelf ? await findFollow(viewerId, id) : null
   const followStatus = follow?.status ?? null
 
+  // Mesmo privacy gate do searchUsers — manter os dois em sincronia.
+  const hidePrivate = rest.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
+  if (hidePrivate) {
+    return {
+      kind: 'reduced' as const,
+      id: rest.id,
+      username: rest.username,
+      name: rest.name,
+      lastname: rest.lastname,
+      avatarUrl: rest.avatarUrl,
+      isPrivate: true as const,
+      followStatus,
+    }
+  }
+
   return {
+    kind: 'full' as const,
     ...withPreferredCategories(rest),
     eventsCount: _count.events,
     followStatus,
@@ -176,7 +192,8 @@ export async function registerUser(data: CreateUserBody) {
 }
 
 export async function editUser(id: string, data: UpdateUserBody) {
-  await getUserById(id)
+  const target = await findUserById(id)
+  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
 
   if (data.username) {
     const existing = await findUserByUsername(data.username)

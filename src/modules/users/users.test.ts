@@ -146,6 +146,8 @@ describe('GET /users/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().followStatus).toBe('PENDING')
+    expect(res.json().kind).toBe('reduced')
+    expect(res.json().eventsCount).toBeUndefined()
   })
 
   it('retorna followStatus null quando viewer não segue', async () => {
@@ -184,6 +186,75 @@ describe('GET /users/:id', () => {
     expect(res.json()).not.toHaveProperty('email')
     expect(res.json()).not.toHaveProperty('phone')
     expect(res.json()).not.toHaveProperty('birthdate')
+  })
+})
+
+describe('GET /users/:id — conta privada esconde o perfil de não-seguidores (F-08)', () => {
+  it('não-seguidor recebe card reduzido (sem contadores/preferências)', async () => {
+    const target = await makeUser({ isPrivate: true })
+    await makeUserSubcategoryPreference(target.id, 'GASTRONOMY_PIZZA')
+    const viewer = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.kind).toBe('reduced')
+    expect(body.isPrivate).toBe(true)
+    expect(body.followStatus).toBeNull()
+    expect(body.username).toBe(target.username)
+    expect(body.avatarUrl).toBe(target.avatarUrl)
+    expect(body.eventsCount).toBeUndefined()
+    expect(body.followersCount).toBeUndefined()
+    expect(body.preferredSubcategories).toBeUndefined()
+  })
+
+  it('viewer anônimo também recebe card reduzido', async () => {
+    const target = await makeUser({ isPrivate: true })
+
+    const res = await app.inject({ method: 'GET', url: `/users/${target.id}` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().kind).toBe('reduced')
+    expect(res.json().eventsCount).toBeUndefined()
+  })
+
+  it('follower ACCEPTED vê o perfil completo', async () => {
+    const target = await makeUser({ isPrivate: true })
+    await makeUserSubcategoryPreference(target.id, 'GASTRONOMY_PIZZA')
+    const viewer = await makeUser()
+    await makeFollow(viewer.id, target.id, 'ACCEPTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.kind).toBe('full')
+    expect(body.eventsCount).toBe(0)
+    expect(body.followStatus).toBe('ACCEPTED')
+    expect(body.preferredSubcategories).toContain('GASTRONOMY_PIZZA')
+  })
+
+  it('o próprio dono vê o perfil completo', async () => {
+    const target = await makeUser({ isPrivate: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, target.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().kind).toBe('full')
+    expect(res.json().eventsCount).toBe(0)
   })
 })
 
