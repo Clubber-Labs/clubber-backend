@@ -116,10 +116,7 @@ export async function getUserById(id: string, viewerId?: string) {
   const follow = viewerId && !isSelf ? await findFollow(viewerId, id) : null
   const followStatus = follow?.status ?? null
 
-  // Privacy gate (paridade com searchUsers): conta privada vista por quem não é
-  // o dono nem follower ACCEPTED só recebe o card mínimo — sem bio, contadores,
-  // createdAt nem preferências. `kind` discrimina as variantes pro client, igual
-  // ao searchUsers. Como a rota é authenticateOptional, viewer anônimo cai aqui.
+  // Mesmo privacy gate do searchUsers — manter os dois em sincronia.
   const hidePrivate = rest.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
   if (hidePrivate) {
     return {
@@ -195,7 +192,8 @@ export async function registerUser(data: CreateUserBody) {
 }
 
 export async function editUser(id: string, data: UpdateUserBody) {
-  await getUserById(id)
+  const target = await findUserById(id)
+  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
 
   if (data.username) {
     const existing = await findUserByUsername(data.username)

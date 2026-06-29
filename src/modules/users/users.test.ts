@@ -146,6 +146,8 @@ describe('GET /users/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().followStatus).toBe('PENDING')
+    expect(res.json().kind).toBe('reduced')
+    expect(res.json().eventsCount).toBeUndefined()
   })
 
   it('retorna followStatus null quando viewer não segue', async () => {
@@ -204,10 +206,8 @@ describe('GET /users/:id — conta privada esconde o perfil de não-seguidores (
     expect(body.kind).toBe('reduced')
     expect(body.isPrivate).toBe(true)
     expect(body.followStatus).toBeNull()
-    // Card mínimo: só identidade visual.
     expect(body.username).toBe(target.username)
     expect(body.avatarUrl).toBe(target.avatarUrl)
-    // Esconde o que é privado.
     expect(body.eventsCount).toBeUndefined()
     expect(body.followersCount).toBeUndefined()
     expect(body.preferredSubcategories).toBeUndefined()
