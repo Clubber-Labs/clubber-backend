@@ -27,8 +27,9 @@ const FORBIDDEN: { pattern: RegExp; api: string }[] = [
 ]
 
 // Exclui o próprio scanner do scan: ele contém os padrões proibidos como
-// strings/regex e dispararia falso-positivo em si mesmo.
-const SELF = 'sql-safety.test.ts'
+// strings/regex e dispararia falso-positivo em si mesmo. Caminho relativo
+// completo (não só o nome) pra não excluir um homônimo em outro diretório.
+const SELF = join('src', 'lib', 'sql-safety.test.ts')
 // Raiz do repo = cwd ao rodar `pnpm test`/`pnpm build`. Evita import.meta
 // (proibido sob module:CommonJS no tsconfig) e __dirname.
 const ROOT = process.cwd()
@@ -41,7 +42,10 @@ function collectTsFiles(dir: string): string[] {
     if (entry.isDirectory()) {
       if (entry.name === 'node_modules') continue
       out.push(...collectTsFiles(full))
-    } else if (entry.name.endsWith('.ts') && !full.endsWith(SELF)) {
+    } else if (
+      entry.name.endsWith('.ts') &&
+      !relative(ROOT, full).endsWith(SELF)
+    ) {
       out.push(full)
     }
   }
@@ -62,6 +66,17 @@ describe('segurança de SQL — nenhuma API de SQL cru insegura', () => {
       const source = readFileSync(file, 'utf8')
       const lines = source.split('\n')
       lines.forEach((line, i) => {
+        // Pula linhas de comentário: o scanner busca USO das APIs no código, não
+        // menções em `// ...` ou JSDoc (`*` / `/*`). Sem isto, documentar a regra
+        // num .ts (ex.: "// nunca use $queryRawUnsafe") viraria falso-positivo.
+        const trimmed = line.trimStart()
+        if (
+          trimmed.startsWith('//') ||
+          trimmed.startsWith('*') ||
+          trimmed.startsWith('/*')
+        ) {
+          return
+        }
         for (const { pattern, api } of FORBIDDEN) {
           if (pattern.test(line)) {
             offenders.push(`${relative(ROOT, file)}:${i + 1} → ${api}`)
