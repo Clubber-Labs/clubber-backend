@@ -171,6 +171,15 @@ app.register(eventsRoutes)
 - **Repository nunca tem lógica de negócio**
 - Erros no service são lançados como `throw { statusCode, message }` e capturados no controller
 
+### Comentários — só os realmente úteis
+
+O código deve se explicar sozinho (nomes, tipos, asserções). Comentário é exceção, não hábito — **na dúvida, não comente**.
+
+- **Comente apenas o "porquê" não-óbvio** que o leitor não deduz do código: invariante sutil, decisão de design, regra de negócio, gotcha de lib, ou cross-reference que precisa ficar em sincronia com outro ponto.
+- **Nunca** comente o "o quê" óbvio (`// busca o usuário`), o raciocínio de uma correção de review/PR (`// atende o review`, `// documenta o gate X`), nem separadores decorativos (`// ─── X ───`).
+- Quando comentar, **1 linha enxuta**. O raciocínio longo de uma mudança pertence ao commit/PR, não ao código.
+- **Nunca remova** comentários funcionais: `biome-ignore`, `@ts-expect-error`, `@ts-ignore`, pragmas de coverage, nem SQL dentro de `$queryRaw`.
+
 ### Segurança de SQL — proibido SQL cru inseguro
 
 O projeto usa SQL cru em vários módulos (PostGIS, advisory locks, feed, proximidade, spots). Todo esse SQL **deve** ser parametrizado via tagged template `Prisma.sql` — cada `${valor}` vira um placeholder bindado (`$1`, `$2`...), nunca texto interpolado. Para SQL dinâmico, componha com:
