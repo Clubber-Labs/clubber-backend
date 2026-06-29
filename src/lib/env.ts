@@ -232,8 +232,9 @@ const baseSchema = z.object({
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
-  // Se definido, /metrics exige `Authorization: Bearer <token>`. Sem ele, o
-  // endpoint é aberto (modelo pull) — proteja na borda de rede ou defina o token.
+  // Se definido, /metrics exige `Authorization: Bearer <token>`. Em produção com
+  // METRICS_ENABLED ligado o token é OBRIGATÓRIO (o boot falha sem ele — refine
+  // no fim do schema). Em dev/test, sem token, o endpoint fica aberto (conveniência).
   METRICS_TOKEN: z.string().min(1).optional(),
   // Cota de armazenamento de mídia por usuário (anti-abuso/custo). Default 1 GB.
   CHAT_USER_STORAGE_QUOTA_BYTES: z.coerce

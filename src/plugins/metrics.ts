@@ -62,21 +62,30 @@ async function metricsPluginFn(app: FastifyInstance) {
   // /metrics exige Bearer auth quando METRICS_TOKEN está definido. Em produção o
   // token é OBRIGATÓRIO (validado no env: refine METRICS_TOKEN+prod), então o
   // caminho "aberto" abaixo só ocorre em dev/test.
-  const token = env.METRICS_TOKEN
-  const requireAuth = async (request: FastifyRequest, reply: FastifyReply) => {
-    if (!isAuthorized(request.headers.authorization, token as string)) {
-      return reply.status(401).send({ message: 'Unauthorized' })
-    }
+  const metricsHandler = async (
+    _request: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    reply.header('Content-Type', registry.contentType)
+    return registry.metrics()
   }
 
-  app.get(
-    METRICS_ROUTE,
-    token ? { onRequest: requireAuth } : {},
-    async (_request, reply) => {
-      reply.header('Content-Type', registry.contentType)
-      return registry.metrics()
-    },
-  )
+  const token = env.METRICS_TOKEN
+  if (token) {
+    // `if (token)` estreita o tipo para string — sem cast. Auth obrigatória.
+    const requireAuth = async (
+      request: FastifyRequest,
+      reply: FastifyReply,
+    ) => {
+      if (!isAuthorized(request.headers.authorization, token)) {
+        return reply.status(401).send({ message: 'Unauthorized' })
+      }
+    }
+    app.get(METRICS_ROUTE, { onRequest: requireAuth }, metricsHandler)
+  } else {
+    // Sem token só ocorre em dev/test (o env garante o token em prod).
+    app.get(METRICS_ROUTE, metricsHandler)
+  }
 }
 
 // fp() expõe os hooks no escopo raiz da app (sem encapsulamento), aplicando-os
