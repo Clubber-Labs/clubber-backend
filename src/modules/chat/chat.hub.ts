@@ -175,10 +175,12 @@ export async function sessionCloseReason(
   return null
 }
 
-// Teto de frames inbound processados por socket numa janela (anti-flood). Cada
+// Teto de frames inbound processados POR SOCKET numa janela (anti-flood). Cada
 // frame de chat dispara query + publish; sem teto, um socket pode martelar o DB
-// e o Redis. Sinais que o cliente envia são de baixa frequência ("typing"), então
-// 10/seg é folgado para uso real e corta o flood. Combina com o cap de conexões.
+// e o Redis. Sinais do cliente são de baixa frequência ("typing"), então 10/seg
+// é folgado para uso real e corta o flood. É POR SOCKET: com o cap de conexões
+// (MAX_SOCKETS_PER_USER), o teto efetivo por usuário é N × este valor (10×10 =
+// 100 frames/seg). Um teto global por usuário ficaria via Redis — fora do escopo.
 export const MAX_INBOUND_FRAMES_PER_WINDOW = 10
 export const INBOUND_FRAME_WINDOW_MS = 1000
 
@@ -186,6 +188,12 @@ export const INBOUND_FRAME_WINDOW_MS = 1000
  * Throttle de janela fixa, por socket, puro e sem I/O (testável com clock fake).
  * `allow()` retorna false quando o socket excedeu o teto na janela atual — o
  * gateway descarta o frame ANTES de qualquer query/publish.
+ *
+ * Janela FIXA (não deslizante): na fronteira de duas janelas, um cliente com
+ * timing preciso pode emitir até 2× o teto num intervalo curto (fim de uma +
+ * início da próxima). Aceitável para sinais de baixa frequência — o piso de
+ * proteção (bound do DB/Redis) é mantido. Sliding window resolveria, mas não
+ * compensa a complexidade aqui.
  */
 export function createFrameThrottle(
   maxPerWindow: number = MAX_INBOUND_FRAMES_PER_WINDOW,

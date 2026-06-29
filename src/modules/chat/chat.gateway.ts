@@ -23,6 +23,11 @@ import {
 const HEARTBEAT_MS = 30_000
 const TOKEN_RECHECK_MS = 60_000
 
+// conversationId no schema é uuid (@default(uuid())). Valida o formato no frame
+// inbound antes de tocar o BD: uma string arbitrária causaria P2023 do Prisma.
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 /**
  * Camada FINA de entrega ao vivo. Toda a regra de negócio (persistência,
  * autorização) vive no REST/service; aqui repassamos eventos já publicados no
@@ -127,25 +132,42 @@ export async function chatGateway(app: FastifyInstance) {
     } catch {
       return
     }
-    if (msg.type !== 'typing' || typeof msg.conversationId !== 'string') return
-    // Authz ANTES da query pesada: confirma participação com um lookup de 1 linha
-    // (índice conversationId+userId). Não-participante (spoof p/ conversa alheia)
-    // é barrado sem rodar a query de fan-out de destinatários.
-    const member = await findActiveParticipant(msg.conversationId, userId)
-    if (!member) return
-    // Destinatários do typing já SEM quem bloqueou o remetente (ou foi bloqueado
-    // por ele) — typing não atravessa bloqueio, igual à presença.
-    const participantIds = await findTypingRecipientUserIds(
-      msg.conversationId,
-      userId,
-    )
-    await realtime.publish({
-      type: 'typing',
-      conversationId: msg.conversationId,
-      participantIds,
-      userId,
-      isTyping: msg.isTyping === true,
-    })
+    // Valida o formato uuid do conversationId antes de tocar o BD: string
+    // arbitrária causaria P2023 do Prisma em vez de simplesmente não casar.
+    if (
+      msg.type !== 'typing' ||
+      typeof msg.conversationId !== 'string' ||
+      !UUID_RE.test(msg.conversationId)
+    ) {
+      return
+    }
+    const { conversationId } = msg
+    const isTyping = msg.isTyping === true
+    // try/catch externo: handleInbound roda em void (fire-and-forget), então um
+    // throw das queries (BD indisponível etc.) viraria unhandled rejection.
+    // Espelha announcePresence/markLocalDeliveries — erro aqui não derruba o processo.
+    try {
+      // Authz ANTES da query pesada: confirma participação com um lookup de 1
+      // linha (índice conversationId+userId). Não-participante (spoof p/ conversa
+      // alheia) é barrado sem rodar a query de fan-out de destinatários.
+      const member = await findActiveParticipant(conversationId, userId)
+      if (!member) return
+      // Destinatários do typing já SEM quem bloqueou o remetente — typing não
+      // atravessa bloqueio, igual à presença.
+      const participantIds = await findTypingRecipientUserIds(
+        conversationId,
+        userId,
+      )
+      await realtime.publish({
+        type: 'typing',
+        conversationId,
+        participantIds,
+        userId,
+        isTyping,
+      })
+    } catch (err) {
+      log.error({ err, userId }, 'falha ao processar frame inbound')
+    }
   }
 
   app.get(
