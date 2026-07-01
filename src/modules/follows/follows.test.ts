@@ -135,6 +135,23 @@ describe('GET /users/:userId/followers', () => {
   })
 })
 
+describe('GET /users/:userId/following', () => {
+  // Os contadores aparecem no perfil (estilo Instagram), mas as IDENTIDADES de
+  // quem a conta privada segue continuam gated — não dá pra enumerar a lista.
+  it('retorna 403 para perfil privado de outro usuário', async () => {
+    const privateUser = await makeUser({ isPrivate: true })
+    const other = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${privateUser.id}/following`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+})
+
 describe('GET /users/me/follow-requests', () => {
   it('lista solicitações pendentes', async () => {
     const user = await makeUser({ isPrivate: true })

@@ -146,8 +146,8 @@ describe('GET /users/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().followStatus).toBe('PENDING')
-    expect(res.json().kind).toBe('reduced')
-    expect(res.json().eventsCount).toBeUndefined()
+    expect(res.json().kind).toBe('full')
+    expect(res.json().eventsCount).toBe(0)
   })
 
   it('retorna followStatus null quando viewer não segue', async () => {
@@ -189,8 +189,8 @@ describe('GET /users/:id', () => {
   })
 })
 
-describe('GET /users/:id — conta privada esconde o perfil de não-seguidores (F-08)', () => {
-  it('não-seguidor recebe card reduzido (sem contadores/preferências)', async () => {
+describe('GET /users/:id — conta privada mostra metadados (estilo Instagram)', () => {
+  it('não-seguidor vê bio, contadores e preferências (só conteúdo/listas ficam gated)', async () => {
     const target = await makeUser({ isPrivate: true })
     await makeUserSubcategoryPreference(target.id, 'GASTRONOMY_PIZZA')
     const viewer = await makeUser()
@@ -203,24 +203,26 @@ describe('GET /users/:id — conta privada esconde o perfil de não-seguidores (
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.kind).toBe('reduced')
+    expect(body.kind).toBe('full')
     expect(body.isPrivate).toBe(true)
     expect(body.followStatus).toBeNull()
-    expect(body.username).toBe(target.username)
-    expect(body.avatarUrl).toBe(target.avatarUrl)
-    expect(body.eventsCount).toBeUndefined()
-    expect(body.followersCount).toBeUndefined()
-    expect(body.preferredSubcategories).toBeUndefined()
+    expect(body).toHaveProperty('bio')
+    expect(body.eventsCount).toBe(0)
+    expect(body.followersCount).toBe(0)
+    expect(body.followingCount).toBe(0)
+    expect(body.preferredSubcategories).toContain('GASTRONOMY_PIZZA')
   })
 
-  it('viewer anônimo também recebe card reduzido', async () => {
+  it('viewer anônimo também vê o perfil completo da conta privada', async () => {
     const target = await makeUser({ isPrivate: true })
 
     const res = await app.inject({ method: 'GET', url: `/users/${target.id}` })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json().kind).toBe('reduced')
-    expect(res.json().eventsCount).toBeUndefined()
+    const body = res.json()
+    expect(body.kind).toBe('full')
+    expect(body.eventsCount).toBe(0)
+    expect(body.followersCount).toBe(0)
   })
 
   it('follower ACCEPTED vê o perfil completo', async () => {

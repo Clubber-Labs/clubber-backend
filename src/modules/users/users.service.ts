@@ -82,10 +82,10 @@ export async function searchUsers(
     const isSelf = u.id === viewerId
     const followStatus = isSelf ? null : (statuses.get(u.id) ?? null)
 
-    // Privacy gate: privado sem follow ACCEPTED só expõe card mínimo,
-    // sem bio/counts/createdAt. O próprio viewer sempre vê seu shape completo.
-    // `kind` é tag discriminante explícita pra o client distinguir as variantes
-    // sem heurística (presença/ausência de campos opcionais).
+    // Privacy gate só na BUSCA: privado sem follow ACCEPTED expõe card mínimo
+    // (sem bio/counts). Divergência PROPOSITAL de getUserById (perfil), que
+    // mostra os metadados estilo Instagram — a busca fica minimalista.
+    // `kind` discrimina as variantes pro client sem heurística de campos.
     const hidePrivate = u.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
     if (hidePrivate) {
       return {
@@ -116,21 +116,9 @@ export async function getUserById(id: string, viewerId?: string) {
   const follow = viewerId && !isSelf ? await findFollow(viewerId, id) : null
   const followStatus = follow?.status ?? null
 
-  // Mesmo privacy gate do searchUsers — manter os dois em sincronia.
-  const hidePrivate = rest.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
-  if (hidePrivate) {
-    return {
-      kind: 'reduced' as const,
-      id: rest.id,
-      username: rest.username,
-      name: rest.name,
-      lastname: rest.lastname,
-      avatarUrl: rest.avatarUrl,
-      isPrivate: true as const,
-      followStatus,
-    }
-  }
-
+  // Perfil completo mesmo p/ conta privada (estilo Instagram): a privacidade
+  // real fica no conteúdo (authorVisibleWhere) e nas listas de seguidores
+  // (ensureCanViewFollowList) — aqui só metadados agregados, não identidades.
   return {
     kind: 'full' as const,
     ...withPreferredCategories(rest),
