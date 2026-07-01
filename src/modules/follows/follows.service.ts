@@ -1,3 +1,4 @@
+import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   clearFollowNotifications,
   notifyFromActor,
@@ -16,6 +17,12 @@ import {
 export async function followUser(followerId: string, followingId: string) {
   if (followerId === followingId) {
     throw { statusCode: 400, message: 'Você não pode seguir a si mesmo' }
+  }
+
+  // Bloqueio em qualquer direção impede o follow. Mensagem genérica para não
+  // revelar quem bloqueou quem.
+  if (await isBlockedEitherWay(followerId, followingId)) {
+    throw { statusCode: 403, message: 'Ação indisponível' }
   }
 
   const targetUser = await findUserById(followingId)

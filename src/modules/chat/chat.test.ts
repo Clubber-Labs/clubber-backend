@@ -1963,7 +1963,10 @@ describe('typing respeita bloqueio (findTypingRecipientUserIds)', () => {
     const sender = await makeUser()
     const memberA = await makeUser()
     const blocker = await makeUser()
-    const convo = await makeGroupConversation(sender.id, [memberA.id, blocker.id])
+    const convo = await makeGroupConversation(sender.id, [
+      memberA.id,
+      blocker.id,
+    ])
 
     await makeBlock(blocker.id, sender.id)
 
@@ -1978,7 +1981,10 @@ describe('typing respeita bloqueio (findTypingRecipientUserIds)', () => {
     const sender = await makeUser()
     const memberA = await makeUser()
     const blockedBySender = await makeUser()
-    const convo = await makeGroupConversation(sender.id, [memberA.id, blockedBySender.id])
+    const convo = await makeGroupConversation(sender.id, [
+      memberA.id,
+      blockedBySender.id,
+    ])
 
     await makeBlock(sender.id, blockedBySender.id)
 

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeFollow, makeUser } from '../../test/factories'
+import { makeBlock, makeFollow, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 
 let app: FastifyInstance
@@ -221,5 +221,43 @@ describe('visibilidade de contas inativas em follows', () => {
     expect(res.statusCode).toBe(200)
     const ids = res.json().data.map((u: { id: string }) => u.id)
     expect(ids).toEqual([activeTarget.id])
+  })
+})
+
+describe('follow bloqueado (F-08 #143)', () => {
+  it('403 ao tentar seguir quem me bloqueou — sem criar follow', async () => {
+    const blocker = await makeUser()
+    const follower = await makeUser()
+    await makeBlock(blocker.id, follower.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/users/${blocker.id}/follow`,
+      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    const follow = await testPrisma.follow.findFirst({
+      where: { followerId: follower.id, followingId: blocker.id },
+    })
+    expect(follow).toBeNull()
+  })
+
+  it('403 ao tentar seguir quem eu bloqueei — sem criar follow', async () => {
+    const blocker = await makeUser()
+    const target = await makeUser()
+    await makeBlock(blocker.id, target.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/users/${target.id}/follow`,
+      headers: { authorization: `Bearer ${token(app, blocker.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    const follow = await testPrisma.follow.findFirst({
+      where: { followerId: blocker.id, followingId: target.id },
+    })
+    expect(follow).toBeNull()
   })
 })

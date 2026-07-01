@@ -116,4 +116,4 @@ jobs:
 
             Encerre com um comentário-resumo contendo: veredito (**Aprovar / Aprovar com ressalvas / Pedir mudanças**), contagem de findings por severidade, e os 1–3 pontos mais críticos a resolver antes do merge.
           claude_args: |
-            --max-turns 30
+            --max-turns 60

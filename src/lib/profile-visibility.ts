@@ -13,14 +13,27 @@ export function authorVisibleWhere(viewerId?: string): Prisma.EventWhereInput {
     return { author: { isPrivate: false } }
   }
   return {
-    OR: [
-      { authorId: viewerId },
-      { author: { isPrivate: false } },
+    AND: [
+      {
+        OR: [
+          { authorId: viewerId },
+          { author: { isPrivate: false } },
+          {
+            author: {
+              followers: {
+                some: { followerId: viewerId, status: 'ACCEPTED' },
+              },
+            },
+          },
+        ],
+      },
+      // Bloqueio em qualquer direção esconde o conteúdo do autor, mesmo público
+      // ou já seguido: `none` garante que o autor não bloqueou o viewer e que o
+      // viewer não bloqueou o autor.
       {
         author: {
-          followers: {
-            some: { followerId: viewerId, status: 'ACCEPTED' },
-          },
+          blocksMade: { none: { blockedId: viewerId } },
+          blocksReceived: { none: { blockerId: viewerId } },
         },
       },
     ],
@@ -43,6 +56,10 @@ export async function canViewAuthorContent(
     select: { isPrivate: true },
   })
   if (!author) return false
+
+  // Bloqueio em qualquer direção corta o acesso — inclusive a conteúdo público.
+  if (viewerId && (await isBlockedBetween(authorId, viewerId))) return false
+
   if (!author.isPrivate) return true
   if (!viewerId) return false
 
@@ -53,4 +70,19 @@ export async function canViewAuthorContent(
     select: { status: true },
   })
   return follow?.status === 'ACCEPTED'
+}
+
+// Consulta local (não importa do módulo blocks) para manter lib/ como folha,
+// sem depender de módulos de domínio. Block é apenas uma tabela.
+async function isBlockedBetween(a: string, b: string): Promise<boolean> {
+  const found = await prisma.block.findFirst({
+    where: {
+      OR: [
+        { blockerId: a, blockedId: b },
+        { blockerId: b, blockedId: a },
+      ],
+    },
+    select: { id: true },
+  })
+  return found !== null
 }
