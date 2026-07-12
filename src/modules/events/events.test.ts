@@ -2142,6 +2142,62 @@ describe('evento com estabelecimento (Google Places)', () => {
     })
   })
 
+  it('recusa placeId sem venueName na criação (par atômico)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload({ venueName: undefined }),
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('recusa edição com só um dos campos do par placeId/venueName', async () => {
+    const user = await makeUser()
+    const create = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload(),
+    })
+    expect(create.statusCode).toBe(201)
+
+    const onlyVenueName = await app.inject({
+      method: 'PUT',
+      url: `/events/${create.json().id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { venueName: 'Outro Bar' },
+    })
+    expect(onlyVenueName.statusCode).toBe(400)
+
+    const onlyPlaceId = await app.inject({
+      method: 'PUT',
+      url: `/events/${create.json().id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { placeId: 'ChIJoutro456' },
+    })
+    expect(onlyPlaceId.statusCode).toBe(400)
+
+    // null desemparelhado também deixa o par incoerente (nome órfão de vínculo).
+    const mixedNull = await app.inject({
+      method: 'PUT',
+      url: `/events/${create.json().id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { placeId: null, venueName: 'Bar do Zé' },
+    })
+    expect(mixedNull.statusCode).toBe(400)
+
+    // Nada disso pode ter vazado pro banco.
+    const stored = await testPrisma.event.findUnique({
+      where: { id: create.json().id },
+    })
+    expect(stored?.placeId).toBe('ChIJabc123')
+    expect(stored?.venueName).toBe('Bar do Zé')
+  })
+
   it('limpa placeId/venueName ao trocar para endereço de rua na edição', async () => {
     const user = await makeUser()
     const create = await app.inject({

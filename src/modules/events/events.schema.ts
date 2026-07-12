@@ -105,6 +105,10 @@ export const createEventSchema = z
     recurrence: recurrenceSchema.optional(),
   })
   .superRefine(refineSubcategoryCoherence)
+  .refine((v) => (v.placeId === undefined) === (v.venueName === undefined), {
+    message: 'placeId e venueName devem ser fornecidos juntos',
+    path: ['placeId'],
+  })
   .refine((v) => !v.endDate || v.endDate > v.date, {
     message: 'endDate deve ser depois de date',
     path: ['endDate'],
@@ -153,6 +157,18 @@ export const updateEventSchema = z
     message: 'endDate deve ser depois de date',
     path: ['endDate'],
   })
+  // Par atômico: com update parcial (undefined = mantém, null = limpa), enviar
+  // só um dos dois — ou null desemparelhado — deixaria placeId e venueName
+  // incoerentes no banco.
+  .refine(
+    (v) =>
+      (v.placeId === undefined) === (v.venueName === undefined) &&
+      (v.placeId === null) === (v.venueName === null),
+    {
+      message: 'placeId e venueName devem ser fornecidos juntos',
+      path: ['placeId'],
+    },
+  )
 
 export const eventParamSchema = z.object({
   id: z.string().uuid(),

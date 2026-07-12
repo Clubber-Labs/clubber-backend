@@ -440,6 +440,9 @@ model Event {
   placeId     String?
   venueName   String?
   categories  EventCategory[]
+  // Subcategorias/gêneros (chaves de interesse config — src/lib/subcategories.ts).
+  // text[] (não enum), validado no input. Casa com as preferências do usuário no
+  // ranking do feed e nas notificações de proximidade (match de 2º nível).
   subcategories String[]      @default([])
   isPublic    Boolean         @default(true)
   isFeatured  Boolean         @default(false)
