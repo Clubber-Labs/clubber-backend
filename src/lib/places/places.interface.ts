@@ -25,7 +25,47 @@ export type SearchTextParams = {
   limit?: number
 }
 
+/**
+ * Sugestão do Autocomplete (SKU barata — usada no "digitar para escolher o
+ * local do evento"). name/address vêm do structuredFormat da predição; o
+ * cliente usa `name` como venueName ao criar o evento (evita pedir displayName
+ * no Details, que é SKU Pro).
+ */
+export type PlaceSuggestion = {
+  placeId: string
+  name: string
+  address: string | null
+}
+
+export type AutocompleteParams = {
+  input: string
+  latitude?: number
+  longitude?: number
+  radiusMeters?: number
+  /**
+   * Token de sessão do Autocomplete: o app gera um por sessão de digitação e o
+   * reusa até o getDetails final — o Google então cobra a sessão inteira como
+   * uma única chamada, em vez de uma por keystroke.
+   */
+  sessionToken?: string
+}
+
+/** Detalhes mínimos (SKU Essentials) do lugar escolhido no autocomplete. */
+export type PlaceDetails = {
+  placeId: string
+  latitude: number
+  longitude: number
+  address: string | null
+  types: string[]
+}
+
 /** Provedor de busca de estabelecimentos (Google Places). */
 export interface IPlacesClient {
   searchText(params: SearchTextParams): Promise<PlaceCandidate[]>
+  autocomplete(params: AutocompleteParams): Promise<PlaceSuggestion[]>
+  /** null quando o placeId não existe (Places 404). */
+  getDetails(
+    placeId: string,
+    sessionToken?: string,
+  ): Promise<PlaceDetails | null>
 }

@@ -33,6 +33,7 @@ import { followsRoutes } from '../modules/follows/follows.routes'
 import { healthRoutes } from '../modules/health/health.routes'
 import { notificationsRoutes } from '../modules/notifications/notifications.routes'
 import { passwordResetRoutes } from '../modules/password-reset/password-reset.routes'
+import { placesRoutes } from '../modules/places/places.routes'
 import { postsRoutes } from '../modules/posts/posts.routes'
 import { reactionsRoutes } from '../modules/reactions/reactions.routes'
 import { recurringEventsRoutes } from '../modules/recurring-events/recurring-events.routes'
@@ -99,6 +100,7 @@ export function buildApp() {
   app.register(blocksRoutes)
   app.register(chatRoutes)
   app.register(spotsRoutes)
+  app.register(placesRoutes)
   app.register(consentRoutes)
   app.register(adminConsentRoutes)
   app.register(notificationsRoutes)

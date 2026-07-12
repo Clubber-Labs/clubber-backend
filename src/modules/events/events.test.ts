@@ -2052,3 +2052,149 @@ describe('visibilidade de eventos por status do autor', () => {
     expect(res.statusCode).toBe(404)
   })
 })
+
+describe('evento com estabelecimento (Google Places)', () => {
+  function venuePayload(overrides: Record<string, unknown> = {}) {
+    return {
+      title: 'Show no Bar do Zé',
+      date: new Date(Date.now() + 86400000).toISOString(),
+      latitude: -25.4,
+      longitude: -49.3,
+      address: 'Rua X, 100 - Curitiba',
+      placeId: 'ChIJabc123',
+      venueName: 'Bar do Zé',
+      categories: ['PARTY'],
+      isPublic: true,
+      ...overrides,
+    }
+  }
+
+  it('cria evento com placeId e venueName e devolve ambos', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload(),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      placeId: 'ChIJabc123',
+      venueName: 'Bar do Zé',
+    })
+
+    const stored = await testPrisma.event.findUnique({
+      where: { id: res.json().id },
+    })
+    expect(stored?.placeId).toBe('ChIJabc123')
+    expect(stored?.venueName).toBe('Bar do Zé')
+  })
+
+  it('segue aceitando evento sem estabelecimento (endereço de rua)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload({ placeId: undefined, venueName: undefined }),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().placeId).toBeNull()
+    expect(res.json().venueName).toBeNull()
+  })
+
+  it('recusa venueName vazio', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload({ venueName: '' }),
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('GET /events/:id expõe placeId e venueName (prefill de edição no app)', async () => {
+    const user = await makeUser()
+    const create = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload(),
+    })
+    expect(create.statusCode).toBe(201)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${create.json().id}`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      placeId: 'ChIJabc123',
+      venueName: 'Bar do Zé',
+    })
+  })
+
+  it('limpa placeId/venueName ao trocar para endereço de rua na edição', async () => {
+    const user = await makeUser()
+    const create = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload(),
+    })
+    expect(create.statusCode).toBe(201)
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${create.json().id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        placeId: null,
+        venueName: null,
+        address: 'Rua Nova, 200',
+        latitude: -25.41,
+        longitude: -49.31,
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().placeId).toBeNull()
+    expect(res.json().venueName).toBeNull()
+    expect(res.json().address).toBe('Rua Nova, 200')
+  })
+
+  it('propaga placeId/venueName para todas as ocorrências da série recorrente', async () => {
+    const user = await makeUser({ isPremium: true })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: venuePayload({ recurrence: { frequency: 'WEEKLY', count: 3 } }),
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const occurrences = await testPrisma.event.findMany({
+      where: { seriesId: { not: null } },
+    })
+    expect(occurrences).toHaveLength(3)
+    for (const occ of occurrences) {
+      expect(occ.placeId).toBe('ChIJabc123')
+      expect(occ.venueName).toBe('Bar do Zé')
+    }
+
+    // Template da série também guarda o venue — o reconciler clona daqui.
+    const series = await testPrisma.eventSeries.findFirst()
+    expect(series?.placeId).toBe('ChIJabc123')
+    expect(series?.venueName).toBe('Bar do Zé')
+  })
+})

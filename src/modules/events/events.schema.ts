@@ -92,6 +92,10 @@ export const createEventSchema = z
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
     address: z.string().optional(),
+    // Estabelecimento do Google Places escolhido no autocomplete (opcional —
+    // sem eles o evento usa só endereço de rua).
+    placeId: z.string().min(1).max(512).optional(),
+    venueName: z.string().min(1).max(200).optional(),
     categories: eventCategoriesInput,
     subcategories: eventSubcategoriesInput.optional(),
     isPublic: z.boolean().default(true),
@@ -133,6 +137,10 @@ export const updateEventSchema = z
     endDate: z.coerce.date().nullable().optional(),
     latitude: z.number().min(-90).max(90).optional(),
     longitude: z.number().min(-180).max(180).optional(),
+    address: z.string().nullable().optional(),
+    // null limpa o vínculo com o estabelecimento (volta a endereço de rua).
+    placeId: z.string().min(1).max(512).nullable().optional(),
+    venueName: z.string().min(1).max(200).nullable().optional(),
     categories: eventCategoriesInput.optional(),
     // Atualização parcial: a coerência subcategoria↔categoria depende do estado
     // EFETIVO (payload + armazenado), que o schema não enxerga — validada no

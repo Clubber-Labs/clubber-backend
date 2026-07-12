@@ -63,6 +63,7 @@ import { startPushReceiptsReconciler } from './modules/notifications/push-receip
 import { startSpotLifecycleReconciler } from './modules/notifications/spot-lifecycle.reconciler'
 import { startPasswordResetCleanupReconciler } from './modules/password-reset/password-reset.reconciler'
 import { passwordResetRoutes } from './modules/password-reset/password-reset.routes'
+import { placesRoutes } from './modules/places/places.routes'
 import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { startRecurringEventsReconciler } from './modules/recurring-events/recurring-events.reconciler'
@@ -229,6 +230,7 @@ app.register(billingWebhookRoutes)
 app.register(blocksRoutes)
 app.register(chatRoutes)
 app.register(spotsRoutes)
+app.register(placesRoutes)
 app.register(notificationsRoutes)
 app.register(chatGateway)
 app.register(notificationsGateway)
