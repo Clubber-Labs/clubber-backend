@@ -1,6 +1,9 @@
 import type {
+  AutocompleteParams,
   IPlacesClient,
   PlaceCandidate,
+  PlaceDetails,
+  PlaceSuggestion,
   SearchTextParams,
 } from '../lib/places'
 
@@ -32,10 +35,16 @@ function fakeCandidate(
 export class FakePlacesService implements IPlacesClient {
   calls = 0
   lastText: SearchTextParams | null = null
+  autocompleteCalls = 0
+  lastAutocomplete: AutocompleteParams | null = null
+  detailsCalls = 0
+  lastDetails: { placeId: string; sessionToken?: string } | null = null
   /** Sobrescreva para roteirizar o retorno da Text Search num cenário. */
   override:
     | ((params: { latitude: number; longitude: number }) => PlaceCandidate[])
     | null = null
+  /** Sobrescreva para roteirizar o Details (null = placeId inexistente). */
+  detailsOverride: ((placeId: string) => PlaceDetails | null) | null = null
 
   async searchText(params: SearchTextParams): Promise<PlaceCandidate[]> {
     this.calls++
@@ -52,10 +61,43 @@ export class FakePlacesService implements IPlacesClient {
     ]
   }
 
+  async autocomplete(params: AutocompleteParams): Promise<PlaceSuggestion[]> {
+    this.autocompleteCalls++
+    this.lastAutocomplete = params
+    return [
+      {
+        placeId: `fake_ac_${params.input}`,
+        name: `Sugestão: ${params.input}`,
+        address: 'Rua Fake, 100 - Curitiba',
+      },
+    ]
+  }
+
+  async getDetails(
+    placeId: string,
+    sessionToken?: string,
+  ): Promise<PlaceDetails | null> {
+    this.detailsCalls++
+    this.lastDetails = { placeId, sessionToken }
+    if (this.detailsOverride) return this.detailsOverride(placeId)
+    return {
+      placeId,
+      latitude: -25.4,
+      longitude: -49.3,
+      address: 'Rua Fake, 100 - Curitiba',
+      types: ['bar'],
+    }
+  }
+
   reset(): void {
     this.calls = 0
     this.lastText = null
+    this.autocompleteCalls = 0
+    this.lastAutocomplete = null
+    this.detailsCalls = 0
+    this.lastDetails = null
     this.override = null
+    this.detailsOverride = null
   }
 }
 

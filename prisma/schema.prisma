@@ -437,6 +437,8 @@ model Event {
   latitude    Float
   longitude   Float
   address     String?
+  placeId     String?
+  venueName   String?
   categories  EventCategory[]
   // Subcategorias/gêneros (chaves de interesse config — src/lib/subcategories.ts).
   // text[] (não enum), validado no input. Casa com as preferências do usuário no
@@ -513,6 +515,8 @@ model EventSeries {
   latitude    Float?
   longitude   Float?
   address     String?
+  placeId     String?
+  venueName   String?
   categories  EventCategory[]
   // Template de subcategorias: o reconciler clona daqui para cada ocorrência.
   subcategories String[]      @default([])
