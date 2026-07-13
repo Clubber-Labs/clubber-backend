@@ -158,6 +158,8 @@ describe('GooglePlacesService.autocomplete', () => {
     expect(body.sessionToken).toBe('sess-123')
     expect(body.locationBias.circle.center.latitude).toBe(CENTER.latitude)
     expect(body.locationBias.circle.radius).toBe(20000)
+    // Sem isso, "shanghai club" sugere Malásia/Vietnã antes do bar da cidade.
+    expect(body.includedRegionCodes).toEqual(['br'])
     const fieldMask = (init.headers as Record<string, string>)[
       'X-Goog-FieldMask'
     ]
@@ -176,6 +178,20 @@ describe('GooglePlacesService.autocomplete', () => {
     const body = JSON.parse(init.body as string)
     expect(body.locationBias).toBeUndefined()
     expect(body.sessionToken).toBeUndefined()
+    expect(body.includedRegionCodes).toEqual(['br'])
+  })
+
+  it('sem radiusMeters, o viés cobre a região (50km), não o raio da Text Search', async () => {
+    const spy = mockFetchJson({ suggestions: [] })
+
+    await new GooglePlacesService('key').autocomplete({
+      input: 'bar do z',
+      ...CENTER,
+    })
+
+    const [, init] = spy.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(init.body as string)
+    expect(body.locationBias.circle.radius).toBe(50000)
   })
 
   it('mapeia placeId, nome e endereço das predições e ignora queryPrediction', async () => {

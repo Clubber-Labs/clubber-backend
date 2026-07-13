@@ -13,6 +13,9 @@ const BASE = 'https://places.googleapis.com/v1/places'
 const TEXT_ENDPOINT = `${BASE}:searchText`
 const AUTOCOMPLETE_ENDPOINT = `${BASE}:autocomplete`
 const DEFAULT_RADIUS_M = 1500
+// Viés do autocomplete: "minha região", não "meu quarteirão" — o raio de 1500m
+// da Text Search é curto demais para achar o estabelecimento pelo nome.
+const AUTOCOMPLETE_BIAS_RADIUS_M = 50000
 const DEFAULT_LIMIT = 10
 const REQUEST_TIMEOUT_MS = 5000
 
@@ -100,6 +103,9 @@ export class GooglePlacesService implements IPlacesClient {
     placesSearchTotal.inc({ type: 'autocomplete' })
     const body = {
       input: params.input,
+      // Não muda o preço (a cobrança é por sessão, não por abrangência), mas
+      // corta sugestões de outros países — menos sessão desperdiçada.
+      includedRegionCodes: ['br'],
       ...(params.sessionToken && { sessionToken: params.sessionToken }),
       ...(params.latitude !== undefined &&
         params.longitude !== undefined && {
@@ -109,7 +115,7 @@ export class GooglePlacesService implements IPlacesClient {
                 latitude: params.latitude,
                 longitude: params.longitude,
               },
-              radius: params.radiusMeters ?? DEFAULT_RADIUS_M,
+              radius: params.radiusMeters ?? AUTOCOMPLETE_BIAS_RADIUS_M,
             },
           },
         }),
