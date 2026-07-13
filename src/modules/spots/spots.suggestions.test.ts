@@ -299,6 +299,32 @@ describe('POST /spots/suggestions', () => {
     expect(ids).not.toContain('longe')
   })
 
+  it('texto livre não corta por distância — venue nomeado longe entra (caso Green Valley)', async () => {
+    const user = await makeUser() // modo texto dispensa preferências
+    // A ~200km (Camboriú visto de Curitiba): no modo perfil cairia no teto.
+    fakePlaces.override = (p) => [
+      {
+        ...baseCandidate(p, 'green_valley'),
+        name: 'Green Valley',
+        types: ['night_club'],
+        distanceMeters: 200_000,
+      },
+    ]
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5, query: 'quero um rolê na green valley' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('green_valley')
+  })
+
   it('limita a quantidade de sugestões devolvidas (cap)', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')

@@ -412,10 +412,16 @@ export async function generateSuggestions(
     for (const c of perQuery.flat()) {
       if (!byId.has(c.placeId)) byId.set(c.placeId, c)
     }
-    // Teto de distância: corta o que ficou absurdamente longe do alcance pedido.
-    const within = [...byId.values()].filter(
-      (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
-    )
+    // Teto de distância SÓ no modo perfil ("sugestões por aqui"). No modo
+    // texto o destino pode estar na própria frase ("rolê na green valley",
+    // "em balneário camboriú") — o viés segura o local nas queries genéricas
+    // e a IA ranqueia pelo critério; cortar aqui esconderia o match certo.
+    const merged = [...byId.values()]
+    const within = intent
+      ? merged
+      : merged.filter(
+          (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
+        )
     // Content-safety: descarta venues adultos (swing/liberal/strip/termas...) pelo
     // NOME — o Places os tipa como night_club/bar, então o filtro estrutural não
     // os pega. Filtro HARD: NUNCA bypassado (melhor 0 sugestões que conteúdo
