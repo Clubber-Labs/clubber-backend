@@ -16,6 +16,8 @@ const DEFAULT_RADIUS_M = 1500
 // Viés do autocomplete: "minha região", não "meu quarteirão" — o raio de 1500m
 // da Text Search é curto demais para achar o estabelecimento pelo nome.
 const AUTOCOMPLETE_BIAS_RADIUS_M = 50000
+// Teto de sugestões do Autocomplete (New) por resposta.
+const MAX_AUTOCOMPLETE_SUGGESTIONS = 5
 const DEFAULT_LIMIT = 10
 const REQUEST_TIMEOUT_MS = 5000
 
@@ -120,12 +122,19 @@ export class GooglePlacesService implements IPlacesClient {
         }),
     }
     const national = await this.autocompleteRequest(body)
-    if (national.length > 0) return national
+    if (national.length >= MAX_AUTOCOMPLETE_SUGGESTIONS) return national
 
-    // Sem match no Brasil (ex.: Berghain): refaz global. Dentro da mesma
-    // sessão do sessionToken, a chamada extra não gera cobrança nova.
+    // Lista incompleta no Brasil: o global COMPLEMENTA (não substitui) — um
+    // homônimo nacional não pode esconder o lugar real lá fora (caso Berghain
+    // Cervejaria vs Berghain de Berlim). Dentro da mesma sessão do
+    // sessionToken, a chamada extra não gera cobrança nova.
     const { includedRegionCodes: _drop, ...globalBody } = body
-    return this.autocompleteRequest(globalBody)
+    const global = await this.autocompleteRequest(globalBody)
+    const seen = new Set(national.map((s) => s.placeId))
+    return [...national, ...global.filter((s) => !seen.has(s.placeId))].slice(
+      0,
+      MAX_AUTOCOMPLETE_SUGGESTIONS,
+    )
   }
 
   /** Uma chamada ao Autocomplete (o fallback global conta a métrica de novo). */

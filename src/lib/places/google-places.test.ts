@@ -227,43 +227,50 @@ describe('GooglePlacesService.autocomplete', () => {
     })
   })
 
-  it('com resultado no Brasil, não refaz a busca (sem chamada extra)', async () => {
+  function suggestion(placeId: string, name: string) {
+    return {
+      placePrediction: {
+        placeId,
+        structuredFormat: { mainText: { text: name } },
+      },
+    }
+  }
+
+  it('lista cheia no Brasil: não faz a chamada global', async () => {
     const spy = mockFetchJson({
       suggestions: [
-        {
-          placePrediction: {
-            placeId: 'br1',
-            structuredFormat: { mainText: { text: 'Bar do Zé' } },
-          },
-        },
+        suggestion('br1', 'Bar A'),
+        suggestion('br2', 'Bar B'),
+        suggestion('br3', 'Bar C'),
+        suggestion('br4', 'Bar D'),
+        suggestion('br5', 'Bar E'),
       ],
     })
 
     const suggestions = await new GooglePlacesService('key').autocomplete({
-      input: 'bar do z',
+      input: 'bar',
       ...CENTER,
     })
 
-    expect(suggestions).toHaveLength(1)
+    expect(suggestions).toHaveLength(5)
     expect(spy).toHaveBeenCalledTimes(1)
   })
 
-  it('sem match no Brasil, refaz global mantendo sessionToken (caso Berghain)', async () => {
+  it('lista incompleta no Brasil: completa com o global sem duplicar (caso Berghain)', async () => {
+    // Homônimo nacional ("Berghain Cervejaria" em Timbó/SC) não pode esconder
+    // o lugar real lá fora — o global complementa, com o Brasil na frente.
     const spy = vi
       .spyOn(globalThis, 'fetch')
-      .mockResolvedValueOnce(jsonResponse({ suggestions: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          suggestions: [suggestion('br_cervejaria', 'Berghain Cervejaria')],
+        }),
+      )
       .mockResolvedValueOnce(
         jsonResponse({
           suggestions: [
-            {
-              placePrediction: {
-                placeId: 'berghain',
-                structuredFormat: {
-                  mainText: { text: 'Berghain' },
-                  secondaryText: { text: 'Am Wriezener Bahnhof, Berlin' },
-                },
-              },
-            },
+            suggestion('br_cervejaria', 'Berghain Cervejaria'),
+            suggestion('berghain_berlin', 'Berghain'),
           ],
         }),
       )
@@ -283,11 +290,29 @@ describe('GooglePlacesService.autocomplete', () => {
     )
     expect(first.includedRegionCodes).toEqual(['br'])
     expect(second.includedRegionCodes).toBeUndefined()
-    // Mesma sessão: a chamada extra do fallback não gera cobrança nova.
+    // Mesma sessão: a chamada extra do complemento não gera cobrança nova.
     expect(second.sessionToken).toBe('sess-123')
     expect(second.locationBias).toEqual(first.locationBias)
 
-    expect(suggestions[0]).toMatchObject({ placeId: 'berghain' })
+    expect(suggestions.map((s) => s.placeId)).toEqual([
+      'br_cervejaria',
+      'berghain_berlin',
+    ])
+  })
+
+  it('sem match no Brasil, a lista vem só do global', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ suggestions: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({ suggestions: [suggestion('berghain', 'Berghain')] }),
+      )
+
+    const suggestions = await new GooglePlacesService('key').autocomplete({
+      input: 'berghain',
+      ...CENTER,
+    })
+
+    expect(suggestions.map((s) => s.placeId)).toEqual(['berghain'])
   })
 
   it('resposta não-ok vira 502', async () => {
