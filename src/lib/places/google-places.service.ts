@@ -100,7 +100,6 @@ export class GooglePlacesService implements IPlacesClient {
   }
 
   async autocomplete(params: AutocompleteParams): Promise<PlaceSuggestion[]> {
-    placesSearchTotal.inc({ type: 'autocomplete' })
     const body = {
       input: params.input,
       // Não muda o preço (a cobrança é por sessão, não por abrangência), mas
@@ -120,7 +119,20 @@ export class GooglePlacesService implements IPlacesClient {
           },
         }),
     }
+    const national = await this.autocompleteRequest(body)
+    if (national.length > 0) return national
 
+    // Sem match no Brasil (ex.: Berghain): refaz global. Dentro da mesma
+    // sessão do sessionToken, a chamada extra não gera cobrança nova.
+    const { includedRegionCodes: _drop, ...globalBody } = body
+    return this.autocompleteRequest(globalBody)
+  }
+
+  /** Uma chamada ao Autocomplete (o fallback global conta a métrica de novo). */
+  private async autocompleteRequest(
+    body: Record<string, unknown>,
+  ): Promise<PlaceSuggestion[]> {
+    placesSearchTotal.inc({ type: 'autocomplete' })
     const res = await this.fetchPlaces(AUTOCOMPLETE_ENDPOINT, {
       method: 'POST',
       headers: {

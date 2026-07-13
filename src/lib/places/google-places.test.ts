@@ -125,12 +125,16 @@ describe('GooglePlacesService.searchText', () => {
 })
 
 function mockFetchJson(payload: unknown, status = 200) {
-  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-    new Response(JSON.stringify(payload), {
-      status,
-      headers: { 'content-type': 'application/json' },
-    }),
-  )
+  return vi
+    .spyOn(globalThis, 'fetch')
+    .mockImplementation(async () => jsonResponse(payload, status))
+}
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  })
 }
 
 describe('GooglePlacesService.autocomplete', () => {
@@ -149,7 +153,8 @@ describe('GooglePlacesService.autocomplete', () => {
       sessionToken: 'sess-123',
     })
 
-    expect(await searchCount('autocomplete')).toBe(before + 1)
+    // Mock vazio dispara o fallback global — cada chamada conta na métrica.
+    expect(await searchCount('autocomplete')).toBe(before + 2)
 
     const [url, init] = spy.mock.calls[0] as [string, RequestInit]
     expect(url).toContain('places:autocomplete')
@@ -220,6 +225,69 @@ describe('GooglePlacesService.autocomplete', () => {
       name: 'Bar do Zé',
       address: 'Rua X, 100 - Curitiba',
     })
+  })
+
+  it('com resultado no Brasil, não refaz a busca (sem chamada extra)', async () => {
+    const spy = mockFetchJson({
+      suggestions: [
+        {
+          placePrediction: {
+            placeId: 'br1',
+            structuredFormat: { mainText: { text: 'Bar do Zé' } },
+          },
+        },
+      ],
+    })
+
+    const suggestions = await new GooglePlacesService('key').autocomplete({
+      input: 'bar do z',
+      ...CENTER,
+    })
+
+    expect(suggestions).toHaveLength(1)
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('sem match no Brasil, refaz global mantendo sessionToken (caso Berghain)', async () => {
+    const spy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(jsonResponse({ suggestions: [] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          suggestions: [
+            {
+              placePrediction: {
+                placeId: 'berghain',
+                structuredFormat: {
+                  mainText: { text: 'Berghain' },
+                  secondaryText: { text: 'Am Wriezener Bahnhof, Berlin' },
+                },
+              },
+            },
+          ],
+        }),
+      )
+
+    const suggestions = await new GooglePlacesService('key').autocomplete({
+      input: 'berghain',
+      ...CENTER,
+      sessionToken: 'sess-123',
+    })
+
+    expect(spy).toHaveBeenCalledTimes(2)
+    const first = JSON.parse(
+      (spy.mock.calls[0][1] as RequestInit).body as string,
+    )
+    const second = JSON.parse(
+      (spy.mock.calls[1][1] as RequestInit).body as string,
+    )
+    expect(first.includedRegionCodes).toEqual(['br'])
+    expect(second.includedRegionCodes).toBeUndefined()
+    // Mesma sessão: a chamada extra do fallback não gera cobrança nova.
+    expect(second.sessionToken).toBe('sess-123')
+    expect(second.locationBias).toEqual(first.locationBias)
+
+    expect(suggestions[0]).toMatchObject({ placeId: 'berghain' })
   })
 
   it('resposta não-ok vira 502', async () => {
