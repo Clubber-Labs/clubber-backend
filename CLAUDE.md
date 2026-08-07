@@ -27,7 +27,7 @@ pnpm lint         # apenas lint
 pnpm format       # apenas format
 
 # Banco de dados
-pnpm db:migrate   # executa migrations pendentes
+pnpm db:migrate   # aplica migrations pendentes + regenera o client (nunca `migrate dev` — ver seção Banco de dados)
 pnpm db:studio    # abre o Prisma Studio
 pnpm db:generate  # regenera o Prisma Client
 pnpm db:seed      # popula o banco de desenvolvimento com dados fictícios
@@ -453,11 +453,41 @@ PORT=3333
 NODE_ENV=development
 ```
 
-Após alterar o `prisma/schema.prisma`, rode:
+### Migrations são escritas à mão — nunca use `prisma migrate dev`
+
+O banco tem objetos PostGIS que o `schema.prisma` **não consegue** representar:
+as colunas geradas `users.location`, `events.location` e `spots.location`
+(`geography(Point, 4326) GENERATED ALWAYS AS ... STORED`) e seus índices GiST.
+
+Como o Prisma não enxerga essas colunas no schema, ele as considera "sobrando" no
+banco: `prisma migrate dev` **sempre** detecta drift e propõe uma migration que
+faz `DROP COLUMN "location"` e derruba os índices GiST — destruindo a busca por
+proximidade. Além disso, ao ficar preso no prompt de nome da migration, ele
+segura um advisory lock do Postgres, e todo comando de migrate seguinte falha com
+`P1002 — Timed out trying to acquire a postgres advisory lock`.
+
+O fluxo correto após alterar o `prisma/schema.prisma`:
 
 ```bash
-pnpm db:migrate   # cria e aplica a migration
-pnpm db:generate  # regenera o Prisma Client
+# 1. gere o SQL da mudança (revise antes de salvar — ele vem com o drift do PostGIS)
+npx prisma migrate diff \
+  --from-schema-datasource prisma/schema.prisma \
+  --to-schema-datamodel prisma/schema.prisma --script
+
+# 2. crie a migration à mão, só com o SQL da SUA mudança
+#    prisma/migrations/<YYYYMMDDHHMMSS>_<nome_em_snake_case>/migration.sql
+
+# 3. aplique e regenere o client
+pnpm db:migrate
+```
+
+`pnpm db:migrate` roda `prisma migrate deploy && prisma generate` — aplica o que
+está pendente, sem inventar migration nem pedir input.
+
+Se o migrate travar com `P1002`, sobrou um `migrate dev` órfão segurando o lock:
+
+```bash
+pkill -f "prisma/build/index.js migrate"; pkill -f schema-engine
 ```
 
 ---
