@@ -14,6 +14,10 @@ export class FakeProfileQueryComposer implements IProfileQueryComposer {
   lastProfile: SuggestionProfile | null = null
   /** Sobrescreva para fixar as frases retornadas num cenário. */
   nextQueries: string[] | null = null
+  intentCalls = 0
+  lastIntent: string | null = null
+  /** Sobrescreva para fixar a query reescrita do modo texto num cenário. */
+  nextIntentQuery: string | null = null
 
   async composeProfileQueries(profile: SuggestionProfile): Promise<string[]> {
     this.calls++
@@ -26,10 +30,20 @@ export class FakeProfileQueryComposer implements IProfileQueryComposer {
     )
   }
 
+  async composeIntentQuery(intent: string): Promise<string> {
+    this.intentCalls++
+    this.lastIntent = intent
+    // Default: passa inalterado (espelha o template sem IA).
+    return this.nextIntentQuery ?? intent
+  }
+
   reset(): void {
     this.calls = 0
     this.lastProfile = null
     this.nextQueries = null
+    this.intentCalls = 0
+    this.lastIntent = null
+    this.nextIntentQuery = null
   }
 }
 

@@ -19,4 +19,12 @@ export type SuggestionProfile = {
  */
 export interface IProfileQueryComposer {
   composeProfileQueries(profile: SuggestionProfile): Promise<string[]>
+  /**
+   * Reescreve a intenção de texto livre numa query melhor para a Text Search.
+   * O caso que motivou: venue famoso citado pelo nome ("green valley") — o
+   * Google, com viés local, prefere homônimos próximos; a IA ancora com a
+   * cidade ("Green Valley Balneário Camboriú"). Texto genérico passa inalterado
+   * e qualquer falha devolve o original — nunca quebra a geração.
+   */
+  composeIntentQuery(intent: string): Promise<string>
 }

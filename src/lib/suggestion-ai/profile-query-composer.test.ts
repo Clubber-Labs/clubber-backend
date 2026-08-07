@@ -111,3 +111,48 @@ describe('TemplateProfileQueryComposer.composeProfileQueries', () => {
     expect(result).toEqual(['Japonesa', 'Gastronomia'])
   })
 })
+
+describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
+  it('ancora venue famoso com a cidade (caso Green Valley)', async () => {
+    const { client } = stubClient({ query: 'Green Valley Balneário Camboriú' })
+
+    const result = await new HaikuProfileQueryComposer(
+      client,
+    ).composeIntentQuery('quero um rolê na green valley')
+
+    expect(result).toBe('Green Valley Balneário Camboriú')
+  })
+
+  it('IA sem saída útil devolve o texto original', async () => {
+    const { client } = stubClient({ query: '   ' })
+
+    const result = await new HaikuProfileQueryComposer(
+      client,
+    ).composeIntentQuery('bar com música ao vivo')
+
+    expect(result).toBe('bar com música ao vivo')
+  })
+
+  it('falha da IA devolve o texto original (nunca quebra a geração)', async () => {
+    const parse = vi.fn().mockRejectedValue(new Error('down'))
+    const client = { messages: { parse } } as unknown as Pick<
+      Anthropic,
+      'messages'
+    >
+
+    const result = await new HaikuProfileQueryComposer(
+      client,
+    ).composeIntentQuery('green valley')
+
+    expect(result).toBe('green valley')
+  })
+})
+
+describe('TemplateProfileQueryComposer.composeIntentQuery', () => {
+  it('sem IA, o texto passa inalterado', async () => {
+    const result = await new TemplateProfileQueryComposer().composeIntentQuery(
+      'green valley',
+    )
+    expect(result).toBe('green valley')
+  })
+})

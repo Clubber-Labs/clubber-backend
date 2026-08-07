@@ -19,4 +19,8 @@ export class TemplateProfileQueryComposer implements IProfileQueryComposer {
   async composeProfileQueries(profile: SuggestionProfile): Promise<string[]> {
     return fallbackProfileQueries(profile)
   }
+
+  async composeIntentQuery(intent: string): Promise<string> {
+    return intent
+  }
 }

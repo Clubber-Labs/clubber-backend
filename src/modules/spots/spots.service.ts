@@ -380,8 +380,16 @@ export async function generateSuggestions(
     // ranqueamento (sem recomputar). Composer resiliente: se a IA não devolve
     // nada, cai nos rótulos de categoria (perfil não-vazio garante ≥1 frase).
     let searchQueries: string[]
+    let intentAnchored = false
     if (intent) {
-      searchQueries = [intent]
+      // A IA ancora venue/cidade citados no texto ("green valley" -> "Green
+      // Valley Balneário Camboriú") — com viés local, o Google preferiria
+      // homônimos próximos. Genérico passa inalterado; falha devolve o original.
+      const composed =
+        await getProfileQueryComposer().composeIntentQuery(intent)
+      // Query realmente reescrita (não só caixa) = a IA ancorou um destino.
+      intentAnchored = composed.toLowerCase() !== intent.toLowerCase()
+      searchQueries = [composed]
     } else {
       const composed = await getProfileQueryComposer().composeProfileQueries({
         categories: profileCategoryLabels,
@@ -413,9 +421,16 @@ export async function generateSuggestions(
       if (!byId.has(c.placeId)) byId.set(c.placeId, c)
     }
     // Teto de distância: corta o que ficou absurdamente longe do alcance pedido.
-    const within = [...byId.values()].filter(
-      (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
-    )
+    // Única exceção: a IA ancorou a intenção num destino citado no texto ("rolê
+    // na green valley" → Camboriú) — aí o longe É o pedido. Texto genérico e IA
+    // degradada (sem chave/timeout/erro → composed === intent) mantêm o teto:
+    // os fallbacks do enhancer preservam a ordem crua do Places, sem distância.
+    const merged = [...byId.values()]
+    const within = intentAnchored
+      ? merged
+      : merged.filter(
+          (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
+        )
     // Content-safety: descarta venues adultos (swing/liberal/strip/termas...) pelo
     // NOME — o Places os tipa como night_club/bar, então o filtro estrutural não
     // os pega. Filtro HARD: NUNCA bypassado (melhor 0 sugestões que conteúdo

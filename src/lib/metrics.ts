@@ -54,12 +54,14 @@ export const suggestionsEnhancerFallbackTotal = new Counter({
   registers: [registry],
 })
 
-// Quantas vezes a composição da query de busca (modo-perfil) caiu no fallback
-// determinístico em vez da IA. Mesmo papel de alarme do contador do enhancer.
+// Quantas vezes a composição da query de busca caiu no fallback determinístico
+// em vez da IA. Mesmo papel de alarme do contador do enhancer. `method` separa
+// os fluxos: profile cai nos rótulos de categoria; intent cai no texto cru do
+// usuário (sem ancoragem de venue/cidade).
 export const profileQueryComposerFallbackTotal = new Counter({
   name: 'profile_query_composer_fallback_total',
-  help: 'Composições de query que caíram no template em vez da IA, por motivo',
-  labelNames: ['reason'],
+  help: 'Composições de query que caíram no template em vez da IA, por motivo e método',
+  labelNames: ['reason', 'method'],
   registers: [registry],
 })
 

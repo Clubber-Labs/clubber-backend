@@ -299,6 +299,77 @@ describe('POST /spots/suggestions', () => {
     expect(ids).not.toContain('longe')
   })
 
+  it('modo texto passa a intenção pela IA — a query ancorada é o que vai ao Places', async () => {
+    const user = await makeUser()
+    // A IA reconhece o venue famoso e ancora com a cidade.
+    fakeQueryComposer.nextIntentQuery = 'Green Valley Balneário Camboriú'
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, query: 'green valley' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(fakeQueryComposer.lastIntent).toBe('green valley')
+    expect(fakePlaces.lastText?.textQuery).toBe(
+      'Green Valley Balneário Camboriú',
+    )
+  })
+
+  it('texto ancorado pela IA não corta por distância — venue nomeado longe entra (caso Green Valley)', async () => {
+    const user = await makeUser() // modo texto dispensa preferências
+    // A IA ancorou o venue citado com a cidade: o "longe" é o próprio pedido.
+    fakeQueryComposer.nextIntentQuery = 'Green Valley Balneário Camboriú'
+    // A ~200km (Camboriú visto de Curitiba): no modo perfil cairia no teto.
+    fakePlaces.override = (p) => [
+      {
+        ...baseCandidate(p, 'green_valley'),
+        name: 'Green Valley',
+        types: ['night_club'],
+        distanceMeters: 200_000,
+      },
+    ]
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5, query: 'quero um rolê na green valley' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('green_valley')
+  })
+
+  it('texto que a IA não ancorou mantém o teto de distância (genérico ou IA degradada)', async () => {
+    const user = await makeUser()
+    // Sem nextIntentQuery o composer devolve o texto inalterado — mesmo caminho
+    // do texto genérico e da falha/timeout da IA (fallback do composeIntentQuery).
+    fakePlaces.override = (p) => [
+      { ...baseCandidate(p, 'perto'), distanceMeters: 3000 },
+      { ...baseCandidate(p, 'longe'), distanceMeters: 200_000 },
+    ]
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5, query: 'bar com música ao vivo' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('perto')
+    expect(ids).not.toContain('longe')
+  })
+
   it('limita a quantidade de sugestões devolvidas (cap)', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')
