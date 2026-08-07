@@ -15,7 +15,10 @@
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
+    "db:test:migrate": "tsx prisma/migrate-test.ts",
+    "pretest": "pnpm db:test:migrate",
     "test": "vitest run",
+    "pretest:watch": "pnpm db:test:migrate",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"
   },
