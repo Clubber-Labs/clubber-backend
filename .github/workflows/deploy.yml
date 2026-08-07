@@ -1,0 +1,77 @@
+# Secrets necessários (Settings > Secrets and variables > Actions):
+#   COOLIFY_WEBHOOK_URL - URL do webhook de deploy do Coolify
+#   COOLIFY_TOKEN       - token de autenticação do webhook do Coolify
+name: Deploy
+
+# Dispara depois que o CI (push em main) termina, em vez de rodar em paralelo com ele —
+# builds separados não conseguem "needs" um workflow do outro arquivo, então usamos
+# workflow_run para só publicar a imagem se lint/build/test/security passarem.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: clubber-labs/clubber-backend
+
+jobs:
+  build-and-push:
+    name: Build & push imagem Docker
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      # A tag sha- é o ponto de rollback: derivamos do mesmo ref do checkout para
+      # não depender de qual commit o metadata-action infere num evento workflow_run.
+      - name: Resolver SHA da imagem
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login no GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extrair tags/labels da imagem
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=raw,value=sha-${{ steps.sha.outputs.short }}
+
+      # platform explícita: build roda em runner amd64 mas devs costumam buildar local em arm64 (Mac)
+      - name: Build e push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Disparar deploy no Coolify
+        run: |
+          curl -fsSL -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
