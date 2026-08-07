@@ -320,8 +320,12 @@ Se algum teste estiver vermelho ou pulado, a task **não está pronta** — inve
 O Prisma cria o banco automaticamente ao rodar as migrations:
 
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/conectai_test" npx prisma migrate deploy
+pnpm db:test:migrate
 ```
+
+O `pnpm test` e o `pnpm test:watch` já rodam isso antes da suíte (hooks `pretest`
+e `pretest:watch`), então na prática o banco de teste se recria/atualiza sozinho
+— inclusive depois de um `docker compose down -v`.
 
 **2. Criar o arquivo `.env.test`** na raiz do projeto (já existe no repositório):
 
