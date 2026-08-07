@@ -40,6 +40,8 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Posta os comentários no PR (inline + resumo fixo)
           track_progress: true
+          # Sem isso o action oculta o erro real quando a execução falha
+          show_full_output: true
           prompt: |
             Você é o revisor sênior e owner do **ConnectAI Backend** aprovando este PR antes do merge na `main`. A API é uma REST em **Fastify + Zod type provider + Prisma + PostgreSQL/PostGIS**, com **JWT** (`@fastify/jwt`) para auth, **Redis** para cache, **Vitest** para testes de integração contra banco real e **Biome** como linter/formatter. Aja como dono do código: seja rigoroso, priorize correção e segurança, e não aprove remendos.
 
