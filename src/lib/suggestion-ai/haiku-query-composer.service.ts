@@ -68,7 +68,10 @@ export class HaikuProfileQueryComposer implements IProfileQueryComposer {
         .filter(Boolean)
       // Piso: IA sem saída útil → fallback determinístico (nunca lista vazia).
       if (queries.length === 0) {
-        profileQueryComposerFallbackTotal.inc({ reason: 'no_output' })
+        profileQueryComposerFallbackTotal.inc({
+          reason: 'no_output',
+          method: 'profile',
+        })
         return fallbackProfileQueries(profile)
       }
       // Servidor é a fonte da verdade do teto (trunca em vez de confiar no modelo).
@@ -78,7 +81,10 @@ export class HaikuProfileQueryComposer implements IProfileQueryComposer {
         { err },
         `composeProfileQueries via IA (${MODEL}) falhou — usando template`,
       )
-      profileQueryComposerFallbackTotal.inc({ reason: 'llm_error' })
+      profileQueryComposerFallbackTotal.inc({
+        reason: 'llm_error',
+        method: 'profile',
+      })
       return fallbackProfileQueries(profile)
     }
   }
@@ -95,7 +101,10 @@ export class HaikuProfileQueryComposer implements IProfileQueryComposer {
 
       const query = response.parsed_output?.query?.trim()
       if (!query) {
-        profileQueryComposerFallbackTotal.inc({ reason: 'no_output' })
+        profileQueryComposerFallbackTotal.inc({
+          reason: 'no_output',
+          method: 'intent',
+        })
         return intent
       }
       return query
@@ -104,7 +113,10 @@ export class HaikuProfileQueryComposer implements IProfileQueryComposer {
         { err },
         `composeIntentQuery via IA (${MODEL}) falhou — usando o texto original`,
       )
-      profileQueryComposerFallbackTotal.inc({ reason: 'llm_error' })
+      profileQueryComposerFallbackTotal.inc({
+        reason: 'llm_error',
+        method: 'intent',
+      })
       return intent
     }
   }
