@@ -380,13 +380,16 @@ export async function generateSuggestions(
     // ranqueamento (sem recomputar). Composer resiliente: se a IA não devolve
     // nada, cai nos rótulos de categoria (perfil não-vazio garante ≥1 frase).
     let searchQueries: string[]
+    let intentAnchored = false
     if (intent) {
       // A IA ancora venue/cidade citados no texto ("green valley" -> "Green
       // Valley Balneário Camboriú") — com viés local, o Google preferiria
       // homônimos próximos. Genérico passa inalterado; falha devolve o original.
-      searchQueries = [
-        await getProfileQueryComposer().composeIntentQuery(intent),
-      ]
+      const composed =
+        await getProfileQueryComposer().composeIntentQuery(intent)
+      // Query realmente reescrita (não só caixa) = a IA ancorou um destino.
+      intentAnchored = composed.toLowerCase() !== intent.toLowerCase()
+      searchQueries = [composed]
     } else {
       const composed = await getProfileQueryComposer().composeProfileQueries({
         categories: profileCategoryLabels,
@@ -417,12 +420,13 @@ export async function generateSuggestions(
     for (const c of perQuery.flat()) {
       if (!byId.has(c.placeId)) byId.set(c.placeId, c)
     }
-    // Teto de distância SÓ no modo perfil ("sugestões por aqui"). No modo
-    // texto o destino pode estar na própria frase ("rolê na green valley",
-    // "em balneário camboriú") — o viés segura o local nas queries genéricas
-    // e a IA ranqueia pelo critério; cortar aqui esconderia o match certo.
+    // Teto de distância: corta o que ficou absurdamente longe do alcance pedido.
+    // Única exceção: a IA ancorou a intenção num destino citado no texto ("rolê
+    // na green valley" → Camboriú) — aí o longe É o pedido. Texto genérico e IA
+    // degradada (sem chave/timeout/erro → composed === intent) mantêm o teto:
+    // os fallbacks do enhancer preservam a ordem crua do Places, sem distância.
     const merged = [...byId.values()]
-    const within = intent
+    const within = intentAnchored
       ? merged
       : merged.filter(
           (c) => c.distanceMeters <= radiusMeters * DISTANCE_CAP_MULTIPLIER,
