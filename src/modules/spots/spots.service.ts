@@ -381,7 +381,12 @@ export async function generateSuggestions(
     // nada, cai nos rótulos de categoria (perfil não-vazio garante ≥1 frase).
     let searchQueries: string[]
     if (intent) {
-      searchQueries = [intent]
+      // A IA ancora venue/cidade citados no texto ("green valley" -> "Green
+      // Valley Balneário Camboriú") — com viés local, o Google preferiria
+      // homônimos próximos. Genérico passa inalterado; falha devolve o original.
+      searchQueries = [
+        await getProfileQueryComposer().composeIntentQuery(intent),
+      ]
     } else {
       const composed = await getProfileQueryComposer().composeProfileQueries({
         categories: profileCategoryLabels,

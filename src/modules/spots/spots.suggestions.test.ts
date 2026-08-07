@@ -299,6 +299,25 @@ describe('POST /spots/suggestions', () => {
     expect(ids).not.toContain('longe')
   })
 
+  it('modo texto passa a intenção pela IA — a query ancorada é o que vai ao Places', async () => {
+    const user = await makeUser()
+    // A IA reconhece o venue famoso e ancora com a cidade.
+    fakeQueryComposer.nextIntentQuery = 'Green Valley Balneário Camboriú'
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, query: 'green valley' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(fakeQueryComposer.lastIntent).toBe('green valley')
+    expect(fakePlaces.lastText?.textQuery).toBe(
+      'Green Valley Balneário Camboriú',
+    )
+  })
+
   it('texto livre não corta por distância — venue nomeado longe entra (caso Green Valley)', async () => {
     const user = await makeUser() // modo texto dispensa preferências
     // A ~200km (Camboriú visto de Curitiba): no modo perfil cairia no teto.
