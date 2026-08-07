@@ -1,4 +1,4 @@
-import sharp from 'sharp'
+import sharp, { type ResizeOptions } from 'sharp'
 
 export interface ProcessedImage {
   buffer: Buffer
@@ -10,7 +10,7 @@ export interface ProcessedImage {
 
 async function process(
   buffer: Buffer,
-  resize: sharp.ResizeOptions & { width: number; height: number },
+  resize: ResizeOptions & { width: number; height: number },
   quality: number,
 ): Promise<ProcessedImage> {
   try {

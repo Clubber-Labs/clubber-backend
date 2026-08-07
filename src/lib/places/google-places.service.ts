@@ -13,6 +13,11 @@ const BASE = 'https://places.googleapis.com/v1/places'
 const TEXT_ENDPOINT = `${BASE}:searchText`
 const AUTOCOMPLETE_ENDPOINT = `${BASE}:autocomplete`
 const DEFAULT_RADIUS_M = 1500
+// Viés do autocomplete: "minha região", não "meu quarteirão" — o raio de 1500m
+// da Text Search é curto demais para achar o estabelecimento pelo nome.
+const AUTOCOMPLETE_BIAS_RADIUS_M = 50000
+// Teto de sugestões do Autocomplete (New) por resposta.
+const MAX_AUTOCOMPLETE_SUGGESTIONS = 5
 const DEFAULT_LIMIT = 10
 const REQUEST_TIMEOUT_MS = 5000
 
@@ -97,9 +102,11 @@ export class GooglePlacesService implements IPlacesClient {
   }
 
   async autocomplete(params: AutocompleteParams): Promise<PlaceSuggestion[]> {
-    placesSearchTotal.inc({ type: 'autocomplete' })
     const body = {
       input: params.input,
+      // Não muda o preço (a cobrança é por sessão, não por abrangência), mas
+      // corta sugestões de outros países — menos sessão desperdiçada.
+      includedRegionCodes: ['br'],
       ...(params.sessionToken && { sessionToken: params.sessionToken }),
       ...(params.latitude !== undefined &&
         params.longitude !== undefined && {
@@ -109,12 +116,32 @@ export class GooglePlacesService implements IPlacesClient {
                 latitude: params.latitude,
                 longitude: params.longitude,
               },
-              radius: params.radiusMeters ?? DEFAULT_RADIUS_M,
+              radius: params.radiusMeters ?? AUTOCOMPLETE_BIAS_RADIUS_M,
             },
           },
         }),
     }
+    const national = await this.autocompleteRequest(body)
+    if (national.length >= MAX_AUTOCOMPLETE_SUGGESTIONS) return national
 
+    // Lista incompleta no Brasil: o global COMPLEMENTA (não substitui) — um
+    // homônimo nacional não pode esconder o lugar real lá fora (caso Berghain
+    // Cervejaria vs Berghain de Berlim). Dentro da mesma sessão do
+    // sessionToken, a chamada extra não gera cobrança nova.
+    const { includedRegionCodes: _drop, ...globalBody } = body
+    const global = await this.autocompleteRequest(globalBody)
+    const seen = new Set(national.map((s) => s.placeId))
+    return [...national, ...global.filter((s) => !seen.has(s.placeId))].slice(
+      0,
+      MAX_AUTOCOMPLETE_SUGGESTIONS,
+    )
+  }
+
+  /** Uma chamada ao Autocomplete (o fallback global conta a métrica de novo). */
+  private async autocompleteRequest(
+    body: Record<string, unknown>,
+  ): Promise<PlaceSuggestion[]> {
+    placesSearchTotal.inc({ type: 'autocomplete' })
     const res = await this.fetchPlaces(AUTOCOMPLETE_ENDPOINT, {
       method: 'POST',
       headers: {
