@@ -275,6 +275,7 @@ model Conversation {
   spot         Spot?
 
   @@index([lastMessageAt])
+  @@index([createdById])
   @@map("conversations")
 }
 
@@ -331,6 +332,8 @@ model Message {
 
   @@unique([conversationId, senderId, idempotencyKey])
   @@index([conversationId, createdAt])
+  @@index([senderId])
+  @@index([replyToId])
   @@map("messages")
 }
 
@@ -345,6 +348,7 @@ model MessageReaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId])
+  @@index([userId])
   @@map("message_reactions")
 }
 
