@@ -2,6 +2,10 @@ import type { Job, Queue, Worker } from 'bullmq'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { createQueue, createWorker } from '../../lib/queue'
+import {
+  CHAT_MESSAGE_PUSH_DELAY_MS,
+  runChatMessagePush,
+} from './chat-push.service'
 import { type PushContent, sendPushToUsers } from './notification-push.service'
 import { runEventCreatedFanout } from './proximity-fanout.service'
 import {
@@ -16,6 +20,7 @@ type NotificationJob =
   | { kind: 'spot.published'; spotId: string }
   | { kind: 'spot.joined'; spotId: string; joinerId: string }
   | { kind: 'notification.push'; userId: string; content: PushContent }
+  | { kind: 'chat.message.push'; messageId: string }
 
 let queue: Queue<NotificationJob> | null = null
 let queueResolved = false
@@ -120,6 +125,33 @@ export async function enqueuePush(
   }
 }
 
+/**
+ * Enfileira o push de uma mensagem de chat, com DELAY proposital: o job só
+ * roda depois que quem estava online já recebeu via socket (e avançou o
+ * watermark de entrega) — o processador então notifica apenas quem ficou pra
+ * trás. Best-effort, como os demais enqueues.
+ */
+export async function enqueueChatMessagePush(messageId: string): Promise<void> {
+  const q = getQueue()
+  if (!q) return
+  try {
+    await q.add(
+      'chat.message.push',
+      { kind: 'chat.message.push', messageId },
+      {
+        jobId: `chat.message.push:${messageId}`,
+        delay: CHAT_MESSAGE_PUSH_DELAY_MS,
+        removeOnComplete: true,
+        removeOnFail: 200,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 2000 },
+      },
+    )
+  } catch (err) {
+    logger.warn({ err, messageId }, 'falha ao enfileirar chat.message.push')
+  }
+}
+
 let worker: Worker<NotificationJob> | null = null
 
 export function startNotificationsWorker(): void {
@@ -135,6 +167,8 @@ export function startNotificationsWorker(): void {
         await runSpotJoinedFanout(job.data.spotId, job.data.joinerId)
       } else if (job.data.kind === 'notification.push') {
         await sendPushToUsers([job.data.userId], job.data.content)
+      } else if (job.data.kind === 'chat.message.push') {
+        await runChatMessagePush(job.data.messageId)
       }
     },
     { concurrency: 4 },

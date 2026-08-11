@@ -5,7 +5,7 @@ export type NotificationActor = {
   lastname: string
 }
 
-function displayName(actor: NotificationActor): string {
+export function displayName(actor: NotificationActor): string {
   return [actor.name, actor.lastname].filter(Boolean).join(' ').trim()
 }
 

@@ -12,6 +12,8 @@ import {
   uploadMessageImage,
 } from '../../lib/uploads'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
+import { displayName } from '../notifications/notification-content'
+import { enqueueChatMessagePush } from '../notifications/notification-queue'
 import {
   assertActiveParticipant,
   assertAdmin,
@@ -208,6 +210,11 @@ async function publishMessage(
     createdAt: message.createdAt.toISOString(),
     message: shapeMessage(message),
   })
+  // Push com delay pra quem não receber via socket. Mensagem de sistema não
+  // notifica (entrou/saiu/renomeou é ruído no canal do SO).
+  if (message.type !== 'SYSTEM') {
+    await enqueueChatMessagePush(message.id)
+  }
 }
 
 /** Entrega ao vivo de uma mensagem alterada (edição ou reação). Best-effort. */
@@ -222,10 +229,6 @@ async function publishEditedMessage(
     participantIds,
     message: shapeMessage(message),
   })
-}
-
-function displayName(user: { name: string; lastname: string }) {
-  return `${user.name} ${user.lastname}`.trim()
 }
 
 /**
