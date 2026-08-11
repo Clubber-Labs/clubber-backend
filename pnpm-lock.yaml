@@ -16,6 +16,7 @@ overrides:
   '@opentelemetry/core': '>=2.8.0'
   vite: '>=8.2.1'
   esbuild: '>=0.28.1'
+  nanoid@5: ^5.1.16
 
 importers:
 
@@ -2232,8 +2233,8 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  nanoid@5.1.7:
-    resolution: {integrity: sha512-ua3NDgISf6jdwezAheMOk4mbE1LXjm1DfMUDMuJf4AqxLFK3ccGpgWizwa5YV7Yz9EpXwEaWoRXSb/BnV0t5dQ==}
+  nanoid@5.1.16:
+    resolution: {integrity: sha512-kVrnsrJqMR8+oLJnGEmSWw9BivK5mt7H3FZatVRjrc5wGqFYuBxX1yG7+A7Gi5AefkX6t/oCkizcQgpu0cY1dQ==}
     engines: {node: ^18 || >=20}
     hasBin: true
 
@@ -4120,7 +4121,7 @@ snapshots:
   '@scalar/types@0.7.4':
     dependencies:
       '@scalar/helpers': 0.4.2
-      nanoid: 5.1.7
+      nanoid: 5.1.16
       type-fest: 5.5.0
       zod: 4.3.6
 
@@ -4984,7 +4985,7 @@ snapshots:
 
   nanoid@3.3.18: {}
 
-  nanoid@5.1.7: {}
+  nanoid@5.1.16: {}
 
   node-abort-controller@3.1.1: {}
 
