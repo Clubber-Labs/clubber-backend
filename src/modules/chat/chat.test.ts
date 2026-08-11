@@ -24,7 +24,7 @@ import { testPrisma } from '../../test/prisma'
 import {
   findConversationPartnerIds,
   findTypingRecipientUserIds,
-  markDeliveredIfBehind,
+  markDeliveredBatchIfBehind,
   UNREAD_COUNT_CAP,
 } from './chat.repository'
 
@@ -42,6 +42,7 @@ type ChatFrame = {
   type: string
   conversationId?: string
   userId?: string
+  userIds?: string[]
   at?: string
   participantIds?: string[]
 }
@@ -1594,7 +1595,7 @@ describe('recibos entregue/visto', () => {
 })
 
 describe('recibos em tempo real (frames WS)', () => {
-  it('POST /delivered publica frame delivered com userId e at', async () => {
+  it('POST /delivered publica evento delivered com userIds e at', async () => {
     const a = await makeUser()
     const b = await makeUser()
     const convo = await makeDirectConversation(a.id, b.id)
@@ -1604,7 +1605,7 @@ describe('recibos em tempo real (frames WS)', () => {
       (f) =>
         f.type === 'delivered' &&
         f.conversationId === convo.id &&
-        f.userId === b.id,
+        (f.userIds ?? []).includes(b.id),
       async () => {
         await app.inject({
           method: 'POST',
@@ -1615,6 +1616,7 @@ describe('recibos em tempo real (frames WS)', () => {
     )
 
     expect(typeof frame.at).toBe('string')
+    expect(frame.userIds).toEqual([b.id])
     expect(frame.participantIds).toEqual(expect.arrayContaining([a.id, b.id]))
   })
 
@@ -1640,25 +1642,115 @@ describe('recibos em tempo real (frames WS)', () => {
   })
 })
 
-describe('markDeliveredIfBehind (entrega monotônica)', () => {
-  it('avança quando atrás de upTo e não regride quando já cobre', async () => {
+describe('markDeliveredBatchIfBehind (entrega monotônica em lote)', () => {
+  it('avança quem está atrás de upTo e não regride quem já cobre', async () => {
     const a = await makeUser()
     const b = await makeUser()
-    const convo = await makeDirectConversation(a.id, b.id)
+    const c = await makeUser()
+    const convo = await makeGroupConversation(a.id, [b.id, c.id])
     const past = new Date(Date.now() - 60_000)
     const future = new Date(Date.now() + 60_000)
 
-    // B nunca recebeu → está atrás de `past` → avança e retorna o novo watermark
-    const first = await markDeliveredIfBehind(convo.id, b.id, past)
-    expect(first).toBeInstanceOf(Date)
+    // B e C nunca receberam → ambos atrás de `past` → 1 UPDATE avança os dois
+    const first = await markDeliveredBatchIfBehind(convo.id, [b.id, c.id], past)
+    expect(first?.at).toBeInstanceOf(Date)
+    expect(first?.userIds.sort()).toEqual([b.id, c.id].sort())
 
-    // Mesmo `upTo` no passado, já coberto → null (não regride nem duplica frame)
-    const again = await markDeliveredIfBehind(convo.id, b.id, past)
+    // Mesmo `upTo` já coberto → null (não regride nem duplica frame)
+    const again = await markDeliveredBatchIfBehind(convo.id, [b.id, c.id], past)
     expect(again).toBeNull()
 
-    // Mensagem mais nova (futuro) ainda não coberta → avança de novo
-    const advanced = await markDeliveredIfBehind(convo.id, b.id, future)
-    expect(advanced).toBeInstanceOf(Date)
+    // Mensagem mais nova ainda não coberta → avança de novo
+    const advanced = await markDeliveredBatchIfBehind(
+      convo.id,
+      [b.id, c.id],
+      future,
+    )
+    expect(advanced?.userIds).toHaveLength(2)
+
+    // O watermark gravado COBRE upTo mesmo com upTo à frente do relógio da
+    // app (skew app×banco): repetir o mesmo lote não gera evento duplicado.
+    expect(advanced?.at.getTime()).toBeGreaterThanOrEqual(future.getTime())
+    const repeat = await markDeliveredBatchIfBehind(
+      convo.id,
+      [b.id, c.id],
+      future,
+    )
+    expect(repeat).toBeNull()
+  })
+
+  it('lotes concorrentes sobrepostos não deadlockam nem avançam duplicado', async () => {
+    // Duas mensagens quase simultâneas na mesma conversa disparam dois batches
+    // sobre conjuntos sobrepostos de linhas. Sem ordem determinística de lock
+    // isso pode deadlockar (40P01) — o plano muda de Index Scan para Bitmap
+    // Heap Scan conforme o tamanho do IN, e as ordens divergem. Com a ordem
+    // imposta, um lote serializa atrás do outro e o usuário compartilhado
+    // avança em EXATAMENTE um deles (sem frame duplicado no app).
+    for (let round = 0; round < 3; round++) {
+      const a = await makeUser()
+      const b = await makeUser()
+      const shared = await makeUser()
+      const d = await makeUser()
+      const convo = await makeGroupConversation(a.id, [b.id, shared.id, d.id])
+      const upTo = new Date(Date.now() - 60_000)
+
+      const [r1, r2] = await Promise.all([
+        markDeliveredBatchIfBehind(convo.id, [b.id, shared.id], upTo),
+        markDeliveredBatchIfBehind(convo.id, [shared.id, d.id], upTo),
+      ])
+
+      const all = [...(r1?.userIds ?? []), ...(r2?.userIds ?? [])]
+      expect(all.sort()).toEqual([b.id, d.id, shared.id].sort())
+      expect(all.filter((id) => id === shared.id)).toHaveLength(1)
+    }
+  })
+
+  it('mensagem mais antiga que o watermark não gera novo avanço (upTo distintos)', async () => {
+    // Duas instâncias processando mensagens DIFERENTES da mesma conversa: a
+    // primeira avança o watermark além do createdAt da segunda; o segundo
+    // batch então não retorna o usuário (nenhum evento delivered duplicado).
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const t1 = new Date(Date.now() - 60_000)
+    const t2 = new Date(Date.now() - 30_000)
+
+    const first = await markDeliveredBatchIfBehind(convo.id, [b.id], t1)
+    expect(first?.userIds).toEqual([b.id])
+
+    const second = await markDeliveredBatchIfBehind(convo.id, [b.id], t2)
+    expect(second).toBeNull()
+  })
+
+  it('retorna só quem realmente avançou (quem já cobria fica de fora)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const c = await makeUser()
+    const convo = await makeGroupConversation(a.id, [b.id, c.id])
+    const upTo = new Date(Date.now() - 60_000)
+
+    // C já recebeu além de upTo; só B deve avançar no lote.
+    await markDeliveredBatchIfBehind(convo.id, [c.id], new Date())
+    const res = await markDeliveredBatchIfBehind(convo.id, [b.id, c.id], upTo)
+    expect(res?.userIds).toEqual([b.id])
+  })
+
+  it('não avança participante que saiu da conversa (leftAt)', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const c = await makeUser()
+    const convo = await makeGroupConversation(a.id, [b.id, c.id])
+    await testPrisma.conversationParticipant.updateMany({
+      where: { conversationId: convo.id, userId: c.id },
+      data: { leftAt: new Date() },
+    })
+
+    const res = await markDeliveredBatchIfBehind(
+      convo.id,
+      [b.id, c.id],
+      new Date(Date.now() - 60_000),
+    )
+    expect(res?.userIds).toEqual([b.id])
   })
 })
 

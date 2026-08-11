@@ -706,13 +706,13 @@ async function publishReceipt(
   at: Date,
 ) {
   const participantIds = await findActiveParticipantUserIds(conversationId)
-  await realtime.publish({
-    type,
-    conversationId,
-    participantIds,
-    userId,
-    at: at.toISOString(),
-  })
+  const base = { conversationId, participantIds, at: at.toISOString() }
+  // `delivered` é agregado no canal (userIds) — aqui o lote tem 1 usuário.
+  await realtime.publish(
+    type === 'delivered'
+      ? { type, ...base, userIds: [userId] }
+      : { type, ...base, userId },
+  )
 }
 
 /** Oculta a conversa só para o viewer (DM ou grupo); não sai do grupo. */

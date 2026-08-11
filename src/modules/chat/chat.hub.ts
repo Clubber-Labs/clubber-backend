@@ -241,7 +241,22 @@ export function dispatchEvent(
         event.participantIds.filter((id) => id !== event.userId),
         presenceFrame(event),
       )
-    case 'delivered':
+    case 'delivered': {
+      // Evento agregado → 1 frame por destinatário que recebeu, cada um
+      // entregue a todos os participantes menos o próprio dono do recibo.
+      let sent = 0
+      for (const userId of event.userIds) {
+        sent += registry.deliver(
+          event.participantIds.filter((id) => id !== userId),
+          receiptFrame('delivered', {
+            conversationId: event.conversationId,
+            userId,
+            at: event.at,
+          }),
+        )
+      }
+      return sent
+    }
     case 'read':
       return registry.deliver(
         event.participantIds.filter((id) => id !== event.userId),

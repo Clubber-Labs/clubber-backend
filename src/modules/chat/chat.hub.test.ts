@@ -348,29 +348,64 @@ describe('dispatchEvent', () => {
     })
   })
 
-  it('read/delivered: não retornam pro próprio autor do recibo', () => {
-    for (const type of ['read', 'delivered'] as const) {
-      const reg = createSocketRegistry()
-      const author = fakeSocket()
-      const sender = fakeSocket()
-      reg.add('leitor', author.socket)
-      reg.add('remetente', sender.socket)
+  it('read: não retorna pro próprio autor do recibo', () => {
+    const reg = createSocketRegistry()
+    const author = fakeSocket()
+    const sender = fakeSocket()
+    reg.add('leitor', author.socket)
+    reg.add('remetente', sender.socket)
 
-      const event: RealtimeEvent = {
-        type,
-        conversationId: 'c1',
-        participantIds: ['leitor', 'remetente'],
-        userId: 'leitor',
-        at: '2026-06-05T12:31:10.000Z',
-      }
-      expect(dispatchEvent(reg, event)).toBe(1)
-      expect(author.sent).toEqual([])
-      expect(JSON.parse(sender.sent[0])).toMatchObject({
-        type,
-        userId: 'leitor',
-        at: '2026-06-05T12:31:10.000Z',
-      })
+    const event: RealtimeEvent = {
+      type: 'read',
+      conversationId: 'c1',
+      participantIds: ['leitor', 'remetente'],
+      userId: 'leitor',
+      at: '2026-06-05T12:31:10.000Z',
     }
+    expect(dispatchEvent(reg, event)).toBe(1)
+    expect(author.sent).toEqual([])
+    expect(JSON.parse(sender.sent[0])).toMatchObject({
+      type: 'read',
+      userId: 'leitor',
+      at: '2026-06-05T12:31:10.000Z',
+    })
+  })
+
+  it('delivered em lote: 1 frame por destinatário, sem retornar pro próprio', () => {
+    const reg = createSocketRegistry()
+    const sender = fakeSocket()
+    const r1 = fakeSocket()
+    const r2 = fakeSocket()
+    reg.add('remetente', sender.socket)
+    reg.add('dest1', r1.socket)
+    reg.add('dest2', r2.socket)
+
+    const event: RealtimeEvent = {
+      type: 'delivered',
+      conversationId: 'c1',
+      participantIds: ['remetente', 'dest1', 'dest2'],
+      userIds: ['dest1', 'dest2'],
+      at: '2026-06-05T12:31:10.000Z',
+    }
+    // remetente recebe os 2 recibos; cada destinatário só o do outro.
+    expect(dispatchEvent(reg, event)).toBe(4)
+    const senderFrames = sender.sent.map((f) => JSON.parse(f))
+    expect(senderFrames).toEqual([
+      {
+        type: 'delivered',
+        conversationId: 'c1',
+        userId: 'dest1',
+        at: '2026-06-05T12:31:10.000Z',
+      },
+      {
+        type: 'delivered',
+        conversationId: 'c1',
+        userId: 'dest2',
+        at: '2026-06-05T12:31:10.000Z',
+      },
+    ])
+    expect(r1.sent.map((f) => JSON.parse(f).userId)).toEqual(['dest2'])
+    expect(r2.sent.map((f) => JSON.parse(f).userId)).toEqual(['dest1'])
   })
 })
 
