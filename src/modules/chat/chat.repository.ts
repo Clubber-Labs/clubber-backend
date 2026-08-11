@@ -639,7 +639,16 @@ export async function deleteConversation(id: string): Promise<number> {
   return res.count
 }
 
-/** Não-lidas por conversa (batch, 1 query) — mensagens de outros após lastReadAt. */
+/**
+ * Teto da contagem de não-lidas. Sem ele o COUNT varre TODAS as mensagens desde
+ * o lastReadAt — quem fica dias fora de um grupo ativo paga esse scan a cada
+ * abertura do inbox. O app já renderiza "99+" acima de 99, então saturar em 100
+ * é invisível na UI.
+ */
+export const UNREAD_COUNT_CAP = 100
+
+/** Não-lidas por conversa (batch, 1 query) — mensagens de outros após lastReadAt,
+ * saturadas em UNREAD_COUNT_CAP. */
 export async function unreadCounts(
   userId: string,
   conversationIds: string[],
@@ -649,16 +658,25 @@ export async function unreadCounts(
     { conversationid: string; unread: number }[]
   >(
     Prisma.sql`
-      SELECT m."conversationId" AS conversationid, COUNT(*)::int AS unread
-      FROM messages m
-      JOIN conversation_participants p
-        ON p."conversationId" = m."conversationId" AND p."userId" = ${userId}
-      WHERE m."conversationId" IN (${Prisma.join(conversationIds)})
-        AND m."senderId" <> ${userId}
-        AND m."deletedAt" IS NULL
-        AND m."type" <> 'SYSTEM'
-        AND (p."lastReadAt" IS NULL OR m."createdAt" > p."lastReadAt")
-      GROUP BY m."conversationId"
+      SELECT p."conversationId" AS conversationid, capped.unread
+      FROM conversation_participants p
+      CROSS JOIN LATERAL (
+        -- LIMIT dentro do subselect: o índice (conversationId, createdAt) para
+        -- de varrer ao juntar o teto, em vez de contar a conversa inteira.
+        SELECT COUNT(*)::int AS unread
+        FROM (
+          SELECT 1
+          FROM messages m
+          WHERE m."conversationId" = p."conversationId"
+            AND m."senderId" <> ${userId}
+            AND m."deletedAt" IS NULL
+            AND m."type" <> 'SYSTEM'
+            AND (p."lastReadAt" IS NULL OR m."createdAt" > p."lastReadAt")
+          LIMIT ${UNREAD_COUNT_CAP}
+        ) top
+      ) capped
+      WHERE p."userId" = ${userId}
+        AND p."conversationId" IN (${Prisma.join(conversationIds)})
     `,
   )
   return new Map(rows.map((r) => [r.conversationid, Number(r.unread)]))

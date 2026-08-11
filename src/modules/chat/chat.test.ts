@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Prisma } from '@prisma/client'
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { env } from '../../lib/env'
@@ -24,6 +25,7 @@ import {
   findConversationPartnerIds,
   findTypingRecipientUserIds,
   markDeliveredBatchIfBehind,
+  UNREAD_COUNT_CAP,
 } from './chat.repository'
 
 let app: FastifyInstance
@@ -369,6 +371,26 @@ describe('unread count e read receipts', () => {
       .json()
       .data.find((c: { id: string }) => c.id === convo.id)
     expect(itemB2.unreadCount).toBe(0)
+  })
+
+  it('satura a contagem no teto em vez de varrer a conversa inteira', async () => {
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+
+    for (let i = 0; i < UNREAD_COUNT_CAP + 5; i++) {
+      await makeMessage(convo.id, a.id, { content: `m${i}` })
+    }
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/conversations',
+      headers: auth(b.id),
+    })
+    const item = inbox
+      .json()
+      .data.find((c: { id: string }) => c.id === convo.id)
+    expect(item.unreadCount).toBe(UNREAD_COUNT_CAP)
   })
 })
 
@@ -2716,6 +2738,48 @@ describe('cota de armazenamento por usuário (Fase 2 #6)', () => {
     expect(finalUsed._sum.size ?? 0).toBeLessThanOrEqual(
       env.CHAT_USER_STORAGE_QUOTA_BYTES,
     )
+  })
+})
+
+describe('índices das tabelas de chat', () => {
+  // FK sem índice que a lidere faz o Postgres varrer a tabela INTEIRA a cada
+  // linha referenciada que é apagada (cascade/set null). Nas tabelas de chat,
+  // que crescem sem teto, isso trava o banco ao apagar conta ou conversa.
+  // Auditamos as duas direções: FKs DAS tabelas de chat e FKs de qualquer
+  // tabela APONTANDO para elas — o cascade de messages dispara o fixup na
+  // tabela dona da FK externa (ex.: reports.messageId), não na de chat.
+  it('toda FK de coluna única tem índice que a lidera', async () => {
+    const tables = [
+      'conversations',
+      'conversation_participants',
+      'messages',
+      'message_reactions',
+      'message_attachments',
+    ]
+
+    const unindexed = await testPrisma.$queryRaw<
+      { tbl: string; col: string }[]
+    >(
+      Prisma.sql`
+        SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
+        FROM pg_constraint c
+        JOIN pg_attribute a
+          ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
+        WHERE c.contype = 'f'
+          AND array_length(c.conkey, 1) = 1
+          AND (
+            c.conrelid::regclass::text IN (${Prisma.join(tables)})
+            OR c.confrelid::regclass::text IN (${Prisma.join(tables)})
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_index i
+            WHERE i.indrelid = c.conrelid AND i.indkey[0] = c.conkey[1]
+          )
+        ORDER BY tbl, col
+      `,
+    )
+
+    expect(unindexed).toEqual([])
   })
 })
 
