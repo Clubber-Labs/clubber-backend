@@ -12,6 +12,7 @@ import {
   uploadMessageImage,
 } from '../../lib/uploads'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
+import { enqueueChatMessagePush } from '../notifications/notification-queue'
 import {
   assertActiveParticipant,
   assertAdmin,
@@ -208,6 +209,11 @@ async function publishMessage(
     createdAt: message.createdAt.toISOString(),
     message: shapeMessage(message),
   })
+  // Push com delay pra quem não receber via socket. Mensagem de sistema não
+  // notifica (entrou/saiu/renomeou é ruído no canal do SO).
+  if (message.type !== 'SYSTEM') {
+    await enqueueChatMessagePush(message.id)
+  }
 }
 
 /** Entrega ao vivo de uma mensagem alterada (edição ou reação). Best-effort. */
