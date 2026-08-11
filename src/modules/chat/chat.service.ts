@@ -12,6 +12,7 @@ import {
   uploadMessageImage,
 } from '../../lib/uploads'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
+import { displayName } from '../notifications/notification-content'
 import { enqueueChatMessagePush } from '../notifications/notification-queue'
 import {
   assertActiveParticipant,
@@ -228,10 +229,6 @@ async function publishEditedMessage(
     participantIds,
     message: shapeMessage(message),
   })
-}
-
-function displayName(user: { name: string; lastname: string }) {
-  return `${user.name} ${user.lastname}`.trim()
 }
 
 /**
