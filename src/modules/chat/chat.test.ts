@@ -1645,6 +1645,59 @@ describe('markDeliveredBatchIfBehind (entrega monotônica em lote)', () => {
       future,
     )
     expect(advanced?.userIds).toHaveLength(2)
+
+    // O watermark gravado COBRE upTo mesmo com upTo à frente do relógio da
+    // app (skew app×banco): repetir o mesmo lote não gera evento duplicado.
+    expect(advanced?.at.getTime()).toBeGreaterThanOrEqual(future.getTime())
+    const repeat = await markDeliveredBatchIfBehind(
+      convo.id,
+      [b.id, c.id],
+      future,
+    )
+    expect(repeat).toBeNull()
+  })
+
+  it('lotes concorrentes sobrepostos não deadlockam nem avançam duplicado', async () => {
+    // Duas mensagens quase simultâneas na mesma conversa disparam dois batches
+    // sobre conjuntos sobrepostos de linhas. Sem ordem determinística de lock
+    // isso pode deadlockar (40P01) — o plano muda de Index Scan para Bitmap
+    // Heap Scan conforme o tamanho do IN, e as ordens divergem. Com a ordem
+    // imposta, um lote serializa atrás do outro e o usuário compartilhado
+    // avança em EXATAMENTE um deles (sem frame duplicado no app).
+    for (let round = 0; round < 3; round++) {
+      const a = await makeUser()
+      const b = await makeUser()
+      const shared = await makeUser()
+      const d = await makeUser()
+      const convo = await makeGroupConversation(a.id, [b.id, shared.id, d.id])
+      const upTo = new Date(Date.now() - 60_000)
+
+      const [r1, r2] = await Promise.all([
+        markDeliveredBatchIfBehind(convo.id, [b.id, shared.id], upTo),
+        markDeliveredBatchIfBehind(convo.id, [shared.id, d.id], upTo),
+      ])
+
+      const all = [...(r1?.userIds ?? []), ...(r2?.userIds ?? [])]
+      expect(all.sort()).toEqual([b.id, d.id, shared.id].sort())
+      expect(all.filter((id) => id === shared.id)).toHaveLength(1)
+    }
+  })
+
+  it('mensagem mais antiga que o watermark não gera novo avanço (upTo distintos)', async () => {
+    // Duas instâncias processando mensagens DIFERENTES da mesma conversa: a
+    // primeira avança o watermark além do createdAt da segunda; o segundo
+    // batch então não retorna o usuário (nenhum evento delivered duplicado).
+    const a = await makeUser()
+    const b = await makeUser()
+    const convo = await makeDirectConversation(a.id, b.id)
+    const t1 = new Date(Date.now() - 60_000)
+    const t2 = new Date(Date.now() - 30_000)
+
+    const first = await markDeliveredBatchIfBehind(convo.id, [b.id], t1)
+    expect(first?.userIds).toEqual([b.id])
+
+    const second = await markDeliveredBatchIfBehind(convo.id, [b.id], t2)
+    expect(second).toBeNull()
   })
 
   it('retorna só quem realmente avançou (quem já cobria fica de fora)', async () => {

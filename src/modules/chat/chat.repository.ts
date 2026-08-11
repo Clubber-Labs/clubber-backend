@@ -564,20 +564,36 @@ export async function markDeliveredBatchIfBehind(
   upTo: Date,
 ): Promise<{ userIds: string[]; at: Date } | null> {
   if (userIds.length === 0) return null
+  // max(now, upTo): o watermark gravado sempre COBRE a mensagem. `upTo` vem do
+  // relógio do banco (createdAt) e `now` do da app — se a app estiver atrás,
+  // gravar só `now` deixaria o lote re-executável (evento delivered duplicado).
   const now = new Date()
+  const at = now.getTime() >= upTo.getTime() ? now : upTo
+  // Subquery com ORDER BY + FOR UPDATE: os row locks são adquiridos em ordem
+  // determinística de userId (LockRows roda acima do Sort). Sem isso, dois
+  // lotes concorrentes sobrepostos podem travar em ordens diferentes — o
+  // planner alterna entre Index Scan (ordem do índice) e Bitmap Heap Scan
+  // (ordem física) conforme o tamanho do IN — e deadlockar (40P01).
   const rows = await prisma.$queryRaw<{ userid: string }[]>(
     Prisma.sql`
-      UPDATE conversation_participants
-      SET "lastDeliveredAt" = ${now}
-      WHERE "conversationId" = ${conversationId}
-        AND "userId" IN (${Prisma.join(userIds)})
-        AND "leftAt" IS NULL
-        AND ("lastDeliveredAt" IS NULL OR "lastDeliveredAt" < ${upTo})
-      RETURNING "userId" AS userid
+      UPDATE conversation_participants cp
+      SET "lastDeliveredAt" = ${at}
+      FROM (
+        SELECT id
+        FROM conversation_participants
+        WHERE "conversationId" = ${conversationId}
+          AND "userId" IN (${Prisma.join(userIds)})
+          AND "leftAt" IS NULL
+          AND ("lastDeliveredAt" IS NULL OR "lastDeliveredAt" < ${upTo})
+        ORDER BY "userId"
+        FOR UPDATE
+      ) locked
+      WHERE cp.id = locked.id
+      RETURNING cp."userId" AS userid
     `,
   )
   if (rows.length === 0) return null
-  return { userIds: rows.map((r) => r.userid), at: now }
+  return { userIds: rows.map((r) => r.userid), at }
 }
 
 export async function reactivateParticipant(
