@@ -96,7 +96,8 @@
       "protobufjs": ">=7.6.5",
       "@opentelemetry/core": ">=2.8.0",
       "vite": ">=8.2.1",
-      "esbuild": ">=0.28.1"
+      "esbuild": ">=0.28.1",
+      "nanoid@5": "^5.1.16"
     }
   }
 }
