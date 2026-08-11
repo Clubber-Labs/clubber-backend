@@ -53,13 +53,16 @@ export type RealtimeEvent =
       online: boolean
       lastSeenAt: string | null
     }
-  // Recibos: `userId` é quem recebeu/leu; `at` é o watermark (ISO 8601). O
-  // gateway entrega o frame aos OUTROS participantes, nunca ao próprio autor.
+  // Recibos: `at` é o watermark (ISO 8601). O gateway entrega o frame aos
+  // OUTROS participantes, nunca ao próprio autor. `delivered` é agregado
+  // (`userIds`): a marcação server-side numa mensagem de grupo avança N
+  // destinatários de uma vez — 1 evento no Redis em vez de N; o gateway
+  // desdobra em 1 frame por destinatário (o protocolo com o app não muda).
   | {
       type: 'delivered'
       conversationId: string
       participantIds: string[]
-      userId: string
+      userIds: string[]
       at: string
     }
   | {

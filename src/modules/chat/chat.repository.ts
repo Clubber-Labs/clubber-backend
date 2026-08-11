@@ -551,27 +551,33 @@ export async function markConversationDelivered(
 }
 
 /**
- * Marca entrega só se o participante ainda não recebeu até `upTo` (createdAt da
- * mensagem). Mantém o watermark monotônico e evita frame redundante quando ele
- * já leu/recebeu além dessa mensagem. Devolve o novo watermark, ou null se nada
- * avançou. Usado na marcação server-side ao entregar a mensagem pelo socket.
+ * Marca entrega em LOTE: avança o lastDeliveredAt de todos os `userIds` que
+ * ainda não receberam até `upTo` (createdAt da mensagem), num único UPDATE.
+ * Mantém o watermark monotônico por participante e devolve só quem realmente
+ * avançou (quem já cobria fica de fora — evita frame redundante), ou null se
+ * ninguém avançou. Usado na marcação server-side ao entregar pelo socket: numa
+ * mensagem de grupo, N destinatários locais viram 1 escrita, não N.
  */
-export async function markDeliveredIfBehind(
+export async function markDeliveredBatchIfBehind(
   conversationId: string,
-  userId: string,
+  userIds: string[],
   upTo: Date,
-): Promise<Date | null> {
+): Promise<{ userIds: string[]; at: Date } | null> {
+  if (userIds.length === 0) return null
   const now = new Date()
-  const res = await prisma.conversationParticipant.updateMany({
-    where: {
-      conversationId,
-      userId,
-      leftAt: null,
-      OR: [{ lastDeliveredAt: null }, { lastDeliveredAt: { lt: upTo } }],
-    },
-    data: { lastDeliveredAt: now },
-  })
-  return res.count > 0 ? now : null
+  const rows = await prisma.$queryRaw<{ userid: string }[]>(
+    Prisma.sql`
+      UPDATE conversation_participants
+      SET "lastDeliveredAt" = ${now}
+      WHERE "conversationId" = ${conversationId}
+        AND "userId" IN (${Prisma.join(userIds)})
+        AND "leftAt" IS NULL
+        AND ("lastDeliveredAt" IS NULL OR "lastDeliveredAt" < ${upTo})
+      RETURNING "userId" AS userid
+    `,
+  )
+  if (rows.length === 0) return null
+  return { userIds: rows.map((r) => r.userid), at: now }
 }
 
 export async function reactivateParticipant(

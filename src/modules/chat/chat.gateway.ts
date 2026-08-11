@@ -15,7 +15,7 @@ import {
   findActiveParticipant,
   findConversationPartnerIds,
   findTypingRecipientUserIds,
-  markDeliveredIfBehind,
+  markDeliveredBatchIfBehind,
   touchLastSeen,
 } from './chat.repository'
 
@@ -70,36 +70,36 @@ export async function chatGateway(app: FastifyInstance) {
    * Marca entrega server-side: ao receber uma `message`, avança o
    * lastDeliveredAt dos destinatários conectados neste processo e emite
    * `delivered` ao remetente — sem depender do ack do app. Best-effort: erro
-   * aqui nunca derruba a entrega da mensagem. O guard `markDeliveredIfBehind`
-   * mantém o watermark monotônico e evita frame duplicado/atrasado.
+   * aqui nunca derruba a entrega da mensagem. Em LOTE de propósito: num grupo
+   * grande, N destinatários locais custavam N UPDATEs + N publishes (e cada
+   * publish é reprocessado por TODAS as instâncias); agora é 1 UPDATE + 1
+   * evento agregado. O guard "if behind" do batch mantém o watermark
+   * monotônico e evita frame duplicado/atrasado.
    */
   async function markLocalDeliveries(event: RealtimeEvent) {
     if (event.type !== 'message') return
-    const upTo = new Date(event.createdAt)
-    // Em paralelo: cada destinatário é uma linha/publish independente, sem
-    // contenção. O try/catch por destinatário isola a falha (não derruba os
-    // outros) e preserva o log com o userId.
-    await Promise.allSettled(
-      localDeliveryRecipients(registry, event).map(async (userId) => {
-        try {
-          const at = await markDeliveredIfBehind(
-            event.conversationId,
-            userId,
-            upTo,
-          )
-          if (!at) return
-          await realtime.publish({
-            type: 'delivered',
-            conversationId: event.conversationId,
-            participantIds: event.participantIds,
-            userId,
-            at: at.toISOString(),
-          })
-        } catch (err) {
-          log.error({ err, userId }, 'falha ao marcar entrega server-side')
-        }
-      }),
-    )
+    const recipients = localDeliveryRecipients(registry, event)
+    if (recipients.length === 0) return
+    try {
+      const advanced = await markDeliveredBatchIfBehind(
+        event.conversationId,
+        recipients,
+        new Date(event.createdAt),
+      )
+      if (!advanced) return
+      await realtime.publish({
+        type: 'delivered',
+        conversationId: event.conversationId,
+        participantIds: event.participantIds,
+        userIds: advanced.userIds,
+        at: advanced.at.toISOString(),
+      })
+    } catch (err) {
+      log.error(
+        { err, conversationId: event.conversationId },
+        'falha ao marcar entrega server-side',
+      )
+    }
   }
 
   /** Anuncia presença (online/offline) aos parceiros de conversa do usuário. */
