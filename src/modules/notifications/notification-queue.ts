@@ -5,7 +5,7 @@ import { createQueue, createWorker } from '../../lib/queue'
 import {
   CHAT_MESSAGE_PUSH_DELAY_MS,
   runChatMessagePush,
-} from '../chat/chat-push.service'
+} from './chat-push.service'
 import { type PushContent, sendPushToUsers } from './notification-push.service'
 import { runEventCreatedFanout } from './proximity-fanout.service'
 import {

@@ -1,11 +1,9 @@
 import {
-  type PushContent,
-  sendPushToUsers,
-} from '../notifications/notification-push.service'
-import {
   findChatPushRecipientUserIds,
   findMessageForPush,
-} from './chat.repository'
+} from './chat-push.repository'
+import { displayName } from './notification-content'
+import { type PushContent, sendPushToUsers } from './notification-push.service'
 
 /**
  * Delay entre a mensagem e o job de push. Quem estiver online recebe pelo
@@ -39,7 +37,7 @@ function preview(message: PushableMessage) {
 }
 
 function buildContent(message: PushableMessage): PushContent {
-  const sender = `${message.sender.name} ${message.sender.lastname}`.trim()
+  const sender = displayName(message.sender)
   const isGroup = message.conversation.type === 'GROUP'
   return {
     title: isGroup ? (message.conversation.title ?? 'Grupo') : sender,
