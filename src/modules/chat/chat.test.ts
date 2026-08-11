@@ -2653,6 +2653,9 @@ describe('índices das tabelas de chat', () => {
   // FK sem índice que a lidere faz o Postgres varrer a tabela INTEIRA a cada
   // linha referenciada que é apagada (cascade/set null). Nas tabelas de chat,
   // que crescem sem teto, isso trava o banco ao apagar conta ou conversa.
+  // Auditamos as duas direções: FKs DAS tabelas de chat e FKs de qualquer
+  // tabela APONTANDO para elas — o cascade de messages dispara o fixup na
+  // tabela dona da FK externa (ex.: reports.messageId), não na de chat.
   it('toda FK de coluna única tem índice que a lidera', async () => {
     const tables = [
       'conversations',
@@ -2672,7 +2675,10 @@ describe('índices das tabelas de chat', () => {
           ON a.attrelid = c.conrelid AND a.attnum = c.conkey[1]
         WHERE c.contype = 'f'
           AND array_length(c.conkey, 1) = 1
-          AND c.conrelid::regclass::text IN (${Prisma.join(tables)})
+          AND (
+            c.conrelid::regclass::text IN (${Prisma.join(tables)})
+            OR c.confrelid::regclass::text IN (${Prisma.join(tables)})
+          )
           AND NOT EXISTS (
             SELECT 1 FROM pg_index i
             WHERE i.indrelid = c.conrelid AND i.indkey[0] = c.conkey[1]

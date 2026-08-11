@@ -716,6 +716,9 @@ model Report {
   @@index([reporterId, postId, status], map: "reports_reporter_post_status_idx")
   @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
   @@index([reviewerId], map: "reports_reviewer_idx")
+  // Fixup do cascade de messages (SetNull): sem índice liderando em messageId,
+  // apagar uma conversa varre reports por mensagem apagada.
+  @@index([messageId], map: "reports_message_idx")
   @@index([status, createdAt, id], map: "reports_status_created_at_id_idx")
   @@map("reports")
 }
