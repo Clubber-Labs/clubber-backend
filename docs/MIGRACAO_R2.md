@@ -11,9 +11,9 @@ Status: proposta — nada implementado.
 ## Resumo executivo
 
 A arquitetura já está preparada: o storage vive atrás de
-[`IStorageService`](src/lib/storage/storage.interface.ts), é escolhido por env
-var em [`getStorage()`](src/lib/storage/index.ts) e já tem um segundo driver
-([`LocalStorageService`](src/lib/storage/local-storage.service.ts)) mais um fake
+[`IStorageService`](../src/lib/storage/storage.interface.ts), é escolhido por env
+var em [`getStorage()`](../src/lib/storage/index.ts) e já tem um segundo driver
+([`LocalStorageService`](../src/lib/storage/local-storage.service.ts)) mais um fake
 de teste. **Só 8 call sites** de produção tocam o storage.
 
 O custo da migração **não está** em escrever o driver novo. Está em três coisas
@@ -26,7 +26,8 @@ que o Cloudinary entrega de graça e o R2 — object storage puro, API S3 — n�
 Daí a recomendação central: **migrar imagem e áudio para o R2 e manter o vídeo
 no Cloudinary numa primeira fase.** O driver é escolhido por env var, então os
 dois providers coexistem sem big bang. Imagem + áudio saem em ~2 dias; o vídeo é
-um projeto separado.
+um projeto separado, com duas opções avaliadas mais abaixo (R2 puro ou
+Cloudflare Stream — a recomendação é R2 puro).
 
 ---
 
@@ -36,21 +37,21 @@ um projeto separado.
 
 | Arquivo | Papel |
 |---|---|
-| [storage/cloudinary-storage.service.ts](src/lib/storage/cloudinary-storage.service.ts) | Único ponto que importa o SDK. Substituído pelo driver novo. |
-| [storage/storage.interface.ts](src/lib/storage/storage.interface.ts) | Contrato. Muda pouco (ver `signedUrl` e `UploadSignature`). |
-| [storage/index.ts](src/lib/storage/index.ts) | Factory. Ganha o caso `'r2'`. |
-| [lib/env.ts:410-439](src/lib/env.ts#L410-L439) | Enum do driver + `resolveCloudinaryCredentials()`. Ganha o par para R2. |
-| [lib/uploads.ts](src/lib/uploads.ts) | 6 dos 8 call sites. Só a validação de conteúdo do áudio muda. |
-| [chat.service.ts](src/modules/chat/chat.service.ts) | 2 call sites (`signUpload`, `getAsset`) — ambos **exclusivos de vídeo**. |
-| [test/fake-storage.ts](src/test/fake-storage.ts) | Simula convenções do Admin API do Cloudinary. |
-| [chat.routes.ts:181-212](src/modules/chat/chat.routes.ts#L181-L212) | Doc OpenAPI do fluxo de vídeo, escrita em termos de Cloudinary. |
+| [storage/cloudinary-storage.service.ts](../src/lib/storage/cloudinary-storage.service.ts) | Único ponto que importa o SDK. Substituído pelo driver novo. |
+| [storage/storage.interface.ts](../src/lib/storage/storage.interface.ts) | Contrato. Muda pouco (ver `signedUrl` e `UploadSignature`). |
+| [storage/index.ts](../src/lib/storage/index.ts) | Factory. Ganha o caso `'r2'`. |
+| [lib/env.ts:410-439](../src/lib/env.ts#L410-L439) | Enum do driver + `resolveCloudinaryCredentials()`. Ganha o par para R2. |
+| [lib/uploads.ts](../src/lib/uploads.ts) | 6 dos 8 call sites. Só a validação de conteúdo do áudio muda. |
+| [chat.service.ts](../src/modules/chat/chat.service.ts) | 2 call sites (`signUpload`, `getAsset`) — ambos **exclusivos de vídeo**. |
+| [test/fake-storage.ts](../src/test/fake-storage.ts) | Simula convenções do Admin API do Cloudinary. |
+| [chat.routes.ts:181-212](../src/modules/chat/chat.routes.ts#L181-L212) | Doc OpenAPI do fluxo de vídeo, escrita em termos de Cloudinary. |
 
 ### O que **não** depende
 
 Vale registrar porque encolhe muito o escopo:
 
 - **Nenhuma transformação do Cloudinary é usada em imagem.** Avatar e imagens de
-  evento/post já passam pelo [sharp local](src/lib/image-processor/) antes de
+  evento/post já passam pelo [sharp local](../src/lib/image-processor/) antes de
   subir — o Cloudinary é só um bucket para elas.
 - A única transformação usada é o poster de vídeo (`asThumbnail`).
 
@@ -72,17 +73,17 @@ Vale registrar porque encolhe muito o escopo:
 - **`resourceType` e `deliveryType` deixam de existir.** Toda a complexidade de
   namespaces do Cloudinary some: o `'image' | 'video' | 'raw'`, o
   `'upload' | 'authenticated'`, o helper
-  [`deleteChatMedia`](src/lib/uploads.ts#L191-L197) que existe só para ninguém
+  [`deleteChatMedia`](../src/lib/uploads.ts#L191-L197) que existe só para ninguém
   esquecer o `deliveryType`, e o warn de `'not found'` no
-  [delete](src/lib/storage/cloudinary-storage.service.ts#L128-L134) que protege
+  [delete](../src/lib/storage/cloudinary-storage.service.ts#L128-L134) que protege
   contra órfão pago. No R2 uma key é uma key.
 - **A dualidade "pasta fixa vs. pasta dinâmica" some.** Some o `asset_folder`
   nos uploads e some a
-  [verificação de pertencimento em dois campos](src/modules/chat/chat.service.ts#L592-L599).
+  [verificação de pertencimento em dois campos](../src/modules/chat/chat.service.ts#L592-L599).
 - **Expiração real de URL sem custo extra.** Hoje depende do
   `CLOUDINARY_AUTH_TOKEN_KEY` (recurso pago); no R2 é nativo do SigV4.
 - **Timeout e retry saem de graça.** Resolve dois itens do
-  [RELEASE_CHECKLIST.md:94-99](RELEASE_CHECKLIST.md#L94-L99) — a AWS SDK traz
+  [RELEASE_CHECKLIST.md:94-99](../RELEASE_CHECKLIST.md#L94-L99) — a AWS SDK traz
   ambos configuráveis.
 
 ---
@@ -91,7 +92,7 @@ Vale registrar porque encolhe muito o escopo:
 
 ### 1. `detectedResourceType` — validação de áudio por conteúdo
 
-[uploads.ts:157-169](src/lib/uploads.ts#L157-L169) rejeita áudio cujo **conteúdo
+[uploads.ts:157-169](../src/lib/uploads.ts#L157-L169) rejeita áudio cujo **conteúdo
 real** não bate com o mimetype declarado pelo cliente, confiando no
 `resource_type: 'auto'` do Cloudinary. O R2 aceita qualquer byte sem opinar.
 
@@ -100,11 +101,11 @@ mandar pro multipart. É a mesma garantia, feita localmente.
 
 **Não aceitar como solução:** confiar no `Content-Type` do cliente. A regra
 existe justamente porque ele não é confiável — o teste que cobre isso está em
-[chat.test.ts:717](src/modules/chat/chat.test.ts#L717).
+[chat.test.ts:717](../src/modules/chat/chat.test.ts#L717).
 
 ### 2. `signedUrl` é síncrono; o `getSignedUrl` da AWS SDK é async
 
-[`shapeAttachments`](src/modules/chat/chat.service.ts#L125-L136) assina URLs
+[`shapeAttachments`](../src/modules/chat/chat.service.ts#L125-L136) assina URLs
 dentro de um `.map()` síncrono.
 
 **Solução preferida:** implementar o presign SigV4 com `node:crypto`. É cálculo
@@ -118,31 +119,92 @@ callers acima. Mais invasivo por nenhum ganho.
 ### 3. `asThumbnail` — poster do vídeo
 
 Hoje o Cloudinary gera o JPEG on-demand a partir de um frame
-([signedUrl](src/lib/storage/cloudinary-storage.service.ts#L158-L179)). O R2 não
+([signedUrl](../src/lib/storage/cloudinary-storage.service.ts#L158-L179)). O R2 não
 gera nada. E o vídeo **sobe direto do cliente**, sem passar pelo backend — não
 há nem buffer para rodar ffmpeg.
 
 ### 4. `getAsset` — a fonte da verdade do vídeo
 
-[chat.service.ts:633-656](src/modules/chat/chat.service.ts#L633-L656) valida o
+[chat.service.ts:633-656](../src/modules/chat/chat.service.ts#L633-L656) valida o
 vídeo contra o provider — formato, tamanho, duração, dimensões —
 **explicitamente não confiando no cliente**. `HeadObject` devolve só bytes e o
 content-type declarado.
 
-> **3 e 4 são o mesmo problema e concentram ~80% do custo da migração.**
-> Por isso o vídeo fica fora da fase 1.
+> **3 e 4 são o mesmo problema.** Por isso o vídeo fica fora da fase 1,
+> independente da opção escolhida abaixo.
 
 ---
 
-## Recomendação para o vídeo: Cloudflare Stream, não R2
+## Vídeo: duas opções
 
-O Stream faz exatamente o que se perde: upload direto assinado, thumbnail,
-duração, dimensões, transcode e URLs assinadas. Entra como driver próprio ou
-como um `IVideoService` separado; o R2 fica com imagem e áudio.
+### Quanto cada campo do `getAsset` realmente vale
 
-**Alternativa descartada:** ffprobe no backend, baixando o MP4 de até 50 MB do
-R2 após o upload. Obriga a um binário nativo no deploy, um job assíncrono, e
-abre uma janela em que a mensagem existe sem metadados.
+Antes de escolher, separar o que é **exigência de segurança** do que é
+**cosmético**. O "não confia no cliente" de
+[chat.service.ts:618](../src/modules/chat/chat.service.ts#L618) não protege os seis
+campos igualmente:
+
+| Campo | Para que serve | Precisa vir do provider? |
+|---|---|---|
+| `bytes` | Cota (`CHAT_USER_STORAGE_QUOTA_BYTES`) e limite de 50 MB | **Sim** — `HeadObject` resolve |
+| `format` | `assertVideoFormat` (MP4/MOV/WebM) | **Sim** — magic bytes via Range GET resolvem |
+| `durationMs` | UI do player | Não — cosmético |
+| `width`, `height` | Aspect-ratio (evitar layout shift) | Não — cosmético |
+| `thumbnailUrl` | Preview | Não decidível server-side sem decodificar |
+
+Cota e validação de formato — as duas com peso de segurança — o R2 entrega
+barato. Duração e dimensões erradas degradam layout, não abrem brecha.
+
+**Precedente do próprio projeto:** o áudio **já aceita duração vinda do
+cliente** — `durationMs` chega como campo de texto do multipart
+([chat.schema.ts:39-41](../src/modules/chat/chat.schema.ts#L39-L41)). Se é
+aceitável para áudio, é aceitável para vídeo pelo padrão que já vigora aqui.
+
+### Opção A — R2 puro (recomendada)
+
+1. Presigned PUT com a key definida **pelo servidor**
+2. `HeadObject` → `bytes` (cota e limite de 50 MB, autoritativo)
+3. Range GET dos primeiros KB → magic bytes confirmam MP4/MOV/WebM
+4. `durationMs`/`width`/`height` **vêm do cliente**, como já ocorre no áudio
+5. **Poster gerado e enviado pelo app** como imagem separada, passando pelo
+   mesmo pipeline de sharp de qualquer imagem de chat
+
+O ponto 5 é o que viabiliza a opção: o app tem o vídeo local, gerar um frame é
+trivial nele. O poster não é mais perigoso que um `uploadMessageImage` qualquer
+— o pior caso é um preview que não corresponde ao vídeo, o que é cosmético.
+
+O esforço se desloca do backend para o app (gerar e subir o poster).
+
+### Opção B — Cloudflare Stream
+
+Provider de vídeo dedicado: upload direto assinado, poster, duração, dimensões,
+transcode, HLS e URLs assinadas prontos. Entra como driver próprio ou como um
+`IVideoService` separado; o R2 fica com imagem e áudio.
+
+### Comparação
+
+| | A — R2 puro | B — Stream |
+|---|---|---|
+| Peças novas | Nenhuma | Provider + contrato |
+| Trabalho no app | Gerar e subir o poster | Só trocar o payload do `signUpload` |
+| Duração/dimensões | Do cliente (como o áudio já faz) | Autoritativos |
+| Transcode / HLS | Não tem | Tem |
+| Custo | Storage barato, egress zero | Por minuto armazenado/assistido |
+
+### Recomendação: opção A
+
+Para vídeo curto de chat não há necessidade de transcode nem de qualidade
+adaptativa, e o "não confia no cliente" continua valendo exatamente onde importa
+(cota e formato). Um provider só e custo menor.
+
+A **opção B** passa a valer se aparecer vídeo longo, streaming adaptativo ou
+requisito de reprodução em rede ruim.
+
+### Alternativa descartada (vale para as duas opções)
+
+ffprobe no backend, baixando o MP4 de até 50 MB do R2 após o upload. Obriga a um
+binário nativo no deploy, um job assíncrono, e abre uma janela em que a mensagem
+existe sem metadados — tudo isso para obter dois campos cosméticos.
 
 ---
 
@@ -159,7 +221,7 @@ Três verificações comportamentais, mesmo assim:
 1. **Domínio das URLs muda** (`res.cloudinary.com` → domínio do R2). Quebra se o
    app tiver allowlist de host (`next/image`, `react-native-fast-image`, CSP,
    ATS no iOS) ou se montar URL de transformação no cliente. Indício de que o
-   primeiro já está resolvido: [social-auth.service.ts:157](src/modules/social-auth/social-auth.service.ts#L157)
+   primeiro já está resolvido: [social-auth.service.ts:157](../src/modules/social-auth/social-auth.service.ts#L157)
    grava `avatarUrl` vindo direto do Google, então o app já renderiza host
    arbitrário.
 
@@ -193,7 +255,7 @@ pertencimento de pasta some, e o limite de 50 MB passa a ser imponível na borda
 ## Migração dos assets existentes
 
 - **`avatarUrl` e imagens de evento/post**: URL absoluta persistida no banco
-  ([schema.prisma:48](prisma/schema.prisma#L48)). Precisa copiar os objetos para
+  ([schema.prisma:48](../prisma/schema.prisma#L48)). Precisa copiar os objetos para
   o R2 **e** reescrever as URLs, ou manter leitura dupla por um período. Copiar
   primeiro, reescrever depois, manter o Cloudinary de pé até a confirmação.
 - **Mídia de chat**: sofre menos — o banco guarda a `key`, não a URL; a
@@ -207,22 +269,22 @@ pertencimento de pasta some, e o limite de 50 MB passa a ser imponível na borda
 
 ### Fase 1 — R2 para imagem e áudio (~2 dias)
 
-1. Adicionar `'r2'` ao enum `STORAGE_DRIVER` ([env.ts:83](src/lib/env.ts#L83)) e
+1. Adicionar `'r2'` ao enum `STORAGE_DRIVER` ([env.ts:83](../src/lib/env.ts#L83)) e
    um `resolveR2Credentials()` espelhando o padrão DEV/PROD do
-   [resolveCloudinaryCredentials](src/lib/env.ts#L419-L439).
+   [resolveCloudinaryCredentials](../src/lib/env.ts#L419-L439).
 2. Criar `src/lib/storage/r2-storage.service.ts` implementando `IStorageService`.
    `signUpload`/`getAsset` **delegam ao driver do Cloudinary** (vídeo intocado).
 3. Presign SigV4 síncrono com `node:crypto`.
 4. Sniff de conteúdo por magic bytes no `uploadStream`.
 5. Gravar `ContentType` correto no `PutObject`.
 6. Atualizar `.env.example` e a tabela de env vars do
-   [DEPLOY.md:100-102](DEPLOY.md#L100-L102).
+   [DEPLOY.md:100-102](../DEPLOY.md#L100-L102).
 
 ### Fase 2 — Testes (~1 dia)
 
-O [fake-storage.ts](src/test/fake-storage.ts) codifica convenções do Admin API
+O [fake-storage.ts](../src/test/fake-storage.ts) codifica convenções do Admin API
 do Cloudinary nos `publicId` (`missing`, `badformat`, `toobig`, `dyn::`). Ajuste
-mecânico, mas [chat.test.ts](src/modules/chat/chat.test.ts) tem ~2800 linhas.
+mecânico, mas [chat.test.ts](../src/modules/chat/chat.test.ts) tem ~2800 linhas.
 Critério de conclusão do projeto vale aqui: `pnpm test` verde inteiro.
 
 ### Fase 3 — Migração dos assets (~1 dia)
@@ -230,19 +292,23 @@ Critério de conclusão do projeto vale aqui: `pnpm test` verde inteiro.
 Copiar objetos, reescrever URLs no banco, manter o Cloudinary de pé até
 confirmar. Ver ressalva do `avatarUrl` do Google acima.
 
-### Fase 4 — Vídeo via Cloudflare Stream (~2-4 dias)
+### Fase 4 — Vídeo (~2 dias na opção A, ~2-4 dias na opção B)
 
-Só depois de 1-3 estabilizadas, e com release do app coordenado.
+Só depois de 1-3 estabilizadas, e com release do app coordenado. Na opção A
+parte do esforço é do lado do app (gerar o poster), não do backend.
 
-**Total: ~1 semana e meia**, sendo o vídeo o grosso. Fases 1-3 entregam valor
-sozinhas e não bloqueiam nada.
+**Total: ~1 semana**, ou ~1 semana e meia se a opção B for escolhida. Fases 1-3
+entregam valor sozinhas e não bloqueiam nada.
 
 ---
 
 ## Decisões em aberto
 
-- [ ] Vídeo: Cloudflare Stream ou manter no Cloudinary indefinidamente? (Manter
-      é uma resposta legítima — o custo de vídeo é baixo se o volume for baixo.)
+- [ ] Vídeo: opção A (R2 puro), opção B (Stream), ou manter no Cloudinary
+      indefinidamente? (Manter é uma resposta legítima — o custo de vídeo é
+      baixo se o volume for baixo.)
+- [ ] Opção A depende do app conseguir gerar o poster localmente — confirmar
+      antes de fechar a decisão.
 - [ ] TTL das URLs assinadas de chat — depende de confirmar o comportamento de
       cache do app.
 - [ ] Domínio público do R2: subdomínio próprio ou `r2.dev`?
