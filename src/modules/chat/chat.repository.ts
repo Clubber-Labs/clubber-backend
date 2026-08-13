@@ -42,6 +42,18 @@ const messageInclude = {
   },
 } as const
 
+/**
+ * Participantes ativos em ordem TOTAL — a ordem é contrato da API (o app
+ * renderiza o array como veio). joinedAt sozinho empata: na criação do grupo,
+ * criador e membros iniciais nascem na mesma transação (now()), então o userId
+ * fecha o desempate. Compartilhado pelos includes para não divergirem.
+ */
+const activeParticipantsInclude = {
+  where: { leftAt: null },
+  orderBy: [{ joinedAt: 'asc' as const }, { userId: 'asc' as const }],
+  include: { user: { select: userSelect } },
+}
+
 /** Chave determinística do par DIRECT (uuids ordenados). */
 export function directKeyFor(a: string, b: string) {
   return [a, b].sort().join(':')
@@ -60,10 +72,7 @@ export async function findDirectByKey(directKey: string) {
   return prisma.conversation.findUnique({
     where: { directKey },
     include: {
-      participants: {
-        where: { leftAt: null },
-        include: { user: { select: userSelect } },
-      },
+      participants: activeParticipantsInclude,
     },
   })
 }
@@ -82,10 +91,7 @@ export async function createDirectConversation(
       },
     },
     include: {
-      participants: {
-        where: { leftAt: null },
-        include: { user: { select: userSelect } },
-      },
+      participants: activeParticipantsInclude,
     },
   })
 }
@@ -108,10 +114,7 @@ export async function createGroupConversation(
       },
     },
     include: {
-      participants: {
-        where: { leftAt: null },
-        include: { user: { select: userSelect } },
-      },
+      participants: activeParticipantsInclude,
     },
   })
 }
@@ -127,10 +130,7 @@ export async function findConversationWithParticipants(id: string) {
   return prisma.conversation.findUnique({
     where: { id },
     include: {
-      participants: {
-        where: { leftAt: null },
-        include: { user: { select: userSelect } },
-      },
+      participants: activeParticipantsInclude,
     },
   })
 }
@@ -234,10 +234,7 @@ export async function listInboxConversations(
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
     include: {
-      participants: {
-        where: { leftAt: null },
-        include: { user: { select: userSelect } },
-      },
+      participants: activeParticipantsInclude,
       messages: {
         orderBy: { createdAt: 'desc' },
         take: 1,

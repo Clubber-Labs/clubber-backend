@@ -472,6 +472,51 @@ describe('grupos', () => {
     expect(again.statusCode).toBe(409)
   })
 
+  it('participantes vêm em ordem estável: joinedAt, desempatado por userId', async () => {
+    const owner = await makeUser()
+    const members = [await makeUser(), await makeUser(), await makeUser()]
+    // Criador e membros iniciais nascem na mesma transação → joinedAt idêntico.
+    const group = await makeGroupConversation(
+      owner.id,
+      members.map((m) => m.id),
+    )
+    const initialIds = [owner.id, ...members.map((m) => m.id)].sort()
+
+    const newcomer = await makeUser()
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/participants`,
+      headers: auth(owner.id),
+      body: { userId: newcomer.id },
+    })
+    const expected = [...initialIds, newcomer.id]
+
+    for (let call = 0; call < 3; call++) {
+      const detail = await app.inject({
+        method: 'GET',
+        url: `/conversations/${group.id}`,
+        headers: auth(owner.id),
+      })
+      expect(detail.statusCode).toBe(200)
+      expect(
+        detail.json().participants.map((p: { userId: string }) => p.userId),
+      ).toEqual(expected)
+
+      const inbox = await app.inject({
+        method: 'GET',
+        url: '/conversations',
+        headers: auth(owner.id),
+      })
+      expect(inbox.statusCode).toBe(200)
+      const found = inbox
+        .json()
+        .data.find((c: { id: string }) => c.id === group.id)
+      expect(
+        found.participants.map((p: { userId: string }) => p.userId),
+      ).toEqual(expected)
+    }
+  })
+
   it('403 ao adicionar alvo não-visível (privado sem follow)', async () => {
     const owner = await makeUser()
     const privateUser = await makeUser({ isPrivate: true })
