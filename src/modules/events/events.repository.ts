@@ -687,7 +687,11 @@ export async function findTopAttendancesByEvent(
                PARTITION BY a."eventId"
                ORDER BY (${isFriendExpr}) DESC,
                         CASE a.type WHEN 'CONFIRMED' THEN 0 ELSE 1 END ASC,
-                        a."createdAt" DESC
+                        a."createdAt" DESC,
+                        -- Desempate total (@@unique userId+eventId): createdAt
+                        -- empata em lote (now() da transação) e no timestamp(3),
+                        -- e sem isso o rn é arbitrário entre requests.
+                        a."userId" ASC
              ) AS rn
       FROM event_attendances a
       WHERE a."eventId" IN (${Prisma.join(eventIds)})

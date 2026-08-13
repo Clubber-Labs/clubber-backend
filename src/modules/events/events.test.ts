@@ -821,6 +821,34 @@ describe('GET /events/:id', () => {
     ).toContain(goer.id)
     expect(body.friendAttendances).toEqual([])
   })
+
+  it('topAttendances desempata por userId quando createdAt e tipo empatam', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    // Mesmo instante: reproduz o insert em lote (now() da transação) e o
+    // timestamp(3), onde createdAt não desempata.
+    const createdAt = new Date('2026-01-10T12:00:00.000Z')
+    const goers = []
+    for (let i = 0; i < 5; i++) {
+      const goer = await makeUser()
+      await makeAttendance(goer.id, event.id, 'CONFIRMED', { createdAt })
+      goers.push(goer)
+    }
+    const expected = goers.map((g) => g.id).sort()
+
+    for (let call = 0; call < 3; call++) {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/events/${event.id}`,
+      })
+      expect(res.statusCode).toBe(200)
+      expect(
+        res
+          .json()
+          .topAttendances.map((a: { user: { id: string } }) => a.user.id),
+      ).toEqual(expected)
+    }
+  })
 })
 
 describe('GET /users/:id/events — privacy gate', () => {
