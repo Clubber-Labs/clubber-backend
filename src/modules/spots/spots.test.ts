@@ -728,6 +728,142 @@ describe('GET /spots (mapa)', () => {
     expect(ids).not.toContain(sports.id)
   })
 
+  it('status=ONGOING traz só o rolê que já começou', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    const ongoing = await makeSpot(creator.id, {
+      startsAt: new Date(now - 3600_000),
+      endsAt: new Date(now + 3 * 3600_000),
+    })
+    const later = await makeSpot(creator.id, {
+      startsAt: new Date(now + 2 * 3600_000),
+      endsAt: new Date(now + 5 * 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `${BBOX}&status=ONGOING`,
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toContain(ongoing.id)
+    expect(ids).not.toContain(later.id)
+  })
+
+  it('status=SOON respeita as duas bordas da janela de 48h', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    const ongoing = await makeSpot(creator.id, {
+      startsAt: new Date(now - 3600_000),
+      endsAt: new Date(now + 3 * 3600_000),
+    })
+    const dentro = await makeSpot(creator.id, {
+      startsAt: new Date(now + 47 * 3600_000),
+      endsAt: new Date(now + 50 * 3600_000),
+    })
+    const fora = await makeSpot(creator.id, {
+      startsAt: new Date(now + 49 * 3600_000),
+      endsAt: new Date(now + 52 * 3600_000),
+    })
+
+    const res = await app.inject({ method: 'GET', url: `${BBOX}&status=SOON` })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toContain(dentro.id)
+    expect(ids).not.toContain(fora.id)
+    expect(ids).not.toContain(ongoing.id)
+  })
+
+  it('status=UPCOMING traz só o que começa depois das 48h', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    const ongoing = await makeSpot(creator.id, {
+      startsAt: new Date(now - 3600_000),
+      endsAt: new Date(now + 3 * 3600_000),
+    })
+    const soon = await makeSpot(creator.id, {
+      startsAt: new Date(now + 24 * 3600_000),
+      endsAt: new Date(now + 27 * 3600_000),
+    })
+    const upcoming = await makeSpot(creator.id, {
+      startsAt: new Date(now + 72 * 3600_000),
+      endsAt: new Date(now + 75 * 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `${BBOX}&status=UPCOMING`,
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toContain(upcoming.id)
+    expect(ids).not.toContain(soon.id)
+    expect(ids).not.toContain(ongoing.id)
+  })
+
+  it('status=PAST sozinho devolve lista vazia (nenhum rolê ativo é passado)', async () => {
+    const creator = await makeUser()
+    await makeSpot(creator.id)
+
+    const res = await app.inject({ method: 'GET', url: `${BBOX}&status=PAST` })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([])
+  })
+
+  it('os quatro status juntos devolvem o mesmo que sem filtro de status', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    await makeSpot(creator.id, {
+      startsAt: new Date(now - 3600_000),
+      endsAt: new Date(now + 3 * 3600_000),
+    })
+    await makeSpot(creator.id, {
+      startsAt: new Date(now + 24 * 3600_000),
+      endsAt: new Date(now + 27 * 3600_000),
+    })
+    await makeSpot(creator.id, {
+      startsAt: new Date(now + 72 * 3600_000),
+      endsAt: new Date(now + 75 * 3600_000),
+    })
+
+    const semFiltro = await app.inject({ method: 'GET', url: BBOX })
+    const comOsQuatro = await app.inject({
+      method: 'GET',
+      url: `${BBOX}&status=ONGOING&status=SOON&status=UPCOMING&status=PAST`,
+    })
+
+    const ids = (res: { json: () => { id: string }[] }) =>
+      res.json().map((s) => s.id)
+    expect(ids(semFiltro)).toHaveLength(3)
+    expect(ids(comOsQuatro)).toEqual(ids(semFiltro))
+  })
+
+  it('combina status e categoria como AND', async () => {
+    const creator = await makeUser()
+    const now = Date.now()
+    const ongoingMusic = await makeSpot(creator.id, {
+      categories: ['MUSIC'],
+      startsAt: new Date(now - 3600_000),
+      endsAt: new Date(now + 3 * 3600_000),
+    })
+    const ongoingSports = await makeSpot(creator.id, {
+      categories: ['SPORTS'],
+      startsAt: new Date(now - 3600_000),
+      endsAt: new Date(now + 3 * 3600_000),
+    })
+    const upcomingMusic = await makeSpot(creator.id, {
+      categories: ['MUSIC'],
+      startsAt: new Date(now + 72 * 3600_000),
+      endsAt: new Date(now + 75 * 3600_000),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `${BBOX}&status=ONGOING&category=MUSIC`,
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toEqual([ongoingMusic.id])
+    expect(ids).not.toContain(ongoingSports.id)
+    expect(ids).not.toContain(upcomingMusic.id)
+  })
+
   it('friendsOnly sem autenticação retorna 400', async () => {
     const res = await app.inject({
       method: 'GET',

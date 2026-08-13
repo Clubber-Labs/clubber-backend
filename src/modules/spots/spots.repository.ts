@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { type EventStatus, SOON_THRESHOLD_MS } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import type { CreateSpotBody } from './spots.schema'
 
@@ -194,14 +195,49 @@ export type SpotMapFilters = {
   bboxEast: number
   bboxWest: number
   category?: string[]
+  status?: EventStatus[]
   friendsOnly: boolean
   limit: number
 }
 
 /**
+ * Predicado de status do rolê, derivado de `startsAt` (o Spot sempre tem `endsAt`,
+ * então não há o fallback de duração padrão que o evento precisa). A query base já
+ * garante ativo — não cancelado e `endsAt > now` —, logo PAST e CANCELED não
+ * existem no conjunto e nunca casam.
+ *
+ * Filtro só com status inalcançáveis (ex.: `status=PAST`) vira `AND FALSE`:
+ * `Prisma.empty` aqui significaria "sem filtro" e devolveria TODOS os rolês.
+ */
+function statusPredicate(
+  status: EventStatus[] | undefined,
+  now: Date,
+): Prisma.Sql {
+  if (!status || status.length === 0) return Prisma.empty
+
+  const soonBoundary = new Date(now.getTime() + SOON_THRESHOLD_MS)
+  const conditions = status.flatMap((s) => {
+    switch (s) {
+      case 'ONGOING':
+        return [Prisma.sql`s."startsAt" <= ${now}`]
+      case 'SOON':
+        return [
+          Prisma.sql`(s."startsAt" > ${now} AND s."startsAt" <= ${soonBoundary})`,
+        ]
+      case 'UPCOMING':
+        return [Prisma.sql`s."startsAt" > ${soonBoundary}`]
+      default:
+        return []
+    }
+  })
+  if (conditions.length === 0) return Prisma.sql`AND FALSE`
+  return Prisma.sql`AND (${Prisma.join(conditions, ' OR ')})`
+}
+
+/**
  * IDs dos spots visíveis dentro da bbox. Filtra no SQL (camada certa): janela
- * ativa, bbox (índice GiST sobre location), interseção de categorias, bloqueio
- * mútuo e visibilidade (público; ou criador; ou FRIENDS via follow mútuo).
+ * ativa, bbox (índice GiST sobre location), interseção de categorias, status,
+ * bloqueio mútuo e visibilidade (público; ou criador; ou FRIENDS via follow mútuo).
  * Viewer anônimo (null) só enxerga PUBLIC e nunca com friendsOnly.
  *
  * "Ativo" = não cancelado E ainda não encerrado (`endsAt > now`) — inclui os
@@ -221,6 +257,8 @@ export async function findSpotIdsInBbox(
     filters.category && filters.category.length > 0
       ? Prisma.sql`AND s.categories && ${filters.category}::"EventCategory"[]`
       : Prisma.empty
+
+  const status = statusPredicate(filters.status, now)
 
   const mutualFollow = (id: string) => Prisma.sql`EXISTS (
     SELECT 1 FROM follows f1
@@ -262,6 +300,7 @@ export async function findSpotIdsInBbox(
       AND s."endsAt" > ${now}
       AND s.location && ${envelope}
       ${categoryFilter}
+      ${status}
       AND ${visibility}
       ${blockExclusion}
     ORDER BY s."createdAt" DESC

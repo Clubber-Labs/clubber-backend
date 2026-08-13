@@ -148,6 +148,7 @@ export async function listSpotsOnMap(
       bboxEast: query.bboxEast,
       bboxWest: query.bboxWest,
       category: query.category,
+      status: query.status,
       friendsOnly: query.friendsOnly,
       limit: query.limit,
     },

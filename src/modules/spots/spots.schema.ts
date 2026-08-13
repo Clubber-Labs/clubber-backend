@@ -5,6 +5,7 @@ import {
   eventCategoriesInput,
   eventSubcategoriesInput,
   refineSubcategoryCoherence,
+  statusFilter,
 } from '../events/events.schema'
 
 export const spotVisibilitySchema = z.enum(['PUBLIC', 'FRIENDS'])
@@ -55,6 +56,7 @@ export const listSpotsQuerySchema = z
     bboxEast: z.coerce.number().min(-180).max(180),
     bboxWest: z.coerce.number().min(-180).max(180),
     category: categoryFilter,
+    status: statusFilter,
     friendsOnly: booleanQuery.default(false),
     limit: z.coerce.number().int().min(1).max(300).default(200),
   })
