@@ -6,7 +6,10 @@ import {
 } from '../../lib/account-visibility'
 import type { EventCategory } from '../../lib/event-categories'
 import { prisma } from '../../lib/prisma'
+import { buildSignupConsentData } from '../consent/consent.repository'
 import type { CreateUserBody } from './users.schema'
+
+type SignupMeta = { ipAddress: string | null; userAgent: string | null }
 
 // Teto de categorias preferidas retornadas (explícitas + inferidas do histórico).
 const PREFERRED_CATEGORIES_LIMIT = 3
@@ -54,6 +57,10 @@ const userPrivateProfileSelect = {
   // Raio de interesse (km) da recomendação de spots — o app lê o atual no
   // /users/me. Select privado: não vaza em perfis de terceiros.
   spotRadiusKm: true,
+  // Preferências de produto (não consentimento) — editáveis no PATCH /users/me.
+  socialFeed: true,
+  socialVisibility: true,
+  analytics: true,
 } as const
 
 // Campos do estado de conta usados internamente pelas transições de ciclo de
@@ -164,11 +171,13 @@ export async function findUserByEmail(email: string) {
 
 export async function createUser(
   data: Omit<CreateUserBody, 'password'> & { password: string | null },
+  meta: SignupMeta,
 ) {
   const { preferredCategories, preferredSubcategories, ...userData } = data
   return prisma.user.create({
     data: {
       ...userData,
+      ...buildSignupConsentData(meta),
       ...(preferredCategories && preferredCategories.length > 0
         ? {
             categoryPreferences: {

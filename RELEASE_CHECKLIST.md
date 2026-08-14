@@ -1,4 +1,4 @@
-# Release Checklist — ConnectAI Backend
+# Release Checklist — Clubber Backend
 
 > Plano de robustez / prontidão para produção, levantado a partir de uma varredura
 > completa do código (módulos, lib/infra, Prisma, CI e testes).

@@ -75,6 +75,15 @@ model User {
   // teto em SPOT_MAX_RADIUS_KM.
   spotRadiusKm      Int       @default(10)
 
+  // Preferências de produto, não consentimento: base legal é execução do
+  // contrato / legítimo interesse, por isso nascem ligadas com opt-out no
+  // PATCH /users/me. Moram aqui, e não em user_consents, para que ninguém
+  // volte a tratá-las como declaração de vontade. A revogação do Art. 18
+  // (DELETE /consent) também as desliga.
+  socialFeed       Boolean @default(true)
+  socialVisibility Boolean @default(true)
+  analytics        Boolean @default(true)
+
   // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
   // saiu de ACTIVE (vale tanto para desativação quanto para exclusão agendada).
@@ -125,8 +134,9 @@ model User {
   messageReactions           MessageReaction[]         @relation("messageReactions")
 
   // LGPD
-  consent     UserConsent?
-  consentLogs ConsentAuditLog[]
+  consent          UserConsent?
+  consentLogs      ConsentAuditLog[]
+  termsAcceptances TermsAcceptance[]
 
   // Ciclo de vida da conta (motivo de saída / churn)
   accountLifecycleLogs AccountLifecycleLog[]
@@ -829,14 +839,15 @@ model UserConsent {
   // Essencial (sempre true, imutável)
   essentialAccepted Boolean @default(true)
 
-  // Os 7 consentimentos granulares da Política de Privacidade v1.0
+  // Espelho da permissão do SO — quem decide é o iOS/Android; o app replica
+  // aqui quando ela muda. Não são declaração de vontade, mas ficam nesta tabela
+  // porque os JOINs de push (proximidade, digest, chat) filtram por eles.
   locationPrecise   Boolean @default(false) // GPS em tempo real
-  socialFeed        Boolean @default(false) // Feed personalizado por amigos
-  socialVisibility  Boolean @default(false) // Visibilidade de atividades
   pushNotifications Boolean @default(false) // Notificações push
-  marketing         Boolean @default(false) // Comunicações de marketing
-  analytics         Boolean @default(false) // Analytics e métricas de uso
-  surveys           Boolean @default(false) // Participação em pesquisas
+
+  // Consentimento no sentido estrito: opt-in explícito, default false.
+  marketing Boolean @default(false) // Comunicações de marketing
+  surveys   Boolean @default(false) // Participação em pesquisas
 
   consentVersion String    @default("1.0")
   ipAddress      String?
@@ -847,6 +858,33 @@ model UserConsent {
 
   // @@index([userId]) removido — userId @unique já cria índice implícito
   @@map("user_consents")
+}
+
+enum TermsDocument {
+  TERMS_OF_USE
+  PRIVACY_POLICY
+}
+
+/// Registro append-only de aceite de documento, por versão. Colunas no User
+/// guardariam só o último aceite; aqui fica a linha do tempo inteira, que é o
+/// que sustenta o ônus da prova do Art. 8 §2 quando a política mudar de versão.
+model TermsAcceptance {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  document TermsDocument
+  version  String
+
+  acceptedAt DateTime @default(now())
+  ipAddress  String?
+  userAgent  String?
+
+  // Reaceitar a mesma versão não é informação nova — o unique torna o aceite
+  // idempotente e a transação do cadastro seguramente retentável.
+  @@unique([userId, document, version])
+  @@index([userId, document, acceptedAt])
+  @@map("terms_acceptances")
 }
 
 enum ConsentAction {

@@ -323,14 +323,13 @@ const REPORT_DETAILS: Record<(typeof REPORT_REASONS)[number], string> = {
   OTHER: 'Outro motivo (ver descrição com a moderação).',
 }
 
-// Os 7 consentimentos granulares da Política de Privacidade v1.0 (LGPD).
+// Campos de user_consents: espelho da permissão do SO + consentimento estrito.
+// As preferências de produto (socialFeed, socialVisibility, analytics) vivem no
+// User e nascem ligadas — não entram aqui.
 const CONSENT_FIELDS = [
   'locationPrecise',
-  'socialFeed',
-  'socialVisibility',
   'pushNotifications',
   'marketing',
-  'analytics',
   'surveys',
 ] as const
 
@@ -1552,7 +1551,7 @@ async function main() {
     const isFixedFull = u.id === premiumDemo.id || u.id === adminDemo.id
     const accepted = isFixedFull
       ? [...CONSENT_FIELDS]
-      : sample(CONSENT_FIELDS, faker.number.int({ min: 2, max: 6 }))
+      : sample(CONSENT_FIELDS, faker.number.int({ min: 1, max: 3 }))
     const revoked = !isFixedFull && i % 6 === 0 // ~1 em 6 revoga
     const updated = !isFixedFull && !revoked && i % 5 === 0 // ~alguns ajustam
 
@@ -1564,11 +1563,8 @@ async function main() {
       userId: u.id,
       essentialAccepted: true,
       locationPrecise: on('locationPrecise'),
-      socialFeed: on('socialFeed'),
-      socialVisibility: on('socialVisibility'),
       pushNotifications: on('pushNotifications'),
       marketing: on('marketing'),
-      analytics: on('analytics'),
       surveys: on('surveys'),
       consentVersion: '1.0',
       ipAddress: faker.internet.ipv4(),
@@ -1613,8 +1609,23 @@ async function main() {
 
   await prisma.userConsent.createMany({ data: consentRows })
   await prisma.consentAuditLog.createMany({ data: consentLogs })
+
+  // Aceite dos documentos: no cadastro real nasce junto do usuário.
+  await prisma.termsAcceptance.createMany({
+    data: users.flatMap((u) =>
+      (['TERMS_OF_USE', 'PRIVACY_POLICY'] as const).map((document) => ({
+        userId: u.id,
+        document,
+        version: '1.0',
+        ipAddress: faker.internet.ipv4(),
+        userAgent: 'ConectAI/1.0 (seed)',
+      })),
+    ),
+  })
+
   console.log(
-    `   ✓ ${consentRows.length} consentimentos, ${consentLogs.length} logs de auditoria`,
+    `   ✓ ${consentRows.length} consentimentos, ${consentLogs.length} logs de auditoria, ` +
+      `${users.length * 2} aceites de documento`,
   )
 
   const featuredCount = promotionUsage.reduce((s, u) => s + u.count, 0)

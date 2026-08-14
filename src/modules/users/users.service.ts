@@ -166,7 +166,10 @@ export async function checkUsernameAvailability(username: string) {
   return { available: existingId === null }
 }
 
-export async function registerUser(data: CreateUserBody) {
+export async function registerUser(
+  data: CreateUserBody,
+  meta: { ipAddress: string | null; userAgent: string | null },
+) {
   const emailExists = await findUserIdByEmail(data.email)
   const usernameExists = await findUserIdByUsername(data.username)
 
@@ -187,7 +190,7 @@ export async function registerUser(data: CreateUserBody) {
 
   const passwordHash = await hash(data.password, 10)
 
-  const user = await createUser({ ...data, password: passwordHash })
+  const user = await createUser({ ...data, password: passwordHash }, meta)
   return withPreferredCategories(user)
 }
 
@@ -201,6 +204,7 @@ export async function editUser(id: string, data: UpdateUserBody) {
       throw {
         statusCode: 409,
         message: 'Este nome de usuário já está em uso.',
+        field: 'username',
       }
     }
   }

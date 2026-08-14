@@ -40,7 +40,7 @@ const baseSchema = z.object({
     .int()
     .nonnegative()
     .default(30_000),
-  // CSV de origens permitidas no CORS (ex.: 'https://app.connectai.app,https://admin...').
+  // CSV de origens permitidas no CORS (ex.: 'https://app.clubber.app,https://admin...').
   // Em produção é OBRIGATÓRIO definir (sem ele o boot falha) — não refletimos
   // qualquer Origin com credentials em prod. Em dev/test, vazio = reflete a
   // Origin da requisição (comportamento permissivo, conveniente localmente).
@@ -86,7 +86,7 @@ const baseSchema = z.object({
   // conteúdo — seguro em dev/test sem credencial. `resend` envia de verdade.
   EMAIL_DRIVER: z.enum(['log', 'resend']).default('log'),
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default('ConnectAI <no-reply@connectai.app>'),
+  EMAIL_FROM: z.string().default('Clubber <no-reply@clubber.app>'),
   // Recuperação de senha: validade do código OTP e teto de tentativas por código
   // (anti brute-force no espaço de 6 dígitos).
   PASSWORD_RESET_CODE_TTL_MINUTES: z.coerce
@@ -231,7 +231,7 @@ const baseSchema = z.object({
     .default('false')
     .transform((v) => v === 'true' || v === '1'),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional(),
-  OTEL_SERVICE_NAME: z.string().default('connectai-backend'),
+  OTEL_SERVICE_NAME: z.string().default('clubber-backend'),
   // URL do Loki para envio dos logs (via pino-loki). Sem ela, logs só no stdout.
   LOKI_URL: z.url().optional(),
   // Métricas Prometheus em /metrics. Default ligado (o scraper precisa delas).

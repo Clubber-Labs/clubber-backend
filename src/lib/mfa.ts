@@ -12,7 +12,7 @@ import { env } from './env'
 // MFA por TOTP (RFC 6238). Compatível com Google/Microsoft Authenticator etc.
 // Janela de ±1 passo de 30s tolera relógio dessincronizado.
 
-const ISSUER = 'ConnectAI'
+const ISSUER = 'Clubber'
 const TOTP_WINDOW = 1
 
 function totpFor(secret: string, label = ISSUER): OTPAuth.TOTP {
@@ -58,6 +58,9 @@ const encryptionKey = Buffer.from(
   hkdfSync(
     'sha256',
     env.JWT_SECRET,
+    // NÃO renomear: é o salt do HKDF que deriva a chave de cifra do mfaSecret.
+    // Trocar aqui torna todo segredo já gravado indecifrável — rotação de chave
+    // se faz bumpando o info abaixo (v2) com fallback de leitura na v1.
     'connectai-mfa-salt',
     'mfa-secret-encryption-v1',
     32,

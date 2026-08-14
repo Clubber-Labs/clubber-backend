@@ -669,6 +669,97 @@ describe('POST /users — conflitos de unique constraint', () => {
   })
 })
 
+describe('preferências de produto no perfil', () => {
+  it('nascem ligadas e aparecem no GET /users/me', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      socialFeed: true,
+      socialVisibility: true,
+      analytics: true,
+    })
+  })
+
+  it('PUT /users/:id desliga uma preferência sem tocar nas outras', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { socialFeed: false },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      socialFeed: false,
+      socialVisibility: true,
+      analytics: true,
+    })
+
+    const row = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { socialFeed: true, socialVisibility: true, analytics: true },
+    })
+    expect(row).toMatchObject({
+      socialFeed: false,
+      socialVisibility: true,
+      analytics: true,
+    })
+  })
+
+  it('PUT /users/:id religa uma preferência desligada', async () => {
+    const user = await makeUser()
+
+    await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { socialVisibility: false, analytics: false },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { analytics: true },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      socialVisibility: false,
+      analytics: true,
+    })
+  })
+
+  it('não são editáveis no perfil de outro usuário', async () => {
+    const owner = await makeUser()
+    const stranger = await makeUser()
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${owner.id}`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      payload: { analytics: false },
+    })
+
+    expect(res.statusCode).toBe(403)
+
+    const row = await testPrisma.user.findUnique({
+      where: { id: owner.id },
+      select: { analytics: true },
+    })
+    expect(row?.analytics).toBe(true)
+  })
+})
+
 describe('preferredCategories no perfil', () => {
   it('POST /users persiste preferredCategories e reflete em GET /users/me', async () => {
     const res = await app.inject({

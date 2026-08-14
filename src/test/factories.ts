@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import type { Prisma } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
+import { buildSignupConsentData } from '../modules/consent/consent.repository'
 import { testPrisma } from './prisma'
 
 // Cria um refresh token persistido (hash) e devolve o valor BRUTO p/ usar nas
@@ -113,6 +114,9 @@ export async function makeUser(
       ...(overrides.spotRadiusKm !== undefined && {
         spotRadiusKm: overrides.spotRadiusKm,
       }),
+      // Mesmo fragmento do cadastro real: usuário de teste sem registro de
+      // consentimento seria um estado que a produção não consegue mais produzir.
+      ...buildSignupConsentData({ ipAddress: null, userAgent: null }),
     },
   })
 }
@@ -559,7 +563,7 @@ export async function makeConsentAuditLog(
     data: {
       userId,
       action,
-      changedFields: [{ field: 'analytics', from: null, to: true }],
+      changedFields: [{ field: 'marketing', from: null, to: true }],
       consentVersion: '1.0',
       ipAddress: '192.168.1.1',
     },
@@ -571,11 +575,10 @@ export async function makeUserConsent(userId: string) {
     where: { userId },
     create: {
       userId,
-      analytics: true,
-      marketing: false,
+      marketing: true,
       consentVersion: '1.0',
     },
-    update: { analytics: true },
+    update: { marketing: true },
   })
 }
 

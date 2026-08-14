@@ -1,4 +1,4 @@
-# Testes de carga — ConnectAI Backend (k6)
+# Testes de carga — Clubber Backend (k6)
 
 Suíte de testes de carga usada para evidenciar empiricamente o desempenho da API
 sob diferentes regimes de tráfego. Os resultados (latência p50/p95/p99,

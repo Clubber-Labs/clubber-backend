@@ -1,5 +1,6 @@
 import type { SocialProvider } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
+import { buildSignupConsentData } from '../consent/consent.repository'
 
 export async function findSocialAccount(
   provider: SocialProvider,
@@ -32,6 +33,10 @@ export type CreateSocialUserInput = {
     providerUserId: string
     email: string | null
   }
+  meta: {
+    ipAddress: string | null
+    userAgent: string | null
+  }
 }
 
 export async function createUserWithSocialAccount(
@@ -44,6 +49,7 @@ export async function createUserWithSocialAccount(
         password: null,
         phone: null,
         birthdate: null,
+        ...buildSignupConsentData(input.meta),
       },
     })
     await tx.socialAccount.create({

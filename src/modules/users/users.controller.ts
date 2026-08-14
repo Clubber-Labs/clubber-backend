@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { extractRequestMeta } from '../../lib/request-meta'
 import { assertImageMimetype } from '../../lib/uploads'
 import { issueSession } from '../auth/auth.session'
 import type {
@@ -83,7 +84,10 @@ export async function getUser(request: FastifyRequest, reply: FastifyReply) {
 }
 
 export async function postUser(request: FastifyRequest, reply: FastifyReply) {
-  const user = await registerUser(request.body as CreateUserBody)
+  const user = await registerUser(
+    request.body as CreateUserBody,
+    extractRequestMeta(request),
+  )
   const { token, refreshToken } = await issueSession(reply, user.id, {
     userAgent: request.headers['user-agent'] ?? null,
     ip: request.ip,
