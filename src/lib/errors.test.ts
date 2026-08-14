@@ -15,23 +15,26 @@ describe('handlePrismaUniqueError', () => {
     expect(handlePrismaUniqueError(uniqueViolation(['email']))).toEqual({
       statusCode: 409,
       message: 'Este e-mail já está cadastrado em outra conta.',
+      field: 'email',
     })
   })
 
   // Corrida entre dois cadastros: quem perde recebe o P2002 do índice funcional
   // (users_*_lower_key), que chega como nome do índice em vez da coluna.
   it('traduz a violação dos índices funcionais da identidade', () => {
-    const porNome = handlePrismaUniqueError(
-      uniqueViolation('users_username_lower_key'),
-    )
-    expect(porNome?.message).toBe('Este nome de usuário já está em uso.')
+    expect(
+      handlePrismaUniqueError(uniqueViolation('users_username_lower_key')),
+    ).toMatchObject({
+      message: 'Este nome de usuário já está em uso.',
+      field: 'username',
+    })
 
-    const porLista = handlePrismaUniqueError(
-      uniqueViolation(['users_email_lower_key']),
-    )
-    expect(porLista?.message).toBe(
-      'Este e-mail já está cadastrado em outra conta.',
-    )
+    expect(
+      handlePrismaUniqueError(uniqueViolation(['users_email_lower_key'])),
+    ).toMatchObject({
+      message: 'Este e-mail já está cadastrado em outra conta.',
+      field: 'email',
+    })
   })
 
   it('cai na mensagem genérica para constraint desconhecida', () => {
