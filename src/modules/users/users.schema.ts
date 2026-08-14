@@ -2,6 +2,13 @@ import { z } from 'zod'
 import { selectableCategorySchema } from '../../lib/event-categories'
 import { interestSchema } from '../../lib/subcategories'
 
+// Fonte única das regras de formato do username: cadastro e checagem de
+// disponibilidade precisam aceitar exatamente o mesmo conjunto de valores.
+export const usernameFieldSchema = z
+  .string()
+  .min(4, 'Seu nome de usuario deve ter no minimo 4 caracteres')
+  .max(25, 'Seu nome de usuario deve ter no maximo 25 caracteres')
+
 export const createUserSchema = z.object({
   name: z
     .string()
@@ -13,10 +20,7 @@ export const createUserSchema = z.object({
     .min(4, 'Seu sobrenome deve ter no minimo 4 caracteres')
     .max(55, 'Seu sobrenome deve ter no maximo 55 caracteres')
     .regex(/^[a-zA-ZÀ-ÿ\s]+$/, 'Seu sobrenome deve conter apenas letras'),
-  username: z
-    .string()
-    .min(4, 'Seu nome de usuario deve ter no minimo 4 caracteres')
-    .max(25, 'Seu nome de usuario deve ter no maximo 25 caracteres'),
+  username: usernameFieldSchema,
   phone: z
     .string()
     .min(10, 'Seu telefone deve conter no minimo 10 caracteres')
@@ -91,3 +95,11 @@ export const searchUsersQuerySchema = z.object({
 })
 
 export type SearchUsersQuery = z.infer<typeof searchUsersQuerySchema>
+
+export const usernameAvailabilityQuerySchema = z.object({
+  username: usernameFieldSchema,
+})
+
+export type UsernameAvailabilityQuery = z.infer<
+  typeof usernameAvailabilityQuerySchema
+>

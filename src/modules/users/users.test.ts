@@ -434,6 +434,71 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
   })
 })
 
+describe('GET /users/username-available', () => {
+  it('retorna available true para username livre — sem autenticação', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=disponivel',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ available: true })
+  })
+
+  it('retorna available false quando o username já existe', async () => {
+    await makeUser({ username: 'ocupadinho' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=ocupadinho',
+    })
+
+    expect(res.statusCode).toBe(200)
+    // Só o booleano: rota pública não pode vazar dado de quem tem o username.
+    expect(res.json()).toEqual({ available: false })
+  })
+
+  it('trata username como case-sensitive (mesmo predicado do cadastro)', async () => {
+    await makeUser({ username: 'neto' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=Neto',
+    })
+
+    expect(res.json()).toEqual({ available: true })
+  })
+
+  it('retorna 400 quando o username é curto demais', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=abc',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().message).toBe('Dados inválidos.')
+  })
+
+  it('retorna 400 quando o username não é informado', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available',
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('não é capturada pela rota /users/:id', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=qualquer',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('available')
+  })
+})
+
 describe('POST /users — conflitos de unique constraint', () => {
   it('retorna 409 com mensagem nova quando email já está em uso', async () => {
     await makeUser({ email: 'duplicado@exemplo.com' })
@@ -454,9 +519,35 @@ describe('POST /users — conflitos de unique constraint', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toBe(
-      'Este e-mail já está cadastrado em outra conta.',
-    )
+    expect(res.json()).toMatchObject({
+      message: 'Este e-mail já está cadastrado em outra conta.',
+      field: 'email',
+    })
+  })
+
+  it('retorna 409 com field username quando o username já está em uso', async () => {
+    await makeUser({ username: 'jaexiste' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'jaexiste',
+        phone: '99999999999',
+        email: 'outro@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({
+      message: 'Este nome de usuário já está em uso.',
+      field: 'username',
+    })
   })
 })
 

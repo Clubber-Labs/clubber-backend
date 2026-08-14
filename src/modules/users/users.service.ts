@@ -156,6 +156,16 @@ export async function getMe(userId: string) {
   }
 }
 
+/**
+ * Disponibilidade do username para o cadastro em etapas. Usa o MESMO predicado
+ * do registerUser (findUserByUsername, case-sensitive como a coluna unique) —
+ * divergir aqui faria a rota dizer "livre" e o POST /users responder 409.
+ */
+export async function checkUsernameAvailability(username: string) {
+  const existing = await findUserByUsername(username)
+  return { available: existing === null }
+}
+
 export async function registerUser(data: CreateUserBody) {
   const emailExists = await findUserByEmail(data.email)
   const usernameExists = await findUserByUsername(data.username)
@@ -164,12 +174,14 @@ export async function registerUser(data: CreateUserBody) {
     throw {
       statusCode: 409,
       message: 'Este e-mail já está cadastrado em outra conta.',
+      field: 'email',
     }
   }
   if (usernameExists) {
     throw {
       statusCode: 409,
       message: 'Este nome de usuário já está em uso.',
+      field: 'username',
     }
   }
 

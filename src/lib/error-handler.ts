@@ -44,16 +44,19 @@ export function errorHandler(
   // Erros explícitos do service (throw { statusCode, message }) e validações
   // do Fastify (4xx) passam adiante com a própria mensagem. `code` opcional
   // (machine-readable) é repassado para o cliente distinguir 4xx de mesmo status
-  // sem casar a string da mensagem.
+  // sem casar a string da mensagem; `field` aponta o campo do formulário que
+  // causou o erro (ex.: 409 de cadastro) sem o cliente parsear a mensagem.
   const explicit = error as {
     statusCode?: number
     message?: string
     code?: string
+    field?: string
   }
   if (explicit.statusCode && explicit.statusCode < 500) {
     return reply.status(explicit.statusCode).send({
       message: explicit.message ?? 'Erro',
       ...(explicit.code && { code: explicit.code }),
+      ...(explicit.field && { field: explicit.field }),
     })
   }
 
