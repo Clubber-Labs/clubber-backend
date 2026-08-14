@@ -124,12 +124,42 @@ export async function findUserAvatarKey(id: string) {
   })
 }
 
-export async function findUserByEmail(email: string) {
-  return prisma.user.findUnique({ where: { email } })
+// Identidade é case-insensitive (índices únicos users_email_lower_key e
+// users_username_lower_key). A comparação é SQL cru parametrizado porque o
+// Prisma não expõe lower() no where e o `mode: 'insensitive'` vira ILIKE — que
+// trataria `_` e `%` do valor buscado como curinga, e username aceita `_`.
+
+export async function findUserIdByEmail(email: string) {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "users" WHERE lower("email") = lower(${email}) LIMIT 1`
+  return rows[0]?.id ?? null
 }
 
-export async function findUserByUsername(username: string) {
-  return prisma.user.findUnique({ where: { username } })
+export async function findUserIdByUsername(username: string) {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "users" WHERE lower("username") = lower(${username}) LIMIT 1`
+  return rows[0]?.id ?? null
+}
+
+/**
+ * Resolve o identificador do login: e-mail OU username. O e-mail tem
+ * precedência — o username não restringe charset, então um mesmo valor pode ser
+ * o username de A e o e-mail de B; o ORDER BY torna o vencedor determinístico em
+ * vez de deixá-lo a cargo do plano de execução.
+ */
+export async function findUserIdByIdentifier(identifier: string) {
+  const rows = await prisma.$queryRaw<{ id: string }[]>`
+    SELECT "id" FROM "users"
+    WHERE lower("email") = lower(${identifier})
+       OR lower("username") = lower(${identifier})
+    ORDER BY (lower("email") = lower(${identifier})) DESC
+    LIMIT 1`
+  return rows[0]?.id ?? null
+}
+
+export async function findUserByEmail(email: string) {
+  const id = await findUserIdByEmail(email)
+  return id ? prisma.user.findUnique({ where: { id } }) : null
 }
 
 export async function createUser(

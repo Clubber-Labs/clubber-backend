@@ -459,6 +459,13 @@ O banco tem objetos PostGIS que o `schema.prisma` **não consegue** representar:
 as colunas geradas `users.location`, `events.location` e `spots.location`
 (`geography(Point, 4326) GENERATED ALWAYS AS ... STORED`) e seus índices GiST.
 
+Na mesma situação estão os índices únicos **funcionais** da identidade —
+`users_email_lower_key` e `users_username_lower_key`, sobre `lower("email")` e
+`lower("username")` — que sustentam login, recuperação de senha e cadastro
+case-insensitive. Expressão em índice não existe no `schema.prisma`, então o
+diff também propõe `DROP INDEX` nos dois: derrubá-los permitiria duas contas
+`Neto`/`neto` e tornaria a resolução do identificador do login ambígua.
+
 Como o Prisma não enxerga essas colunas no schema, ele as considera "sobrando" no
 banco: `prisma migrate dev` **sempre** detecta drift e propõe uma migration que
 faz `DROP COLUMN "location"` e derruba os índices GiST — destruindo a busca por

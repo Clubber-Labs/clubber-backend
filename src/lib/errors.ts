@@ -33,7 +33,14 @@ export function handlePrismaUniqueError(error: unknown): FriendlyError | null {
     return { statusCode: 409, message: DUPLICATE_REPORT_MESSAGE }
   }
 
-  const field = fields.find((f) => f in UNIQUE_FIELD_MESSAGES) ?? fields[0]
+  // Índice funcional (users_email_lower_key, users_username_lower_key) chega
+  // como NOME do índice, não como coluna: casa por substring para a violação
+  // case-insensitive não cair na mensagem genérica.
+  const field =
+    fields.find((f) => f in UNIQUE_FIELD_MESSAGES) ??
+    Object.keys(UNIQUE_FIELD_MESSAGES).find((known) =>
+      fields.some((f) => f.includes(known)),
+    )
   const message =
     (field && UNIQUE_FIELD_MESSAGES[field]) ?? DEFAULT_UNIQUE_MESSAGE
   return { statusCode: 409, message }
