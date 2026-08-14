@@ -525,6 +525,29 @@ describe('POST /users — conflitos de unique constraint', () => {
     })
   })
 
+  it('grava username e e-mail em minúsculo', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Neto',
+        lastname: 'Bonato',
+        username: 'NetoBonato',
+        phone: '99999999996',
+        email: 'Neto.Bonato@Gmail.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().user).toMatchObject({
+      username: 'netobonato',
+      email: 'neto.bonato@gmail.com',
+    })
+  })
+
   it('retorna 409 quando o username só difere pela caixa', async () => {
     await makeUser({ username: 'NetoBonato' })
 

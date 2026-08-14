@@ -4,10 +4,14 @@ import { interestSchema } from '../../lib/subcategories'
 
 // Fonte única das regras de formato do username: cadastro e checagem de
 // disponibilidade precisam aceitar exatamente o mesmo conjunto de valores.
+// Minúsculo é a forma canônica da identidade (o índice único é sobre lower()):
+// normalizar aqui, e não no cliente, garante o formato venha de onde vier —
+// app antigo, web ou login social.
 export const usernameFieldSchema = z
   .string()
   .min(4, 'Seu nome de usuario deve ter no minimo 4 caracteres')
   .max(25, 'Seu nome de usuario deve ter no maximo 25 caracteres')
+  .toLowerCase()
 
 export const createUserSchema = z.object({
   name: z
@@ -26,7 +30,7 @@ export const createUserSchema = z.object({
     .min(10, 'Seu telefone deve conter no minimo 10 caracteres')
     .max(11, 'Seu telefone deve conter no maximo 11 caracteres')
     .regex(/^\d+$/, 'Telefone deve conter apenas números'),
-  email: z.email(),
+  email: z.email().toLowerCase(),
   password: z.string().min(8, 'Sua senha deve conter no minimo 8 caracteres'),
   bio: z
     .string()

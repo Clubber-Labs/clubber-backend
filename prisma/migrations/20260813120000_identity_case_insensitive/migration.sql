@@ -3,10 +3,10 @@
 -- lower(). Sem unicidade sobre lower(), "Neto" e "neto" coexistiriam e a
 -- resolução do identificador do login seria ambígua.
 --
--- Os valores continuam gravados com a caixa que o usuário escolheu (o username
--- é exibido no perfil) — a unicidade e as buscas é que ignoram a caixa. Por
--- isso índice funcional em vez de normalizar as colunas: não reescreve dado
--- existente e não perde a caixa de exibição.
+-- Índice funcional (e não coluna normalizada) porque a unicidade precisa valer
+-- inclusive para dado gravado fora do cadastro — seed, correção manual, import.
+-- A normalização do valor para minúsculo vem logo depois, em
+-- 20260813130000_normalize_identity_lowercase.
 --
 -- Os @unique simples de "email"/"username" ficam: são redundantes para a
 -- unicidade (o índice funcional é mais forte), mas mantêm o schema.prisma fiel
