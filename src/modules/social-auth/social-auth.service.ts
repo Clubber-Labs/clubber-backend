@@ -24,14 +24,13 @@ const USERNAME_RETRY_ATTEMPTS = 5
 function isUsernameUniqueViolation(err: unknown): boolean {
   if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return false
   if (err.code !== 'P2002') return false
-  // O unique de coluna chega como ['username']; o índice funcional
-  // (users_username_lower_key) chega como o nome do índice — daí o substring.
+  // O unique de coluna chega como ['username']; o índice funcional da unicidade
+  // case-insensitive chega como o nome do índice.
+  const isUsernameTarget = (t: unknown) =>
+    t === 'username' || t === 'users_username_lower_key'
   const target = err.meta?.target
-  if (Array.isArray(target)) {
-    return target.some((t) => typeof t === 'string' && t.includes('username'))
-  }
-  if (typeof target === 'string') return target.includes('username')
-  return false
+  if (Array.isArray(target)) return target.some(isUsernameTarget)
+  return isUsernameTarget(target)
 }
 
 async function verifyTokenByProvider(

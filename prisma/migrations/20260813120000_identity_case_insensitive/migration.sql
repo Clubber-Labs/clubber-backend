@@ -34,5 +34,10 @@ BEGIN
   END IF;
 END $$;
 
-CREATE UNIQUE INDEX "users_email_lower_key" ON "users" (lower("email"));
-CREATE UNIQUE INDEX "users_username_lower_key" ON "users" (lower("username"));
+-- IF NOT EXISTS: `users` é a tabela mais quente do sistema e CREATE UNIQUE INDEX
+-- bloqueia escrita enquanto constrói. Em base grande, crie os dois antes do
+-- deploy com CREATE UNIQUE INDEX CONCURRENTLY (não roda dentro da transação da
+-- migration) — esta migration então passa como no-op. Mesmo runbook de
+-- 20260811120000_add_chat_fk_indexes.
+CREATE UNIQUE INDEX IF NOT EXISTS "users_email_lower_key" ON "users" (lower("email"));
+CREATE UNIQUE INDEX IF NOT EXISTS "users_username_lower_key" ON "users" (lower("username"));
