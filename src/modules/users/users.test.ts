@@ -458,7 +458,7 @@ describe('GET /users/username-available', () => {
     expect(res.json()).toEqual({ available: false })
   })
 
-  it('trata username como case-sensitive (mesmo predicado do cadastro)', async () => {
+  it('ignora a caixa (mesmo predicado do cadastro)', async () => {
     await makeUser({ username: 'neto' })
 
     const res = await app.inject({
@@ -466,7 +466,7 @@ describe('GET /users/username-available', () => {
       url: '/users/username-available?username=Neto',
     })
 
-    expect(res.json()).toEqual({ available: true })
+    expect(res.json()).toEqual({ available: false })
   })
 
   it('retorna 400 quando o username é curto demais', async () => {
@@ -543,6 +543,73 @@ describe('POST /users — conflitos de unique constraint', () => {
       message: 'Este e-mail já está cadastrado em outra conta.',
       field: 'email',
     })
+  })
+
+  it('grava username e e-mail em minúsculo', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Neto',
+        lastname: 'Bonato',
+        username: 'NetoBonato',
+        phone: '99999999996',
+        email: 'Neto.Bonato@Gmail.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().user).toMatchObject({
+      username: 'netobonato',
+      email: 'neto.bonato@gmail.com',
+    })
+  })
+
+  it('retorna 409 quando o username só difere pela caixa', async () => {
+    await makeUser({ username: 'NetoBonato' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'netobonato',
+        phone: '99999999998',
+        email: 'outro2@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ field: 'username' })
+  })
+
+  it('retorna 409 quando o e-mail só difere pela caixa', async () => {
+    await makeUser({ email: 'Duplicado@Exemplo.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'usuarionovo',
+        phone: '99999999997',
+        email: 'duplicado@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ field: 'email' })
   })
 
   it('retorna 409 com field username quando o username já está em uso', async () => {

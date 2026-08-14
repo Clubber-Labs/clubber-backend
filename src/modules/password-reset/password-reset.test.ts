@@ -63,6 +63,19 @@ describe('POST /auth/forgot-password', () => {
     expect(codes[0].usedAt).toBeNull()
   })
 
+  it('encontra a conta com o e-mail digitado em outra caixa', async () => {
+    const user = await makeUser({ email: 'Joao.Silva@Gmail.com' })
+
+    const res = await forgot('joao.silva@gmail.com')
+
+    expect(res.statusCode).toBe(200)
+    expect(fakeMailer.sent).toHaveLength(1)
+    const codes = await testPrisma.passwordResetCode.findMany({
+      where: { userId: user.id },
+    })
+    expect(codes).toHaveLength(1)
+  })
+
   it('retorna 200 sem gerar código nem enviar e-mail para email inexistente', async () => {
     const res = await forgot('naoexiste@test.com')
 

@@ -47,6 +47,101 @@ describe('POST /auth/login', () => {
     expect(res.json()).toHaveProperty('token')
   })
 
+  it('aceita username no lugar do e-mail', async () => {
+    const user = await makeUser({ username: 'joaosilva' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { identifier: 'joaosilva', password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
+    expect(user.username).toBe('joaosilva')
+  })
+
+  it('aceita e-mail com caixa diferente da cadastrada', async () => {
+    const user = await makeUser({ email: 'Joao.Silva@Gmail.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { identifier: user.email.toLowerCase(), password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
+  })
+
+  it('aceita username com caixa diferente da cadastrada', async () => {
+    await makeUser({ username: 'NetoBonato' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { identifier: 'netobonato', password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
+  })
+
+  it('mantém o campo legado email funcionando (apps já publicados)', async () => {
+    const user = await makeUser({ email: 'Legado@Test.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: 'legado@test.com', password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('token')
+    expect(user.email).toBe('Legado@Test.com')
+  })
+
+  it('retorna 401 genérico para identificador inexistente', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { identifier: 'ninguem_por_aqui', password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(res.json().message).toBe('Invalid credentials')
+  })
+
+  it('retorna 400 quando nenhum identificador é enviado', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('resolve pelo e-mail quando o valor também é username de outra conta', async () => {
+    const dono = await makeUser({ email: 'colisao@test.com' })
+    // username não restringe charset: pode ser igual ao e-mail de outra conta.
+    await makeUser({ username: 'colisao@test.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { identifier: 'colisao@test.com', password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${res.json().token}` },
+    })
+    expect(me.json().id).toBe(dono.id)
+  })
+
   it('retorna 401 com senha incorreta', async () => {
     const user = await makeUser()
 
