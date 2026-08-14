@@ -191,8 +191,8 @@ if (env.NODE_ENV !== 'production') {
   app.register(fastifySwagger, {
     openapi: {
       info: {
-        title: 'ConnectAI API',
-        description: 'API documentation for ConnectAI backend',
+        title: 'Clubber API',
+        description: 'API documentation for Clubber backend',
         version: '1.0.0',
       },
     },
