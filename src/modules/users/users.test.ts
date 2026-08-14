@@ -488,6 +488,26 @@ describe('GET /users/username-available', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('retorna 429 ao estourar o teto de 60 por minuto', async () => {
+    const remoteAddress = '203.0.113.60'
+
+    for (let i = 0; i < 60; i++) {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/users/username-available?username=disponivel',
+        remoteAddress,
+      })
+      expect(res.statusCode).toBe(200)
+    }
+
+    const blocked = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=disponivel',
+      remoteAddress,
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
+
   it('não é capturada pela rota /users/:id', async () => {
     const res = await app.inject({
       method: 'GET',
