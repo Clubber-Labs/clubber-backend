@@ -64,7 +64,7 @@ function start(): void {
 
   sdk = new NodeSDK({
     resource: resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'connectai-backend',
+      [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? 'clubber-backend',
     }),
     // Lê OTEL_EXPORTER_OTLP_ENDPOINT (e afins) das envs padrão do OTLP.
     traceExporter: new OTLPTraceExporter(),

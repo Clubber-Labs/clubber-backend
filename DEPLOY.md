@@ -1,4 +1,4 @@
-# Deploy — ConnectAI Backend
+# Deploy — Clubber Backend
 
 Documento operacional para deploy em produção via **Coolify**. Não é tutorial —
 assume familiaridade com o painel do Coolify e com o restante do `CLAUDE.md`.
@@ -101,7 +101,7 @@ específica de ajuste.
 | `UPLOADS_DIR` | `./uploads` | Só relevante com `STORAGE_DRIVER=local`. |
 | `CLOUDINARY_AUTH_TOKEN_KEY` | — | Opcional (recurso pago): URLs assinadas com expiração. |
 | `CHAT_USER_STORAGE_QUOTA_BYTES` | `1073741824` (1 GB) | Cota de mídia de chat por usuário. |
-| `EMAIL_FROM` | `ConnectAI <no-reply@connectai.app>` | Remetente dos e-mails transacionais. |
+| `EMAIL_FROM` | `Clubber <no-reply@clubber.app>` | Remetente dos e-mails transacionais. |
 | `PASSWORD_RESET_CODE_TTL_MINUTES` | `15` | Validade do OTP de recuperação. |
 | `PASSWORD_RESET_MAX_ATTEMPTS` | `5` | Tentativas por código. |
 | `PASSWORD_RESET_REQUEST_COOLDOWN_SECONDS` | `60` | Cooldown entre solicitações de código. |
@@ -110,7 +110,7 @@ específica de ajuste.
 | `BILLING_WEBHOOK_RETENTION_DAYS` / `..._CLEANUP_INTERVAL_MS` / `..._CLEANUP_ENABLED` | `90` / `3600000` / `true` | Retenção (LGPD) de `webhook_events`. |
 | `BILLING_SYNC_INTERVAL_MS` / `BILLING_SYNC_GRACE_MS` / `BILLING_SYNC_ENABLED` | `3600000` / `21600000` / `true` | Re-sync de assinaturas com o Stripe. |
 | `SENTRY_DSN` | — | Rastreio de erros. Vazio = desligado. |
-| `OTEL_ENABLED` / `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` | `false` / `http://localhost:4318` / `connectai-backend` | OpenTelemetry — só ativa com `OTEL_ENABLED=true` e endpoint definido. |
+| `OTEL_ENABLED` / `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_SERVICE_NAME` | `false` / `http://localhost:4318` / `clubber-backend` | OpenTelemetry — só ativa com `OTEL_ENABLED=true` e endpoint definido. |
 | `LOKI_URL` | — | Logs centralizados. Sem URL, só stdout. |
 | `METRICS_ENABLED` | `true` | Expõe `/metrics`. Ver `METRICS_TOKEN` na seção 1.2 quando ligado em produção. |
 | `FEATURED_RECONCILE_INTERVAL_MS` / `..._ENABLED` | `300000` / `true` | Reconciler de featured events. |

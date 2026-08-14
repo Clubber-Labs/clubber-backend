@@ -23,7 +23,7 @@ docker compose -f observability/docker-compose.observability.yml up -d
 - Tempo: http://localhost:3200 · Loki: http://localhost:3100
 - GlitchTip (erros): http://localhost:8000
 
-Datasources (Prometheus, Tempo, Loki) e o dashboard **ConnectAI Backend** já vêm
+Datasources (Prometheus, Tempo, Loki) e o dashboard **Clubber Backend** já vêm
 provisionados.
 
 ## GlitchTip (rastreio de erros, compatível com Sentry)
@@ -53,7 +53,7 @@ curl -i http://localhost:8000/api/<PROJECT_ID>/store/ \
 ```
 
 `200` + `{"id": "..."}` = aceito; em segundos aparece em *Issues* (o `worker`
-processa). UI vazia mas `200` no ingest = worker parado → `docker logs connectai-glitchtip-worker`.
+processa). UI vazia mas `200` no ingest = worker parado → `docker logs clubber-glitchtip-worker`.
 
 ## Ligar a instrumentação no backend
 
@@ -62,7 +62,7 @@ No `.env.local` (veja `.env.example`):
 ```env
 OTEL_ENABLED=true
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
-OTEL_SERVICE_NAME=connectai-backend
+OTEL_SERVICE_NAME=clubber-backend
 LOKI_URL=http://localhost:3100
 # erros → GlitchTip local (ver seção GlitchTip para obter o DSN)
 SENTRY_DSN=http://<PUBLIC_KEY>@localhost:8000/<PROJECT_ID>

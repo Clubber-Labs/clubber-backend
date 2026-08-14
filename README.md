@@ -1,17 +1,17 @@
-# ConnectAI Backend
+# Clubber Backend
 
-API REST para a plataforma ConnectAI, construída com Fastify, Prisma e PostgreSQL.
+API REST para a plataforma Clubber, construída com Fastify, Prisma e PostgreSQL.
 
 ## Repositório
 
 ```
-git@github.com:ConnectAI-Labs/connectai-backend.git
+git@github.com:clubber-Labs/clubber-backend.git
 ```
 
 Antes de fazer push, verifique que o remote aponta para o repositório da organização:
 
 ```bash
-git remote set-url origin git@github.com:ConnectAI-Labs/connectai-backend.git
+git remote set-url origin git@github.com:clubber-Labs/clubber-backend.git
 git remote -v  # confirmar
 ```
 
@@ -41,7 +41,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-A API estará disponível em `http://localhost:3333`.  
+A API estará disponível em `http://localhost:3333`.
 Documentação Swagger: `http://localhost:3333/docs`
 
 ## Testes
@@ -87,7 +87,7 @@ para encaminhar eventos do test mode.
 
 ### Deploy do webhook em produção
 
-A URL `https://api.connectai.../webhooks/stripe` precisa ser registrada
+A URL `https://api.clubber.../webhooks/stripe` precisa ser registrada
 manualmente no Dashboard do Stripe (uma vez por ambiente — staging e prod
 têm secrets diferentes):
 
@@ -110,8 +110,8 @@ têm secrets diferentes):
 | `STRIPE_SECRET_KEY` | Dashboard → Developers → API keys (`sk_live_...` em prod, `sk_test_...` em dev) |
 | `STRIPE_WEBHOOK_SECRET` | Endpoint criado no passo acima (prod) ou saída do `stripe listen` (dev) |
 | `STRIPE_PREMIUM_PRICE_ID` | Dashboard → Products → preço recorrente do plano Premium (`price_...`) |
-| `STRIPE_CHECKOUT_SUCCESS_URL` | URL do frontend pós-pagamento (ex.: `https://app.connectai.../billing/success`) |
-| `STRIPE_CHECKOUT_CANCEL_URL` | URL do frontend após cancelar (ex.: `https://app.connectai.../billing/canceled`) |
+| `STRIPE_CHECKOUT_SUCCESS_URL` | URL do frontend pós-pagamento (ex.: `https://app.clubber.../billing/success`) |
+| `STRIPE_CHECKOUT_CANCEL_URL` | URL do frontend após cancelar (ex.: `https://app.clubber.../billing/canceled`) |
 | `STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS` | Hosts permitidos pros overrides `successUrl`/`cancelUrl` da request, separados por vírgula (defesa anti-open-redirect) |
 
 ### Rotacionando secrets

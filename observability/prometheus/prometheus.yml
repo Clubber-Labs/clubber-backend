@@ -3,7 +3,7 @@ global:
   evaluation_interval: 15s
 
 scrape_configs:
-  - job_name: connectai-backend
+  - job_name: clubber-backend
     metrics_path: /metrics
     # Se o backend definir METRICS_TOKEN, o scraper precisa enviá-lo:
     # authorization:
@@ -13,7 +13,7 @@ scrape_configs:
       # O backend roda no host; de dentro do container usa-se host.docker.internal.
       - targets: ['host.docker.internal:3333']
         labels:
-          service: connectai-backend
+          service: clubber-backend
 
   - job_name: prometheus
     static_configs:

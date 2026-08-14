@@ -5,12 +5,12 @@
 #   docker compose -f observability/docker-compose.observability.yml up -d
 #
 # Grafana: http://localhost:3000  (anônimo como Admin, ou admin/admin)
-name: connectai-observability
+name: clubber-observability
 
 services:
   prometheus:
     image: prom/prometheus:v2.55.1
-    container_name: connectai-prometheus
+    container_name: clubber-prometheus
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -19,14 +19,14 @@ services:
       - '9090:9090'
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - connectai_prometheus_data:/prometheus
+      - clubber_prometheus_data:/prometheus
     # Permite o scrape do backend rodando no host (Linux precisa do host-gateway).
     extra_hosts:
       - 'host.docker.internal:host-gateway'
 
   tempo:
     image: grafana/tempo:2.6.1
-    container_name: connectai-tempo
+    container_name: clubber-tempo
     restart: unless-stopped
     command: ['-config.file=/etc/tempo/tempo.yml']
     ports:
@@ -35,22 +35,22 @@ services:
       - '4318:4318' # OTLP HTTP (usado pelo backend)
     volumes:
       - ./tempo/tempo.yml:/etc/tempo/tempo.yml:ro
-      - connectai_tempo_data:/var/tempo
+      - clubber_tempo_data:/var/tempo
 
   loki:
     image: grafana/loki:3.2.1
-    container_name: connectai-loki
+    container_name: clubber-loki
     restart: unless-stopped
     command: ['-config.file=/etc/loki/loki-config.yml']
     ports:
       - '3100:3100'
     volumes:
       - ./loki/loki-config.yml:/etc/loki/loki-config.yml:ro
-      - connectai_loki_data:/loki
+      - clubber_loki_data:/loki
 
   grafana:
     image: grafana/grafana:11.3.1
-    container_name: connectai-grafana
+    container_name: clubber-grafana
     restart: unless-stopped
     environment:
       GF_SECURITY_ADMIN_USER: admin
@@ -68,7 +68,7 @@ services:
       - '3000:3000'
     volumes:
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
-      - connectai_grafana_data:/var/lib/grafana
+      - clubber_grafana_data:/var/lib/grafana
     depends_on:
       - prometheus
       - tempo
@@ -78,7 +78,7 @@ services:
   # PNG via /render. Usado para gerar as figuras do teste de carga (TCC).
   renderer:
     image: grafana/grafana-image-renderer:3.11.6
-    container_name: connectai-grafana-renderer
+    container_name: clubber-grafana-renderer
     restart: unless-stopped
     environment:
       ENABLE_METRICS: 'false'
@@ -90,12 +90,12 @@ services:
   # O backend roda no host e envia eventos para http://localhost:8000.
   glitchtip-postgres:
     image: postgres:18
-    container_name: connectai-glitchtip-postgres
+    container_name: clubber-glitchtip-postgres
     restart: unless-stopped
     environment:
       POSTGRES_HOST_AUTH_METHOD: 'trust'
     volumes:
-      - connectai_glitchtip_pg_data:/var/lib/postgresql
+      - clubber_glitchtip_pg_data:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U postgres']
       interval: 5s
@@ -104,7 +104,7 @@ services:
 
   glitchtip-redis:
     image: valkey/valkey:9
-    container_name: connectai-glitchtip-redis
+    container_name: clubber-glitchtip-redis
     restart: unless-stopped
     healthcheck:
       test: ['CMD', 'valkey-cli', 'ping']
@@ -117,7 +117,7 @@ services:
   # SECRET_KEY/DATABASE_URL/VALKEY_URL precisam ser idênticos nos três.
   glitchtip-migrate:
     image: glitchtip/glitchtip:6.1.8
-    container_name: connectai-glitchtip-migrate
+    container_name: clubber-glitchtip-migrate
     command: ['./bin/run-migrate.sh']
     environment: &glitchtip-env
       DATABASE_URL: postgres://postgres:postgres@glitchtip-postgres:5432/postgres
@@ -127,7 +127,7 @@ services:
       # Em produção/staging, defina GLITCHTIP_SECRET_KEY no ambiente.
       SECRET_KEY: '${GLITCHTIP_SECRET_KEY:-dev-secret-not-for-production}'
       GLITCHTIP_DOMAIN: http://localhost:8000
-      DEFAULT_FROM_EMAIL: glitchtip@connectai.local
+      DEFAULT_FROM_EMAIL: glitchtip@clubber.local
       EMAIL_URL: consolemail://
       ENABLE_USER_REGISTRATION: 'True'
       ENABLE_ORGANIZATION_CREATION: 'True'
@@ -141,7 +141,7 @@ services:
 
   glitchtip-web:
     image: glitchtip/glitchtip:6.1.8
-    container_name: connectai-glitchtip-web
+    container_name: clubber-glitchtip-web
     restart: unless-stopped
     command: ['./bin/run-granian.sh']
     environment:
@@ -151,7 +151,7 @@ services:
     ports:
       - '8000:8000'
     volumes:
-      - connectai_glitchtip_uploads:/code/uploads
+      - clubber_glitchtip_uploads:/code/uploads
     depends_on:
       glitchtip-migrate:
         condition: service_completed_successfully
@@ -162,7 +162,7 @@ services:
 
   glitchtip-worker:
     image: glitchtip/glitchtip:6.1.8
-    container_name: connectai-glitchtip-worker
+    container_name: clubber-glitchtip-worker
     restart: unless-stopped
     command: ['./bin/run-worker.sh']
     environment:
@@ -177,9 +177,9 @@ services:
         condition: service_healthy
 
 volumes:
-  connectai_prometheus_data:
-  connectai_tempo_data:
-  connectai_loki_data:
-  connectai_grafana_data:
-  connectai_glitchtip_pg_data:
-  connectai_glitchtip_uploads:
+  clubber_prometheus_data:
+  clubber_tempo_data:
+  clubber_loki_data:
+  clubber_grafana_data:
+  clubber_glitchtip_pg_data:
+  clubber_glitchtip_uploads:

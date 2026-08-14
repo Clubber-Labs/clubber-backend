@@ -17,7 +17,7 @@ import {
  */
 export const registry = new Registry()
 
-registry.setDefaultLabels({ service: 'connectai-backend' })
+registry.setDefaultLabels({ service: 'clubber-backend' })
 
 // Métricas de processo: event loop lag, heap, GC, CPU, handles abertos.
 collectDefaultMetrics({ register: registry })

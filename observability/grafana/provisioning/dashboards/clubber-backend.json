@@ -1,7 +1,7 @@
 {
-  "uid": "connectai-backend",
-  "title": "ConnectAI Backend",
-  "tags": ["connectai", "red"],
+  "uid": "clubber-backend",
+  "title": "Clubber Backend",
+  "tags": ["clubber", "red"],
   "timezone": "browser",
   "schemaVersion": 39,
   "version": 1,
@@ -128,13 +128,13 @@
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "process_resident_memory_bytes{service=\"connectai-backend\"}",
+          "expr": "process_resident_memory_bytes{service=\"clubber-backend\"}",
           "legendFormat": "memória residente"
         },
         {
           "refId": "B",
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "nodejs_eventloop_lag_seconds{service=\"connectai-backend\"}",
+          "expr": "nodejs_eventloop_lag_seconds{service=\"clubber-backend\"}",
           "legendFormat": "event loop lag (s)"
         }
       ]

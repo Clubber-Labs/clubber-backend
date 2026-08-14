@@ -1,4 +1,4 @@
-# ConnectAI Backend — Guia de Colaboração
+# Clubber Backend — Guia de Colaboração
 
 ## Stack
 
@@ -547,13 +547,13 @@ chore/update-dependencies
 O repositório oficial do projeto é:
 
 ```
-git@github.com:ConnectAI-Labs/connectai-backend.git
+git@github.com:clubber-Labs/clubber-backend.git
 ```
 
 Configure o remote corretamente antes de fazer push:
 
 ```bash
-git remote set-url origin git@github.com:ConnectAI-Labs/connectai-backend.git
+git remote set-url origin git@github.com:clubber-Labs/clubber-backend.git
 ```
 
 ### Fluxo de trabalho
@@ -563,7 +563,7 @@ git remote set-url origin git@github.com:ConnectAI-Labs/connectai-backend.git
 2. git checkout -b feat/nome-da-feature
 3. Desenvolver e commitar
 4. git push origin feat/nome-da-feature
-5. Abrir PR no GitHub (ConnectAI-Labs/connectai-backend)
+5. Abrir PR no GitHub (clubber-Labs/clubber-backend)
 6. Aguardar code review e aprovação
 7. Merge feito pelo owner do repositório
 ```
