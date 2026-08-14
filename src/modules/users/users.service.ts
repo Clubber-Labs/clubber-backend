@@ -204,6 +204,7 @@ export async function editUser(id: string, data: UpdateUserBody) {
       throw {
         statusCode: 409,
         message: 'Este nome de usuário já está em uso.',
+        field: 'username',
       }
     }
   }
