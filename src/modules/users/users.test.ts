@@ -410,9 +410,10 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toBe(
-      'Este telefone já está cadastrado em outra conta.',
-    )
+    expect(res.json()).toMatchObject({
+      message: 'Este telefone já está cadastrado em outra conta.',
+      field: 'phone',
+    })
     // Garante que NÃO vaza path/SQL/stack
     expect(res.json().message).not.toMatch(/\/Users\/|prisma\.|invocation/i)
     expect(owner.id).toBeDefined()
@@ -430,7 +431,95 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toBe('Este nome de usuário já está em uso.')
+    expect(res.json()).toMatchObject({
+      message: 'Este nome de usuário já está em uso.',
+      field: 'username',
+    })
+  })
+})
+
+describe('GET /users/username-available', () => {
+  it('retorna available true para username livre — sem autenticação', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=disponivel',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ available: true })
+  })
+
+  it('retorna available false quando o username já existe', async () => {
+    await makeUser({ username: 'ocupadinho' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=ocupadinho',
+    })
+
+    expect(res.statusCode).toBe(200)
+    // Só o booleano: rota pública não pode vazar dado de quem tem o username.
+    expect(res.json()).toEqual({ available: false })
+  })
+
+  it('ignora a caixa (mesmo predicado do cadastro)', async () => {
+    await makeUser({ username: 'neto' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=Neto',
+    })
+
+    expect(res.json()).toEqual({ available: false })
+  })
+
+  it('retorna 400 quando o username é curto demais', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=abc',
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().message).toBe('Dados inválidos.')
+  })
+
+  it('retorna 400 quando o username não é informado', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available',
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 429 ao estourar o teto de 60 por minuto', async () => {
+    const remoteAddress = '203.0.113.60'
+
+    for (let i = 0; i < 60; i++) {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/users/username-available?username=disponivel',
+        remoteAddress,
+      })
+      expect(res.statusCode).toBe(200)
+    }
+
+    const blocked = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=disponivel',
+      remoteAddress,
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
+
+  it('não é capturada pela rota /users/:id', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=qualquer',
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toHaveProperty('available')
   })
 })
 
@@ -454,9 +543,129 @@ describe('POST /users — conflitos de unique constraint', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toBe(
-      'Este e-mail já está cadastrado em outra conta.',
-    )
+    expect(res.json()).toMatchObject({
+      message: 'Este e-mail já está cadastrado em outra conta.',
+      field: 'email',
+    })
+  })
+
+  it('grava username e e-mail em minúsculo', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Neto',
+        lastname: 'Bonato',
+        username: 'NetoBonato',
+        phone: '99999999996',
+        email: 'Neto.Bonato@Gmail.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().user).toMatchObject({
+      username: 'netobonato',
+      email: 'neto.bonato@gmail.com',
+    })
+  })
+
+  it('retorna 409 quando o username só difere pela caixa', async () => {
+    await makeUser({ username: 'NetoBonato' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'netobonato',
+        phone: '99999999998',
+        email: 'outro2@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ field: 'username' })
+  })
+
+  // registerUser não checa telefone antes do insert: este 409 nasce do unique
+  // constraint, o mesmo caminho de uma corrida entre dois cadastros iguais.
+  it('retorna 409 com field phone quando o conflito vem do unique constraint', async () => {
+    await makeUser({ phone: '11988887777' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'outrousuario',
+        phone: '11988887777',
+        email: 'disponivel@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({
+      message: 'Este telefone já está cadastrado em outra conta.',
+      field: 'phone',
+    })
+  })
+
+  it('retorna 409 quando o e-mail só difere pela caixa', async () => {
+    await makeUser({ email: 'Duplicado@Exemplo.com' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'usuarionovo',
+        phone: '99999999997',
+        email: 'duplicado@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ field: 'email' })
+  })
+
+  it('retorna 409 com field username quando o username já está em uso', async () => {
+    await makeUser({ username: 'jaexiste' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'jaexiste',
+        phone: '99999999999',
+        email: 'outro@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({
+      message: 'Este nome de usuário já está em uso.',
+      field: 'username',
+    })
   })
 })
 

@@ -8,9 +8,11 @@ import type {
   SearchUsersQuery,
   UpdateUserBody,
   UserIdParam,
+  UsernameAvailabilityQuery,
 } from './users.schema'
 import {
   changeUserAvatar,
+  checkUsernameAvailability,
   deactivateAccount,
   editUser,
   getMe as getMeService,
@@ -47,6 +49,17 @@ export async function searchUsersHandler(
     },
     'Searched users',
   )
+  return reply.send(result)
+}
+
+// Rota pública: sem log do username consultado (viraria trilha de enumeração)
+// e resposta só com o booleano — nada que identifique quem já tem o nome.
+export async function getUsernameAvailability(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { username } = request.query as UsernameAvailabilityQuery
+  const result = await checkUsernameAvailability(username)
   return reply.send(result)
 }
 

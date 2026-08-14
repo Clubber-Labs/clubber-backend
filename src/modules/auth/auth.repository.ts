@@ -1,8 +1,10 @@
 import { prisma } from '../../lib/prisma'
 
-export async function findUserByEmail(email: string) {
+// O identificador (e-mail ou username) é resolvido para o id em
+// findUserIdByIdentifier (users.repository), que compara por lower().
+export async function findUserForLogin(id: string) {
   return prisma.user.findUnique({
-    where: { email },
+    where: { id },
   })
 }
 

@@ -1,8 +1,14 @@
 import { prisma } from '../../lib/prisma'
+import { findUserIdByEmail } from '../users/users.repository'
 
+// Busca case-insensitive (mesma resolução do login): com findUnique por e-mail
+// exato, quem cadastrou com maiúscula pedia o código, recebia o 200 silencioso
+// do anti-enumeração e nunca recebia e-mail nenhum.
 export async function findUserByEmailForReset(email: string) {
+  const id = await findUserIdByEmail(email)
+  if (!id) return null
   return prisma.user.findUnique({
-    where: { email },
+    where: { id },
     select: { id: true, accountStatus: true },
   })
 }

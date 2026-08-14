@@ -25,6 +25,7 @@ import {
   deleteUserHandler,
   getMe,
   getUser,
+  getUsernameAvailability,
   getUsers,
   postUser,
   putUser,
@@ -39,6 +40,7 @@ import {
   searchUsersQuerySchema,
   updateUserSchema,
   userIdParamSchema,
+  usernameAvailabilityQuerySchema,
 } from './users.schema'
 
 export async function usersRoutes(app: FastifyInstance) {
@@ -73,6 +75,17 @@ export async function usersRoutes(app: FastifyInstance) {
       config: { rateLimit: rateLimit(30) },
     },
     searchUsersHandler,
+  )
+
+  // Pública: consultada durante o cadastro em etapas, quando ainda não há token.
+  api.get(
+    '/users/username-available',
+    {
+      schema: { querystring: usernameAvailabilityQuerySchema },
+      // Mesmo com debounce no client, digitar gera várias chamadas.
+      config: { rateLimit: rateLimit(60) },
+    },
+    getUsernameAvailability,
   )
 
   api.get(

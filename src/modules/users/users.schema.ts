@@ -2,6 +2,17 @@ import { z } from 'zod'
 import { selectableCategorySchema } from '../../lib/event-categories'
 import { interestSchema } from '../../lib/subcategories'
 
+// Fonte única das regras de formato do username: cadastro e checagem de
+// disponibilidade precisam aceitar exatamente o mesmo conjunto de valores.
+// Minúsculo é a forma canônica da identidade (o índice único é sobre lower()):
+// normalizar aqui, e não no cliente, garante o formato venha de onde vier —
+// app antigo, web ou login social.
+export const usernameFieldSchema = z
+  .string()
+  .min(4, 'Seu nome de usuario deve ter no minimo 4 caracteres')
+  .max(25, 'Seu nome de usuario deve ter no maximo 25 caracteres')
+  .toLowerCase()
+
 export const createUserSchema = z.object({
   name: z
     .string()
@@ -13,16 +24,13 @@ export const createUserSchema = z.object({
     .min(4, 'Seu sobrenome deve ter no minimo 4 caracteres')
     .max(55, 'Seu sobrenome deve ter no maximo 55 caracteres')
     .regex(/^[a-zA-ZÀ-ÿ\s]+$/, 'Seu sobrenome deve conter apenas letras'),
-  username: z
-    .string()
-    .min(4, 'Seu nome de usuario deve ter no minimo 4 caracteres')
-    .max(25, 'Seu nome de usuario deve ter no maximo 25 caracteres'),
+  username: usernameFieldSchema,
   phone: z
     .string()
     .min(10, 'Seu telefone deve conter no minimo 10 caracteres')
     .max(11, 'Seu telefone deve conter no maximo 11 caracteres')
     .regex(/^\d+$/, 'Telefone deve conter apenas números'),
-  email: z.email(),
+  email: z.email().toLowerCase(),
   password: z.string().min(8, 'Sua senha deve conter no minimo 8 caracteres'),
   bio: z
     .string()
@@ -91,3 +99,11 @@ export const searchUsersQuerySchema = z.object({
 })
 
 export type SearchUsersQuery = z.infer<typeof searchUsersQuerySchema>
+
+export const usernameAvailabilityQuerySchema = z.object({
+  username: usernameFieldSchema,
+})
+
+export type UsernameAvailabilityQuery = z.infer<
+  typeof usernameAvailabilityQuerySchema
+>

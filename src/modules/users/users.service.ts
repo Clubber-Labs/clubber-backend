@@ -21,9 +21,9 @@ import {
   findModerationState,
   findOwnUserById,
   findUserAvatarKey,
-  findUserByEmail,
   findUserById,
-  findUserByUsername,
+  findUserIdByEmail,
+  findUserIdByUsername,
   searchUsers as searchUsersRepo,
   setAccountActive,
   setAccountDeactivated,
@@ -156,20 +156,32 @@ export async function getMe(userId: string) {
   }
 }
 
+/**
+ * Disponibilidade do username para o cadastro em etapas. Usa o MESMO predicado
+ * do registerUser (findUserIdByUsername, case-insensitive como o índice único) —
+ * divergir aqui faria a rota dizer "livre" e o POST /users responder 409.
+ */
+export async function checkUsernameAvailability(username: string) {
+  const existingId = await findUserIdByUsername(username)
+  return { available: existingId === null }
+}
+
 export async function registerUser(data: CreateUserBody) {
-  const emailExists = await findUserByEmail(data.email)
-  const usernameExists = await findUserByUsername(data.username)
+  const emailExists = await findUserIdByEmail(data.email)
+  const usernameExists = await findUserIdByUsername(data.username)
 
   if (emailExists) {
     throw {
       statusCode: 409,
       message: 'Este e-mail já está cadastrado em outra conta.',
+      field: 'email',
     }
   }
   if (usernameExists) {
     throw {
       statusCode: 409,
       message: 'Este nome de usuário já está em uso.',
+      field: 'username',
     }
   }
 
@@ -184,8 +196,8 @@ export async function editUser(id: string, data: UpdateUserBody) {
   if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
 
   if (data.username) {
-    const existing = await findUserByUsername(data.username)
-    if (existing && existing.id !== id) {
+    const existingId = await findUserIdByUsername(data.username)
+    if (existingId && existingId !== id) {
       throw {
         statusCode: 409,
         message: 'Este nome de usuário já está em uso.',
