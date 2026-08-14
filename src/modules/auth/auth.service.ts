@@ -13,13 +13,14 @@ import {
 import { unblock } from '../../lib/moderation-denylist'
 import {
   clearExpiredSuspension,
+  findUserIdByIdentifier,
   reactivateOnLogin,
 } from '../users/users.repository'
 import {
   claimRefreshToken,
   consumeRecoveryCode,
   findUserAccountStatus,
-  findUserByEmail,
+  findUserForLogin,
   findUserMfaById,
   linkRefreshTokenSuccessor,
   revokeAllRefreshTokensForUser,
@@ -65,14 +66,19 @@ async function verifyMfaCode(
 const DUMMY_PASSWORD_HASH = hashSync('placeholder-for-constant-time-login', 10)
 
 export async function validateLogin(data: LoginBody): Promise<LoginResult> {
-  const user = await findUserByEmail(data.email)
+  // `email` é o nome legado do campo (apps publicados) — mesmo papel de
+  // identifier. O schema garante que ao menos um veio.
+  const identifier = data.identifier ?? data.email
+  const userId = identifier ? await findUserIdByIdentifier(identifier) : null
+  const user = userId ? await findUserForLogin(userId) : null
   // Conta anonimizada é terminal: nega o login (defesa em profundidade — na
   // prática o email já é placeholder e o password é null).
   if (!user || !user.password || user.accountStatus === 'ANONYMIZED') {
     // Anti-enumeração por timing: sem isto, conta inexistente respondia sem rodar
     // bcrypt (rápido) e conta existente rodava o compare (lento) — a diferença
-    // revelava quais emails têm conta. Roda um compare descartável pra igualar o
-    // tempo das duas respostas.
+    // revelava quais identificadores têm conta. Roda um compare descartável pra
+    // igualar o tempo das duas respostas. Vale para o identificador que não bate
+    // nem como e-mail nem como username: a resolução acima é uma consulta só.
     await compare(data.password, DUMMY_PASSWORD_HASH)
     throw { statusCode: 401, message: 'Invalid credentials' }
   }
