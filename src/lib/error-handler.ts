@@ -18,9 +18,10 @@ export function errorHandler(
   // Constraint unique do Prisma → 409 com mensagem amigável (não vaza path/SQL).
   const uniqueErr = handlePrismaUniqueError(error)
   if (uniqueErr) {
-    return reply
-      .status(uniqueErr.statusCode)
-      .send({ message: uniqueErr.message })
+    return reply.status(uniqueErr.statusCode).send({
+      message: uniqueErr.message,
+      ...(uniqueErr.field && { field: uniqueErr.field }),
+    })
   }
 
   // @fastify/multipart: arquivo acima do teto sobe com texto cru em inglês

@@ -410,9 +410,10 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toBe(
-      'Este telefone já está cadastrado em outra conta.',
-    )
+    expect(res.json()).toMatchObject({
+      message: 'Este telefone já está cadastrado em outra conta.',
+      field: 'phone',
+    })
     // Garante que NÃO vaza path/SQL/stack
     expect(res.json().message).not.toMatch(/\/Users\/|prisma\.|invocation/i)
     expect(owner.id).toBeDefined()
@@ -430,7 +431,10 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toBe('Este nome de usuário já está em uso.')
+    expect(res.json()).toMatchObject({
+      message: 'Este nome de usuário já está em uso.',
+      field: 'username',
+    })
   })
 })
 
@@ -542,6 +546,33 @@ describe('POST /users — conflitos de unique constraint', () => {
     expect(res.json()).toMatchObject({
       message: 'Este e-mail já está cadastrado em outra conta.',
       field: 'email',
+    })
+  })
+
+  // registerUser não checa telefone antes do insert: este 409 nasce do unique
+  // constraint, o mesmo caminho de uma corrida entre dois cadastros iguais.
+  it('retorna 409 com field phone quando o conflito vem do unique constraint', async () => {
+    await makeUser({ phone: '11988887777' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: {
+        name: 'Novo',
+        lastname: 'Usuario',
+        username: 'outrousuario',
+        phone: '11988887777',
+        email: 'disponivel@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2000-01-01T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'ART'],
+      },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({
+      message: 'Este telefone já está cadastrado em outra conta.',
+      field: 'phone',
     })
   })
 

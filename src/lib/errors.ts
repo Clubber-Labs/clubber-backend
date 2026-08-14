@@ -10,7 +10,14 @@ const DEFAULT_UNIQUE_MESSAGE = 'Este dado já está em uso em outra conta.'
 const DUPLICATE_REPORT_MESSAGE =
   'Você já possui uma denúncia ativa para este item.'
 
-export type FriendlyError = { statusCode: number; message: string }
+// `field` só sai para as colunas conhecidas acima: o cliente marca o campo do
+// formulário sem inferir pela mensagem, e o contrato fica restrito a nomes que
+// ele reconhece (nome de constraint interna não vaza).
+export type FriendlyError = {
+  statusCode: number
+  message: string
+  field?: string
+}
 
 export function handlePrismaUniqueError(error: unknown): FriendlyError | null {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return null
@@ -33,8 +40,7 @@ export function handlePrismaUniqueError(error: unknown): FriendlyError | null {
     return { statusCode: 409, message: DUPLICATE_REPORT_MESSAGE }
   }
 
-  const field = fields.find((f) => f in UNIQUE_FIELD_MESSAGES) ?? fields[0]
-  const message =
-    (field && UNIQUE_FIELD_MESSAGES[field]) ?? DEFAULT_UNIQUE_MESSAGE
-  return { statusCode: 409, message }
+  const field = fields.find((f) => f in UNIQUE_FIELD_MESSAGES)
+  if (!field) return { statusCode: 409, message: DEFAULT_UNIQUE_MESSAGE }
+  return { statusCode: 409, message: UNIQUE_FIELD_MESSAGES[field], field }
 }
