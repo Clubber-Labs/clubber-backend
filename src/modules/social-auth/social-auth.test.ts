@@ -103,6 +103,31 @@ describe('POST /auth/social — signup', () => {
     expect(social).toMatchObject({ provider: 'GOOGLE', userId: body.user.id })
   })
 
+  it('nasce com consentimento e aceite dos documentos, como o cadastro por senha', async () => {
+    mockedGoogle.mockResolvedValueOnce(
+      googleProfile({ email: 'consentimentosocial@exemplo.com' }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'google', token: 'fake-google-token' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const userId = res.json().user.id
+
+    const consent = await testPrisma.userConsent.findUnique({
+      where: { userId },
+    })
+    expect(consent).toMatchObject({ essentialAccepted: true, revokedAt: null })
+
+    const acceptances = await testPrisma.termsAcceptance.count({
+      where: { userId },
+    })
+    expect(acceptances).toBe(2)
+  })
+
   it('cria usuário novo via Facebook', async () => {
     mockedFacebook.mockResolvedValueOnce(
       facebookProfile({ email: 'novofb@exemplo.com' }),

@@ -1,11 +1,12 @@
 import { logger } from '../../lib/logger'
 import { clearUserLocation } from '../users/users.repository'
 import {
-  createConsentWithAudit,
   createExportAuditLog,
   findAuditLogsByUserId,
   findConsentAndLogs,
   findConsentByUserId,
+  findTermsAcceptances,
+  findUserPreferences,
   revokeConsentWithAudit,
   updateConsentFields,
 } from './consent.repository'
@@ -13,12 +14,14 @@ import {
   ALL_CONSENT_FIELDS,
   type AuditQuery,
   type ConsentField,
-  type CreateConsentBody,
   CURRENT_CONSENT_VERSION,
+  STRICT_CONSENT_FIELDS,
   type UpdateConsentBody,
+  USER_PREFERENCE_FIELDS,
+  type UserPreferenceField,
 } from './consent.schema'
 
-type RequestMeta = { ipAddress?: string | null; userAgent?: string }
+type RequestMeta = { ipAddress?: string | null; userAgent?: string | null }
 type AuditEntry = { field: string; from: boolean | null; to: boolean }
 
 /**
@@ -66,30 +69,6 @@ export async function getConsent(userId: string) {
   return record
 }
 
-export async function createConsent(
-  userId: string,
-  body: CreateConsentBody,
-  meta: RequestMeta,
-) {
-  const existing = await findConsentByUserId(userId)
-  if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Consentimento já registrado. Use PATCH para atualizar.',
-    }
-  }
-
-  return createConsentWithAudit({
-    userId,
-    fields: body as Record<string, boolean>,
-    consentVersion: CURRENT_CONSENT_VERSION,
-    ipAddress: meta.ipAddress ?? null,
-    userAgent: meta.userAgent,
-    // #3: registra todos os campos aceitos no momento da criação
-    auditEntries: buildAuditEntries(null, body),
-  })
-}
-
 export async function updateConsent(
   userId: string,
   body: UpdateConsentBody,
@@ -97,10 +76,8 @@ export async function updateConsent(
 ) {
   const existing = await findConsentByUserId(userId)
   if (!existing) {
-    throw {
-      statusCode: 404,
-      message: 'Consentimento não encontrado. Use POST para criar.',
-    }
+    // Todo usuário nasce com registro no cadastro: chegar aqui é bug, não fluxo.
+    throw { statusCode: 404, message: 'Consentimento não encontrado.' }
   }
 
   // Revogou localização precisa → limpa a localização (antes do early-return de
@@ -123,7 +100,12 @@ export async function updateConsent(
     auditIpAddress: meta.ipAddress ?? null,
     auditUserAgent: meta.userAgent,
     consentVersion: CURRENT_CONSENT_VERSION,
-    reactivate: changed.some((entry) => entry.to),
+    // Só consentimento de fato reativa: um PATCH de espelho do SO chega sem
+    // ação do usuário e não pode desfazer uma revogação do Art. 18.
+    reactivate: changed.some(
+      (entry) =>
+        entry.to && STRICT_CONSENT_FIELDS.includes(entry.field as ConsentField),
+    ),
   })
 }
 
@@ -133,19 +115,28 @@ export async function revokeAllConsents(userId: string, meta: RequestMeta) {
     throw { statusCode: 404, message: 'Consentimento não encontrado.' }
   }
 
+  // As preferências moram no User, mas a revogação do Art. 18 é uma só: desligar
+  // apenas user_consents deixaria feed, visibilidade e analytics ligados.
+  const preferences = await findUserPreferences(userId)
+
   const allFalse = Object.fromEntries(
     ALL_CONSENT_FIELDS.map((f) => [f, false]),
   ) as Record<ConsentField, boolean>
-  const auditEntries = buildAuditEntries(
-    existing as Record<string, unknown>,
-    allFalse,
-  )
+  const preferencesFalse = Object.fromEntries(
+    USER_PREFERENCE_FIELDS.map((f) => [f, false]),
+  ) as Record<UserPreferenceField, boolean>
+
+  const auditEntries = [
+    ...buildAuditEntries(existing as Record<string, unknown>, allFalse),
+    ...buildAuditEntries(preferences, preferencesFalse),
+  ]
 
   if (existing.revokedAt && auditEntries.length === 0) return
 
   await revokeConsentWithAudit({
     userId,
     allFalse,
+    preferencesFalse,
     auditEntries,
     ipAddress: meta.ipAddress ?? null,
     userAgent: meta.userAgent,
@@ -155,7 +146,11 @@ export async function revokeAllConsents(userId: string, meta: RequestMeta) {
 }
 
 export async function exportConsentData(userId: string, meta: RequestMeta) {
-  const [consent, logs] = await findConsentAndLogs(userId)
+  const [[consent, logs], preferences, acceptances] = await Promise.all([
+    findConsentAndLogs(userId),
+    findUserPreferences(userId),
+    findTermsAcceptances(userId),
+  ])
 
   // #1: retorna 404 se o usuário nunca deu consentimento; não cria log EXPORTED fantasma
   if (!consent) {
@@ -175,6 +170,10 @@ export async function exportConsentData(userId: string, meta: RequestMeta) {
   return {
     exportedAt: new Date().toISOString(),
     currentConsent: consent,
+    // Preferências e aceites vivem fora de user_consents, mas o titular tem
+    // direito ao conjunto — exportar só a tabela devolveria um retrato parcial.
+    preferences,
+    termsAcceptances: acceptances,
     history: logs,
   }
 }

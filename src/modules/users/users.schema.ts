@@ -57,8 +57,18 @@ export const createUserSchema = z.object({
 
 export type CreateUserBody = z.infer<typeof createUserSchema>
 
+// Preferências de produto: não entram no cadastro (nascem `true` por contrato /
+// legítimo interesse), só no opt-out. Não confundir com os consentimentos do
+// PATCH /consent, que exigem opt-in explícito.
+export const userPreferencesSchema = z.object({
+  socialFeed: z.boolean(),
+  socialVisibility: z.boolean(),
+  analytics: z.boolean(),
+})
+
 export const updateUserSchema = createUserSchema
   .omit({ password: true, email: true })
+  .extend(userPreferencesSchema.shape)
   .partial()
 
 export type UpdateUserBody = z.infer<typeof updateUserSchema>

@@ -103,7 +103,10 @@ async function loadUserAndDecorate(userId: string) {
   }
 }
 
-export async function socialLogin(body: SocialLoginBody) {
+export async function socialLogin(
+  body: SocialLoginBody,
+  meta: { ipAddress: string | null; userAgent: string | null },
+) {
   const profile = await verifyTokenByProvider(body.provider, body.token)
 
   if (!profile.email) {
@@ -174,6 +177,7 @@ export async function socialLogin(body: SocialLoginBody) {
       const created = await createUserWithSocialAccount({
         user: { ...userBase, username },
         social,
+        meta,
       })
       return loadUserAndDecorate(created.id)
     } catch (err) {

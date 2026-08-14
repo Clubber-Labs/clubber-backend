@@ -55,9 +55,9 @@ async function makeNotifiableUser(opts: NotifiableOpts = {}) {
       },
     })
   }
-  await testPrisma.userConsent.create({
+  await testPrisma.userConsent.update({
+    where: { userId: user.id },
     data: {
-      userId: user.id,
       locationPrecise: opts.locationConsent ?? true,
       pushNotifications: opts.pushConsent ?? true,
     },
@@ -95,8 +95,9 @@ describe('PATCH /users/me/location', () => {
 
   it('retorna 403 sem consentimento de localização', async () => {
     const user = await makeUser()
-    await testPrisma.userConsent.create({
-      data: { userId: user.id, locationPrecise: false },
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { locationPrecise: false },
     })
     const res = await app.inject({
       method: 'PATCH',
@@ -109,8 +110,9 @@ describe('PATCH /users/me/location', () => {
 
   it('rejeita geohash inválido (400)', async () => {
     const user = await makeUser()
-    await testPrisma.userConsent.create({
-      data: { userId: user.id, locationPrecise: true },
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { locationPrecise: true },
     })
     const res = await app.inject({
       method: 'PATCH',
@@ -123,8 +125,9 @@ describe('PATCH /users/me/location', () => {
 
   it('grava o geohash com consentimento (200) e popula a coluna geográfica', async () => {
     const user = await makeUser()
-    await testPrisma.userConsent.create({
-      data: { userId: user.id, locationPrecise: true },
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { locationPrecise: true },
     })
     const res = await app.inject({
       method: 'PATCH',
@@ -369,8 +372,9 @@ describe('findUsersToNotifyNearSpot — preferência de 2 níveis na descoberta'
 describe('LGPD — localização', () => {
   async function userWithLocationAndConsent() {
     const user = await makeUser()
-    await testPrisma.userConsent.create({
-      data: { userId: user.id, locationPrecise: true, pushNotifications: true },
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { locationPrecise: true, pushNotifications: true },
     })
     await testPrisma.user.update({
       where: { id: user.id },

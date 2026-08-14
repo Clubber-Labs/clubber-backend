@@ -53,13 +53,17 @@ describe('GET /admin/consent/audit', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.data).toHaveLength(2)
+    // Cada cadastro já emite um GRANTED, então a listagem traz os 2 logs criados
+    // aqui mais um por usuário existente.
     expect(body.data[0]).toMatchObject({
       userId: user.id,
       userName: expect.stringContaining(user.name),
       action: 'UPDATED',
       ipAddress: '192.168.1.1',
     })
+    expect(body.data.map((e: { action: string }) => e.action)).toContain(
+      'GRANTED',
+    )
     expect(body.nextCursor).toBeNull()
   })
 
@@ -78,8 +82,11 @@ describe('GET /admin/consent/audit', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.data).toHaveLength(1)
-    expect(body.data[0].userId).toBe(userA.id)
+    // GRANTED do cadastro + o criado no teste; nada do userB.
+    expect(body.data).toHaveLength(2)
+    expect(
+      body.data.every((e: { userId: string }) => e.userId === userA.id),
+    ).toBe(true)
   })
 
   it('filtra por action', async () => {
@@ -127,8 +134,10 @@ describe('GET /admin/consent/audit', () => {
 
     expect(page2.statusCode).toBe(200)
     const body2 = page2.json()
-    expect(body2.data).toHaveLength(1)
-    expect(body2.nextCursor).toBeNull()
+    expect(body2.data).toHaveLength(2)
+    const page1Ids = body1.data.map((e: { id: string }) => e.id)
+    const page2Ids = body2.data.map((e: { id: string }) => e.id)
+    expect(page2Ids.some((id: string) => page1Ids.includes(id))).toBe(false)
   })
 })
 
@@ -177,7 +186,8 @@ describe('GET /admin/consent/audit/:userId', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.data).toHaveLength(2)
+    // GRANTED do cadastro + os 2 criados no teste.
+    expect(body.data).toHaveLength(3)
     expect(
       body.data.every((e: { userId: string }) => e.userId === user.id),
     ).toBe(true)
@@ -217,12 +227,14 @@ describe('GET /admin/consent/stats', () => {
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
+    // Todo usuário nasce com registro de consentimento e um log GRANTED, então
+    // a métrica passa a contar admin + user, não só quem "aceitou".
     expect(body).toMatchObject({
-      totalUsersWithActiveConsent: 1,
+      totalUsersWithActiveConsent: 2,
       totalRevocations: 1,
       totalExports: 1,
       actionDistribution: {
-        GRANTED: 1,
+        GRANTED: 3,
         REVOKED: 1,
         EXPORTED: 1,
         UPDATED: 0,

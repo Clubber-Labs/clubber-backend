@@ -13,8 +13,9 @@ import { runChatMessagePush } from './chat-push.service'
 /** Destinatário apto a receber push: consentimento + device token ativo. */
 async function makePushableUser() {
   const user = await makeUser()
-  await testPrisma.userConsent.create({
-    data: { userId: user.id, pushNotifications: true },
+  await testPrisma.userConsent.update({
+    where: { userId: user.id },
+    data: { pushNotifications: true },
   })
   await testPrisma.deviceToken.create({
     data: { userId: user.id, token: `ExponentPushToken[${user.id}]` },

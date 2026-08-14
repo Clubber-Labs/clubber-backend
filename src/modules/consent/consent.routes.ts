@@ -6,7 +6,6 @@ import {
 } from 'fastify-type-provider-zod'
 import { rateLimit } from '../../lib/rate-limit'
 import {
-  createConsentHandler,
   exportConsentHandler,
   getAuditLogHandler,
   getConsentHandler,
@@ -17,7 +16,6 @@ import {
   auditQuerySchema,
   auditResponseSchema,
   consentResponseSchema,
-  createConsentSchema,
   exportResponseSchema,
   revokeConsentResponseSchema,
   updateConsentSchema,
@@ -39,20 +37,6 @@ export async function consentRoutes(app: FastifyInstance) {
       config: { rateLimit: rateLimit(60) },
     },
     getConsentHandler,
-  )
-
-  api.post(
-    '/consent',
-    {
-      schema: {
-        body: createConsentSchema,
-        response: { 201: consentResponseSchema },
-      },
-      onRequest: [app.authenticate],
-      // #8: Criação deve ser rara — limitar mais
-      config: { rateLimit: rateLimit(10) },
-    },
-    createConsentHandler,
   )
 
   api.patch(

@@ -46,8 +46,9 @@ async function makeNearbyUser(withToken = true) {
       notifyRadiusKm: 10,
     },
   })
-  await testPrisma.userConsent.create({
-    data: { userId: user.id, locationPrecise: true, pushNotifications: true },
+  await testPrisma.userConsent.update({
+    where: { userId: user.id },
+    data: { locationPrecise: true, pushNotifications: true },
   })
   await testPrisma.userCategoryPreference.create({
     data: { userId: user.id, category: CATEGORY },
