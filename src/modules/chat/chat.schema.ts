@@ -51,11 +51,35 @@ export const audioMessageMetaSchema = z.object({
     .optional(),
 })
 
-export const createVideoMessageSchema = z.object({
-  // O cliente sobe o vídeo DIRETO ao Cloudinary (upload assinado) e envia só o
-  // publicId resultante. Os metadados (duração, dimensões, tamanho, formato) são
-  // lidos do provider no backend — fonte da verdade, não confiamos no cliente.
-  publicId: z.string().trim().min(1, 'publicId obrigatório').max(255),
+export const createVideoSignatureSchema = z.object({
+  mimetype: z.enum(
+    ['video/mp4', 'video/quicktime', 'video/webm'],
+    'Formato de vídeo inválido. Use MP4, MOV ou WebM',
+  ),
+})
+
+export const videoMessageMetaSchema = z.object({
+  // Key devolvida pela assinatura (POST .../video/signature) — o servidor já
+  // travou a pasta na conversa; aqui só validamos formato básico do campo.
+  key: z.string().trim().min(1, 'key obrigatória').max(512),
+  // Vêm como campos de texto do multipart (mesmo padrão do áudio): opcionais,
+  // pois o cliente pode não os calcular — são cosméticos (ver chat.service.ts).
+  durationMs: z.coerce
+    .number()
+    .int('Duração inválida')
+    .positive('Duração deve ser positiva')
+    .max(600_000, 'Duração máxima de 10 minutos (600000 ms)')
+    .optional(),
+  width: z.coerce
+    .number()
+    .int('Largura inválida')
+    .positive('Largura deve ser positiva')
+    .optional(),
+  height: z.coerce
+    .number()
+    .int('Altura inválida')
+    .positive('Altura deve ser positiva')
+    .optional(),
 })
 
 export const messageReactionSchema = z.object({
@@ -88,7 +112,10 @@ export type ParticipantParam = z.infer<typeof participantParamSchema>
 export type SendMessageBody = z.infer<typeof sendMessageSchema>
 export type EditMessageBody = z.infer<typeof editMessageSchema>
 export type AudioMessageMeta = z.infer<typeof audioMessageMetaSchema>
-export type CreateVideoMessageBody = z.infer<typeof createVideoMessageSchema>
+export type CreateVideoSignatureBody = z.infer<
+  typeof createVideoSignatureSchema
+>
+export type VideoMessageMeta = z.infer<typeof videoMessageMetaSchema>
 export type MessageReactionBody = z.infer<typeof messageReactionSchema>
 export type RenameConversationBody = z.infer<typeof renameConversationSchema>
 export type AddParticipantBody = z.infer<typeof addParticipantSchema>

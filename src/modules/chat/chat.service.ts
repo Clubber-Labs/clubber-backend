@@ -2,12 +2,11 @@ import type { Readable } from 'node:stream'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
-import { getStorage, type RemoteAsset } from '../../lib/storage'
+import { getStorage } from '../../lib/storage'
 import {
   assertVideoFormat,
   deleteChatMedia,
   MAX_VIDEO_SIZE,
-  resourceTypeForKind,
   uploadMessageAudio,
   uploadMessageImage,
 } from '../../lib/uploads'
@@ -114,26 +113,22 @@ function shapeReplyPreview(replyTo: MessageRow['replyTo']) {
 
 /**
  * A mídia é privada (delivery 'authenticated'): troca a URL pública persistida
- * por uma URL ASSINADA gerada do key (publicId) e DESCARTA o key (não vaza o
- * publicId na API). Só participantes chegam aqui → quem saiu/bloqueou não recebe
- * URL nova (revogação pela autorização). Áudio/vídeo são resource_type 'video'.
- *
- * PRESSUPOSIÇÃO: toda mídia de chat sobe como 'authenticated'. Anexo legado em
- * delivery 'upload' (público) assinado aqui daria 401 — ver nota de migração no
- * PR #52 antes de servir mídia antiga.
+ * por uma URL ASSINADA gerada da key e DESCARTA a key (não vaza no payload). Só
+ * participantes chegam aqui → quem saiu/bloqueou não recebe URL nova (revogação
+ * pela autorização).
  */
 function shapeAttachments(attachments: MessageRow['attachments']) {
   const storage = getStorage()
-  return attachments.map(({ key, ...rest }) => {
-    const resourceType = resourceTypeForKind(rest.kind)
-    return {
-      ...rest,
-      url: storage.signedUrl(key, resourceType),
-      thumbnailUrl: rest.thumbnailUrl
-        ? storage.signedUrl(key, 'video', { asThumbnail: true })
-        : rest.thumbnailUrl,
-    }
-  })
+  return attachments.map(({ key, thumbnailKey, ...rest }) => ({
+    ...rest,
+    url: storage.signedUrl(key),
+    // Vídeo novo tem o poster em key própria (thumbnailKey); o fallback
+    // preserva vídeos legados do Cloudinary cuja thumbnailUrl persistida já é
+    // uma URL assinada eterna (sem key própria de poster).
+    thumbnailUrl: thumbnailKey
+      ? storage.signedUrl(thumbnailKey)
+      : rest.thumbnailUrl,
+  }))
 }
 
 function shapeMessage(message: MessageRow) {
@@ -481,11 +476,7 @@ async function createBackendMediaMessage(
       additionalBytes,
     )
   } catch (err) {
-    await deleteChatMedia(
-      attachment.key,
-      logger,
-      resourceTypeForKind(attachment.kind),
-    )
+    await deleteChatMedia(attachment.key, logger)
     if (err instanceof QuotaExceededError) {
       throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
     }
@@ -582,45 +573,44 @@ export async function sendAudioMessage(
   )
 }
 
-/** Pasta determinística do Cloudinary que isola os anexos de cada conversa. */
+/** Pasta determinística que isola os anexos de cada conversa no R2. */
 function conversationFolder(conversationId: string) {
   return `conversations/${conversationId}`
 }
 
 /**
- * Confirma que o asset verificado pertence à pasta DESTA conversa. Os dois
- * checks cobrem os dois modos de pasta do Cloudinary e ambos os campos são
- * autoritativos do provider — NÃO remova o `startsWith`:
- *  - pasta fixa: o `public_id` já inclui o caminho (`conversations/<id>/...`);
- *  - pasta dinâmica: o caminho vem em `asset_folder`/`folder`, e o `public_id`
- *    pode ser só o nome do asset (o `startsWith` falharia para upload legítimo).
- */
-function assetBelongsToConversation(asset: RemoteAsset, folder: string) {
-  return asset.publicId.startsWith(`${folder}/`) || asset.folder === folder
-}
-
-/**
- * Assina os params para o cliente subir um vídeo DIRETO ao Cloudinary. Exige
- * participante ativo (e, em DM, ausência de bloqueio) e trava a pasta na
- * conversa — só quem participa consegue uma assinatura para aquela pasta.
+ * Assina um PUT para o cliente subir o vídeo DIRETO ao R2. Exige participante
+ * ativo (e, em DM, ausência de bloqueio) — a key devolvida já vem travada na
+ * pasta desta conversa (definida pelo servidor, não pelo cliente).
  */
 export async function createVideoUploadSignature(
   userId: string,
   conversationId: string,
+  mimetype: string,
 ) {
   await authorizeSend(conversationId, userId)
-  return getStorage().signUpload(conversationFolder(conversationId), 'video')
+  return getStorage().signUpload(conversationFolder(conversationId), mimetype)
+}
+
+type SendVideoInput = {
+  key: string
+  durationMs?: number
+  width?: number
+  height?: number
+  posterBuffer?: Buffer
 }
 
 /**
- * Cria a mensagem de vídeo a partir do publicId que o cliente subiu direto.
- * NÃO confia no cliente: busca o asset no Cloudinary (fonte da verdade), exige
- * que ele esteja na pasta DESTA conversa e valida formato/tamanho server-side.
+ * Cria a mensagem de vídeo a partir da key que o cliente subiu direto ao R2
+ * (upload assinado). NÃO confia no cliente: busca o asset no provider (fonte
+ * da verdade), exige que a key esteja na pasta DESTA conversa e valida
+ * formato/tamanho server-side. O poster (se enviado) é processado pelo
+ * pipeline de imagem do chat e vira um objeto próprio no storage.
  */
 export async function sendVideoMessage(
   userId: string,
   conversationId: string,
-  publicId: string,
+  input: SendVideoInput,
   idempotencyKey?: string,
 ) {
   const participantIds = await authorizeSend(conversationId, userId)
@@ -630,18 +620,24 @@ export async function sendVideoMessage(
     idempotencyKey,
   )
   if (existing) return existing
-  const asset = await getStorage().getAsset(publicId, 'video')
+  // A key é definida pelo SERVIDOR na assinatura (trava a pasta na conversa):
+  // um prefixo diferente não pode pertencer a esta conversa.
+  const folder = conversationFolder(conversationId)
+  if (!input.key.startsWith(`${folder}/`)) {
+    throw { statusCode: 403, message: 'Vídeo não pertence a esta conversa' }
+  }
+  const asset = await getStorage().getAsset(input.key)
   if (!asset) {
     throw { statusCode: 400, message: 'Vídeo não encontrado no provedor' }
-  }
-  // Liga o asset à conversa: impede anexar vídeo de outra conversa/pasta mesmo
-  // que o publicId exista.
-  if (!assetBelongsToConversation(asset, conversationFolder(conversationId))) {
-    throw { statusCode: 403, message: 'Vídeo não pertence a esta conversa' }
   }
   assertVideoFormat(asset.format)
   if (asset.bytes > MAX_VIDEO_SIZE) {
     throw { statusCode: 413, message: 'Vídeo excede o limite de 50 MB' }
+  }
+  let thumbnailKey: string | null = null
+  if (input.posterBuffer) {
+    const poster = await uploadMessageImage(input.posterBuffer, conversationId)
+    thumbnailKey = poster.key
   }
   let message: MessageRow
   try {
@@ -652,14 +648,18 @@ export async function sendVideoMessage(
       null,
       {
         kind: 'VIDEO',
-        url: asset.url,
-        key: asset.publicId,
+        url: getStorage().signedUrl(input.key),
+        key: input.key,
         format: asset.format,
         size: asset.bytes,
-        durationMs: asset.durationMs,
-        width: asset.width,
-        height: asset.height,
-        thumbnailUrl: asset.thumbnailUrl,
+        // Duração/dimensões vêm do CLIENTE, não do provider (cosmético — mesmo
+        // precedente do áudio): o vídeo sobe direto ao R2, sem passar por um
+        // processador que as extraia server-side.
+        durationMs: input.durationMs ?? null,
+        width: input.width ?? null,
+        height: input.height ?? null,
+        thumbnailUrl: null,
+        thumbnailKey,
       },
       idempotencyKey,
       env.CHAT_USER_STORAGE_QUOTA_BYTES,
@@ -667,22 +667,28 @@ export async function sendVideoMessage(
     )
   } catch (err) {
     if (err instanceof QuotaExceededError) {
-      // O asset (subido pelo cliente) virou órfão pois recusamos a mensagem.
-      await deleteChatMedia(asset.publicId, logger, 'video')
+      // O vídeo (subido pelo cliente) e o poster (se houver) viraram órfãos.
+      await deleteChatMedia(input.key, logger)
+      if (thumbnailKey) await deleteChatMedia(thumbnailKey, logger)
       throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
     }
-    // Corrida de idempotência: devolve a vencedora SEM deletar o asset — diferente
-    // de imagem/áudio, o vídeo é subido pelo cliente e o publicId pode ser o MESMO
-    // nas requests concorrentes (deletar quebraria a mensagem vencedora).
+    // Corrida de idempotência: devolve a vencedora SEM deletar o vídeo — o
+    // retry do cliente reusa a MESMA key da assinatura original, então
+    // deletá-la quebraria a mensagem vencedora. O poster desta request, porém,
+    // é um objeto próprio (órfão da perdedora) e sempre é deletado.
     const dup = await resolveIdempotencyConflict(
       err,
       conversationId,
       userId,
       idempotencyKey,
     )
-    if (dup) return dup
-    // Falha não-idempotência → o asset virou órfão: limpa.
-    await deleteChatMedia(asset.publicId, logger, 'video')
+    if (dup) {
+      if (thumbnailKey) await deleteChatMedia(thumbnailKey, logger)
+      return dup
+    }
+    // Falha não-idempotência → vídeo e poster viraram órfãos: limpa os dois.
+    await deleteChatMedia(input.key, logger)
+    if (thumbnailKey) await deleteChatMedia(thumbnailKey, logger)
     throw err
   }
   await publishMessage(conversationId, participantIds, message)
@@ -868,7 +874,9 @@ export async function deleteMessage(
   // o soft-delete. Sem isso, áudio/imagem/vídeo apagados viram lixo pago eterno.
   const attachments = await findMessageAttachments(messageId)
   for (const att of attachments) {
-    await deleteChatMedia(att.key, logger, resourceTypeForKind(att.kind))
+    await deleteChatMedia(att.key, logger)
+    // Poster de vídeo é objeto próprio no storage (key separada do vídeo).
+    if (att.thumbnailKey) await deleteChatMedia(att.thumbnailKey, logger)
   }
 }
 

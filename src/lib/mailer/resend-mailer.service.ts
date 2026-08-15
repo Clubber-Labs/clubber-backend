@@ -3,7 +3,7 @@ import type { IMailerService, SendMailInput } from './mailer.interface'
 
 /**
  * Driver de e-mail de produção via Resend. Recebe credenciais no construtor
- * (resolvidas pela factory a partir do env) — espelha o CloudinaryStorageService.
+ * (resolvidas pela factory a partir do env) — espelha o R2StorageService.
  */
 export class ResendMailerService implements IMailerService {
   private readonly client: Resend

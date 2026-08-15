@@ -63,30 +63,30 @@ export class LocalStorageService implements IStorageService {
     }
   }
 
-  // resourceType não se aplica ao filesystem local — a key já é o caminho.
+  // deliveryType não se aplica ao filesystem local — a key já é o caminho.
   async delete(key: string): Promise<void> {
     await fs.unlink(path.join(this.uploadDir, key))
   }
 
   // Sem assinatura no filesystem local: reconstrói a URL pública a partir do
-  // key (que já é o caminho com extensão). deliveryType/opts são irrelevantes.
+  // key (que já é o caminho com extensão).
   signedUrl(key: string): string {
     return `${env.PUBLIC_URL}/uploads/${key}`
   }
 
-  // Upload direto assinado depende do provider externo (Cloudinary). No storage
-  // local não há para onde o cliente subir direto nem Admin API para verificar.
+  // Upload direto assinado depende de um provider com presigned PUT (R2). No
+  // storage local não há para onde o cliente subir direto nem como verificar.
   signUpload(): UploadSignature {
     throw {
       statusCode: 501,
-      message: 'Upload direto de vídeo requer o storage Cloudinary',
+      message: 'Upload direto de vídeo requer o storage R2',
     }
   }
 
   async getAsset(): Promise<RemoteAsset | null> {
     throw {
       statusCode: 501,
-      message: 'Upload direto de vídeo requer o storage Cloudinary',
+      message: 'Upload direto de vídeo requer o storage R2',
     }
   }
 }

@@ -38,6 +38,40 @@ function auth(userId: string) {
   return { authorization: `Bearer ${token(userId)}` }
 }
 
+/**
+ * Multipart de confirmação de vídeo: campos de texto (key/durationMs/...) e um
+ * `poster` de arquivo OPCIONAL — espelha multipartFormData, mas sem exigir um
+ * arquivo (o endpoint usa request.parts(), não request.file()).
+ */
+function videoMultipart(
+  fields: Record<string, string>,
+  poster?: { buffer: Buffer; filename: string; mimetype: string },
+) {
+  const boundary = `----TestBoundary${Math.random().toString(36).slice(2)}`
+  const parts: Buffer[] = []
+  for (const [name, value] of Object.entries(fields)) {
+    parts.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`,
+      ),
+    )
+  }
+  if (poster) {
+    parts.push(
+      Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="poster"; filename="${poster.filename}"\r\nContent-Type: ${poster.mimetype}\r\n\r\n`,
+      ),
+    )
+    parts.push(poster.buffer)
+    parts.push(Buffer.from('\r\n'))
+  }
+  parts.push(Buffer.from(`--${boundary}--\r\n`))
+  return {
+    body: Buffer.concat(parts),
+    contentType: `multipart/form-data; boundary=${boundary}`,
+  }
+}
+
 type ChatFrame = {
   type: string
   conversationId?: string
@@ -778,10 +812,8 @@ describe('anexo de áudio', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    // O asset subiu antes da detecção → foi removido (não vira lixo pago) E com
-    // o resource_type DETECTADO ('raw'), senão o destroy não apagaria o órfão.
+    // O asset subiu antes da detecção → foi removido (não vira lixo pago).
     expect(fakeStorage.deleted).toHaveLength(1)
-    expect(fakeStorage.deletedResources[0]?.resourceType).toBe('raw')
     // Mídia de chat é privada: a limpeza precisa mirar o namespace 'authenticated'.
     expect(fakeStorage.deletedResources[0]?.deliveryType).toBe('authenticated')
     const count = await testPrisma.message.count({
@@ -981,7 +1013,6 @@ describe('anexo de áudio', () => {
     })
 
     expect(res.statusCode).toBe(413)
-    expect(fakeStorage.deletedResources[0]?.resourceType).toBe('raw')
     // Mídia de chat é privada: a limpeza precisa mirar o namespace 'authenticated'.
     expect(fakeStorage.deletedResources[0]?.deliveryType).toBe('authenticated')
   })
@@ -998,17 +1029,43 @@ describe('vídeo — upload direto assinado', () => {
         method: 'POST',
         url: `/conversations/${convo.id}/messages/video/signature`,
         headers: auth(a.id),
+        body: { mimetype: 'video/mp4' },
       })
 
       expect(res.statusCode).toBe(200)
       const body = res.json()
-      expect(body.signature).toBeTruthy()
-      expect(body.timestamp).toBeTruthy()
-      expect(body.apiKey).toBeTruthy()
-      expect(body.cloudName).toBeTruthy()
-      expect(body.resourceType).toBe('video')
+      expect(body.uploadUrl).toBeTruthy()
+      expect(body.expiresAt).toBeTruthy()
       // A pasta é travada pelo backend na conversa — o cliente não a escolhe.
-      expect(body.folder).toBe(`conversations/${convo.id}`)
+      expect(body.key.startsWith(`conversations/${convo.id}/`)).toBe(true)
+    })
+
+    it('sem body → 400', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video/signature`,
+        headers: auth(a.id),
+        body: {},
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('mimetype fora da allowlist → 400', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+
+      const res = await app.inject({
+        method: 'POST',
+        url: `/conversations/${convo.id}/messages/video/signature`,
+        headers: auth(a.id),
+        body: { mimetype: 'video/x-msvideo' },
+      })
+      expect(res.statusCode).toBe(400)
     })
 
     it('não-participante → 403', async () => {
@@ -1021,6 +1078,7 @@ describe('vídeo — upload direto assinado', () => {
         method: 'POST',
         url: `/conversations/${convo.id}/messages/video/signature`,
         headers: auth(outsider.id),
+        body: { mimetype: 'video/mp4' },
       })
       expect(res.statusCode).toBe(403)
     })
@@ -1033,6 +1091,7 @@ describe('vídeo — upload direto assinado', () => {
       const res = await app.inject({
         method: 'POST',
         url: `/conversations/${convo.id}/messages/video/signature`,
+        body: { mimetype: 'video/mp4' },
       })
       expect(res.statusCode).toBe(401)
     })
@@ -1044,53 +1103,113 @@ describe('vídeo — upload direto assinado', () => {
         method: 'POST',
         url: `/conversations/${randomUUID()}/messages/video/signature`,
         headers: auth(a.id),
+        body: { mimetype: 'video/mp4' },
       })
       expect(res.statusCode).toBe(404)
     })
   })
 
   describe('criar mensagem (POST /messages/video)', () => {
-    it('cria a mensagem a partir do publicId verificado no provider', async () => {
+    const sendVideo = async (
+      userId: string,
+      convoId: string,
+      fields: Record<string, string>,
+      opts: { poster?: boolean; headers?: Record<string, string> } = {},
+    ) => {
+      const poster = opts.poster
+        ? {
+            buffer: await tinyPngBuffer(),
+            filename: 'poster.png',
+            mimetype: 'image/png',
+          }
+        : undefined
+      const { body, contentType } = videoMultipart(fields, poster)
+      return app.inject({
+        method: 'POST',
+        url: `/conversations/${convoId}/messages/video`,
+        headers: {
+          ...auth(userId),
+          ...opts.headers,
+          'content-type': contentType,
+        },
+        payload: body,
+      })
+    }
+
+    it('cria a mensagem a partir da key verificada no provider (sem poster)', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/${randomUUID()}`
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
+      const res = await sendVideo(a.id, convo.id, {
+        key,
+        durationMs: '8200',
+        width: '1080',
+        height: '1920',
       })
 
       expect(res.statusCode).toBe(201)
       const attachment = res.json().attachments[0]
       expect(res.json().attachments).toHaveLength(1)
       expect(attachment.kind).toBe('VIDEO')
-      // Metadados vêm do provider (fake), não do cliente.
+      // Duração/dimensões vêm do CLIENTE (cosmético, sem poster para conferir).
       expect(attachment.durationMs).toBe(8200)
       expect(attachment.width).toBe(1080)
       expect(attachment.height).toBe(1920)
       expect(attachment.format).toBe('mp4')
-      // URL e poster ASSINADOS (mídia privada); key não vaza.
+      // URL ASSINADA (mídia privada); key não vaza.
       expect(attachment.url).toContain('/signed/')
-      expect(attachment.thumbnailUrl).toContain('/signed/')
-      expect(attachment.thumbnailUrl).toMatch(/\.jpg$/)
       expect(attachment.key).toBeUndefined()
+      // Sem poster enviado: sem thumbnail.
+      expect(attachment.thumbnailUrl).toBeNull()
     })
 
-    it('apagar mensagem de vídeo remove o asset (video + authenticated)', async () => {
+    it('cria a mensagem COM poster: thumbnailUrl assinada aponta pra key do poster', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/${randomUUID()}`
-      const created = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
+
+      const res = await sendVideo(a.id, convo.id, { key }, { poster: true })
+
+      expect(res.statusCode).toBe(201)
+      const attachment = res.json().attachments[0]
+      expect(attachment.kind).toBe('VIDEO')
+      // O poster sobe pelo MESMO pipeline da imagem de chat (privado).
+      const posterUpload = fakeStorage.uploads[fakeStorage.uploads.length - 1]
+      expect(posterUpload.deliveryType).toBe('authenticated')
+      expect(attachment.thumbnailUrl).toBe(
+        `https://fake.storage/signed/${posterUpload.key}`,
+      )
+    })
+
+    it('metadados ausentes (durationMs/width/height) → null', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
+
+      const res = await sendVideo(a.id, convo.id, { key })
+
+      expect(res.statusCode).toBe(201)
+      const attachment = res.json().attachments[0]
+      expect(attachment.durationMs).toBeNull()
+      expect(attachment.width).toBeNull()
+      expect(attachment.height).toBeNull()
+    })
+
+    it('apagar mensagem de vídeo remove o vídeo E o poster (authenticated)', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
+
+      const created = await sendVideo(a.id, convo.id, { key }, { poster: true })
       expect(created.statusCode).toBe(201)
+      const posterKey = created
+        .json()
+        .attachments[0].thumbnailUrl.replace('https://fake.storage/signed/', '')
 
       const del = await app.inject({
         method: 'DELETE',
@@ -1098,43 +1217,36 @@ describe('vídeo — upload direto assinado', () => {
         headers: auth(a.id),
       })
       expect(del.statusCode).toBe(204)
-      // Vídeo é resource_type 'video' e privado → o destroy precisa de
-      // 'authenticated', senão o asset do cliente vira órfão pago.
+      // Vídeo é privado → o destroy precisa de 'authenticated', senão o asset
+      // do cliente vira órfão pago. O poster (key própria) também é limpo.
       expect(fakeStorage.deletedResources).toContainEqual({
-        key: publicId,
-        resourceType: 'video',
+        key,
+        deliveryType: 'authenticated',
+      })
+      expect(fakeStorage.deletedResources).toContainEqual({
+        key: posterKey,
         deliveryType: 'authenticated',
       })
     })
 
-    it('publicId de outra conversa → 403', async () => {
+    it('key de outra conversa → 403', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      // publicId aponta para a pasta de OUTRA conversa.
-      const publicId = `conversations/${randomUUID()}/${randomUUID()}`
+      // A key aponta para a pasta de OUTRA conversa.
+      const key = `conversations/${randomUUID()}/${randomUUID()}.mp4`
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
+      const res = await sendVideo(a.id, convo.id, { key })
       expect(res.statusCode).toBe(403)
     })
 
-    it('asset inexistente no provider → 400', async () => {
+    it('vídeo inexistente no provedor → 400', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/missing`
+      const key = `conversations/${convo.id}/missing.mp4`
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
+      const res = await sendVideo(a.id, convo.id, { key })
       expect(res.statusCode).toBe(400)
     })
 
@@ -1142,14 +1254,9 @@ describe('vídeo — upload direto assinado', () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/badformat`
+      const key = `conversations/${convo.id}/badformat.mp4`
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
+      const res = await sendVideo(a.id, convo.id, { key })
       expect(res.statusCode).toBe(400)
     })
 
@@ -1157,15 +1264,33 @@ describe('vídeo — upload direto assinado', () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/toobig`
+      const key = `conversations/${convo.id}/toobig.mp4`
+
+      const res = await sendVideo(a.id, convo.id, { key })
+      expect(res.statusCode).toBe(413)
+    })
+
+    it('poster com mimetype inválido → 400', async () => {
+      const a = await makeUser()
+      const b = await makeUser()
+      const convo = await makeDirectConversation(a.id, b.id)
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
+      const { body, contentType } = videoMultipart(
+        { key },
+        {
+          buffer: Buffer.from('not an image'),
+          filename: 'poster.txt',
+          mimetype: 'text/plain',
+        },
+      )
 
       const res = await app.inject({
         method: 'POST',
         url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
+        headers: { ...auth(a.id), 'content-type': contentType },
+        payload: body,
       })
-      expect(res.statusCode).toBe(413)
+      expect(res.statusCode).toBe(400)
     })
 
     it('não-participante → 403', async () => {
@@ -1173,14 +1298,9 @@ describe('vídeo — upload direto assinado', () => {
       const b = await makeUser()
       const outsider = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/${randomUUID()}`
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(outsider.id),
-        body: { publicId },
-      })
+      const res = await sendVideo(outsider.id, convo.id, { key })
       expect(res.statusCode).toBe(403)
     })
 
@@ -1188,91 +1308,43 @@ describe('vídeo — upload direto assinado', () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
+      const { body, contentType } = videoMultipart({ key })
 
       const res = await app.inject({
         method: 'POST',
         url: `/conversations/${convo.id}/messages/video`,
-        body: { publicId: `conversations/${convo.id}/${randomUUID()}` },
+        headers: { 'content-type': contentType },
+        payload: body,
       })
       expect(res.statusCode).toBe(401)
     })
 
-    it('publicId vazio → 400', async () => {
+    it('key vazia → 400', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId: '' },
-      })
+      const res = await sendVideo(a.id, convo.id, { key: '' })
       expect(res.statusCode).toBe(400)
     })
 
-    it('publicId só de espaços → 400 (trim no boundary)', async () => {
+    it('key só de espaços → 400 (trim no boundary)', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
 
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId: '   ' },
-      })
+      const res = await sendVideo(a.id, convo.id, { key: '   ' })
       expect(res.statusCode).toBe(400)
-    })
-
-    // Modo de pasta DINÂMICA do Cloudinary (padrão para contas novas): o
-    // public_id NÃO inclui o caminho; a pasta vem em asset_folder. O
-    // pertencimento depende do ramo `asset.folder === folder` — este teste
-    // falha se alguém removê-lo (a regressão que a revisão tentou introduzir).
-    it('aceita asset em pasta dinâmica (publicId sem caminho + asset_folder)', async () => {
-      const a = await makeUser()
-      const b = await makeUser()
-      const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `dyn::conversations/${convo.id}::${randomUUID()}`
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
-
-      expect(res.statusCode).toBe(201)
-      expect(res.json().attachments[0].kind).toBe('VIDEO')
-    })
-
-    it('pasta dinâmica: asset_folder de outra conversa → 403', async () => {
-      const a = await makeUser()
-      const b = await makeUser()
-      const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `dyn::conversations/${randomUUID()}::${randomUUID()}`
-
-      const res = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
-      expect(res.statusCode).toBe(403)
     })
 
     it('mensagem só de vídeo não pode ser editada → 403', async () => {
       const a = await makeUser()
       const b = await makeUser()
       const convo = await makeDirectConversation(a.id, b.id)
-      const publicId = `conversations/${convo.id}/${randomUUID()}`
+      const key = `conversations/${convo.id}/${randomUUID()}.mp4`
 
-      const created = await app.inject({
-        method: 'POST',
-        url: `/conversations/${convo.id}/messages/video`,
-        headers: auth(a.id),
-        body: { publicId },
-      })
+      const created = await sendVideo(a.id, convo.id, { key })
       const messageId = created.json().id
 
       const res = await app.inject({
@@ -2214,17 +2286,15 @@ describe('ciclo de vida de mídia (auditoria 1.1/1.2)', () => {
       headers: auth(a.id),
     })
     expect(del.statusCode).toBe(204)
-    // 1.1: áudio é resource_type 'video' no Cloudinary (destroy com tipo certo)
-    // e 'authenticated' (mídia de chat é privada — destroy no namespace público
-    // não apagaria o asset → órfão pago).
+    // 1.1: mídia de chat é privada — o destroy usa 'authenticated'; destroy no
+    // namespace público não apagaria o asset → órfão pago.
     expect(fakeStorage.deletedResources).toContainEqual({
       key,
-      resourceType: 'video',
       deliveryType: 'authenticated',
     })
   })
 
-  it('apagar mensagem de imagem remove o arquivo (resource_type image)', async () => {
+  it('apagar mensagem de imagem remove o arquivo', async () => {
     const a = await makeUser()
     const b = await makeUser()
     const convo = await makeDirectConversation(a.id, b.id)
@@ -2251,7 +2321,6 @@ describe('ciclo de vida de mídia (auditoria 1.1/1.2)', () => {
     expect(del.statusCode).toBe(204)
     expect(fakeStorage.deletedResources).toContainEqual({
       key,
-      resourceType: 'image',
       deliveryType: 'authenticated',
     })
   })
@@ -2470,19 +2539,21 @@ describe('idempotência de envio (Fase 2 #7)', () => {
     expect(count).toBe(1)
   })
 
-  it('vídeo: retry com a mesma key não duplica', async () => {
+  it('vídeo: retry com a mesma key não duplica (e não deleta o vídeo)', async () => {
     const a = await makeUser()
     const b = await makeUser()
     const convo = await makeDirectConversation(a.id, b.id)
-    const publicId = `conversations/${convo.id}/${randomUUID()}`
+    const key = `conversations/${convo.id}/${randomUUID()}.mp4`
 
-    const send = () =>
-      app.inject({
+    const send = () => {
+      const { body, contentType } = videoMultipart({ key })
+      return app.inject({
         method: 'POST',
         url: `/conversations/${convo.id}/messages/video`,
-        headers: idem(a.id, 'vid-1'),
-        body: { publicId },
+        headers: { ...idem(a.id, 'vid-1'), 'content-type': contentType },
+        payload: body,
       })
+    }
 
     const first = await send()
     const second = await send()
@@ -2493,6 +2564,9 @@ describe('idempotência de envio (Fase 2 #7)', () => {
       where: { conversationId: convo.id },
     })
     expect(count).toBe(1)
+    // O retry usa a MESMA key da assinatura original: a corrida de idempotência
+    // não pode deletar o vídeo da mensagem vencedora.
+    expect(fakeStorage.deleted).not.toContain(key)
   })
 })
 
@@ -2541,7 +2615,7 @@ describe('mídia privada — URLs assinadas e revogação (Fase 2 #1)', () => {
     ).toBe('authenticated')
   })
 
-  it('assinatura de vídeo força entrega authenticated', async () => {
+  it('assinatura de vídeo trava a key na pasta da conversa (sempre privada)', async () => {
     const a = await makeUser()
     const b = await makeUser()
     const convo = await makeDirectConversation(a.id, b.id)
@@ -2550,9 +2624,13 @@ describe('mídia privada — URLs assinadas e revogação (Fase 2 #1)', () => {
       method: 'POST',
       url: `/conversations/${convo.id}/messages/video/signature`,
       headers: auth(a.id),
+      body: { mimetype: 'video/mp4' },
     })
     expect(res.statusCode).toBe(200)
-    expect(res.json().type).toBe('authenticated')
+    // signUpload não recebe deliveryType: o driver real (R2StorageService)
+    // sempre assina o PUT contra o bucket privado — não há alternativa pública.
+    expect(res.json().key.startsWith(`conversations/${convo.id}/`)).toBe(true)
+    expect(res.json().uploadUrl).toBeTruthy()
   })
 
   it('a mesma mídia é servida com URL assinada em list e inbox', async () => {
@@ -2715,25 +2793,34 @@ describe('cota de armazenamento por usuário (Fase 2 #6)', () => {
     expect(res.statusCode).toBe(201)
   })
 
-  it('vídeo: atinge a cota → 413 e remove o asset órfão do provider', async () => {
+  it('vídeo: atinge a cota → 413 e remove o vídeo E o poster órfãos do provider', async () => {
     const a = await makeUser()
     const b = await makeUser()
     const convo = await makeDirectConversation(a.id, b.id)
     await seedMedia(convo.id, a.id, env.CHAT_USER_STORAGE_QUOTA_BYTES)
-    const publicId = `conversations/${convo.id}/${randomUUID()}`
+    const key = `conversations/${convo.id}/${randomUUID()}.mp4`
     const deletedBefore = fakeStorage.deleted.length
+    const { body, contentType } = videoMultipart(
+      { key },
+      {
+        buffer: await tinyPngBuffer(),
+        filename: 'poster.png',
+        mimetype: 'image/png',
+      },
+    )
 
     const res = await app.inject({
       method: 'POST',
       url: `/conversations/${convo.id}/messages/video`,
-      headers: auth(a.id),
-      body: { publicId },
+      headers: { ...auth(a.id), 'content-type': contentType },
+      payload: body,
     })
 
     expect(res.statusCode).toBe(413)
-    // O asset subido pelo cliente virou órfão (recusamos a mensagem) → removido.
-    expect(fakeStorage.deleted).toContain(publicId)
-    expect(fakeStorage.deleted.length).toBeGreaterThan(deletedBefore)
+    // O vídeo (subido pelo cliente) e o poster (subido pelo backend) viraram
+    // órfãos (recusamos a mensagem) → ambos removidos.
+    expect(fakeStorage.deleted).toContain(key)
+    expect(fakeStorage.deleted.length).toBeGreaterThan(deletedBefore + 1)
     // Nenhuma mensagem de vídeo foi persistida.
     const videoMsgs = await testPrisma.message.count({
       where: {

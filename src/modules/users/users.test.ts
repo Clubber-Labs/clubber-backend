@@ -321,7 +321,6 @@ describe('PATCH /users/me/avatar', () => {
     // compartilhado e orfanasse avatar/evento.
     expect(fakeStorage.deletedResources).toContainEqual({
       key: firstKey,
-      resourceType: 'image',
       deliveryType: 'upload',
     })
   })

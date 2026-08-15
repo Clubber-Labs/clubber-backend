@@ -71,7 +71,6 @@ quebra a funcionalidade correspondente na primeira chamada.
 
 | Variável | Obrigatória quando | Descrição |
 |---|---|---|
-| `CLOUDINARY_CLOUD_NAME_PROD`, `CLOUDINARY_API_KEY_PROD`, `CLOUDINARY_API_SECRET_PROD` | `STORAGE_DRIVER=cloudinary` (default) em produção | `resolveCloudinaryCredentials()` (`src/lib/env.ts:419-439`) lança erro em runtime — na primeira operação de upload, não no boot — se alguma faltar em `NODE_ENV=production`. Configure as três antes do primeiro deploy. |
 | `R2_ACCOUNT_ID_PROD`, `R2_ACCESS_KEY_ID_PROD`, `R2_SECRET_ACCESS_KEY_PROD`, `R2_BUCKET_PUBLIC_PROD`, `R2_BUCKET_PRIVATE_PROD`, `R2_PUBLIC_BASE_URL_PROD` | `STORAGE_DRIVER=r2` em produção | `resolveR2Credentials()` (`src/lib/env.ts`) lança erro em runtime — na primeira operação de upload, não no boot — se alguma faltar em `NODE_ENV=production`. Configure as seis antes do primeiro deploy com `STORAGE_DRIVER=r2`. |
 | `GOOGLE_PLACES_API_KEY` | Uso de `POST /spots/suggestions` | Sem ela, o endpoint responde 503 (degradação graciosa documentada no `.env.example`). |
 | `ANTHROPIC_API_KEY` | Copy/ranking de sugestões de spot via IA | Sem ela, cai num template determinístico — degradação graciosa, não é hard-fail. |
@@ -98,9 +97,8 @@ específica de ajuste.
 | `RATE_LIMIT_ENABLED` | `true` | Master switch do rate-limit. |
 | `RATE_LIMIT_MAX_FACTOR` | `1` | Multiplicador dos limites de todas as rotas. |
 | `RATE_LIMIT_WINDOW` | `1 minute` | Janela global do rate-limit. |
-| `STORAGE_DRIVER` | `cloudinary` | `cloudinary\|local\|r2`. Em produção manter `cloudinary` ou `r2` (ver 1.3). |
+| `STORAGE_DRIVER` | `r2` | `r2\|local`. Em produção manter `r2` (ver 1.3). |
 | `UPLOADS_DIR` | `./uploads` | Só relevante com `STORAGE_DRIVER=local`. |
-| `CLOUDINARY_AUTH_TOKEN_KEY` | — | Opcional (recurso pago): URLs assinadas com expiração. |
 | `R2_PUBLIC_BASE_URL_DEV` / `_PROD` | — | Public Development URL do bucket (`https://pub-xxxx.r2.dev`) em dev, ou custom domain em prod. Só relevante com `STORAGE_DRIVER=r2` (ver 1.3). |
 | `CHAT_USER_STORAGE_QUOTA_BYTES` | `1073741824` (1 GB) | Cota de mídia de chat por usuário. |
 | `EMAIL_FROM` | `Clubber <no-reply@clubber.app>` | Remetente dos e-mails transacionais. |
