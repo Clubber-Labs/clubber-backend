@@ -29,6 +29,8 @@
   "packageManager": "pnpm@10.30.3",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
+    "@aws-sdk/client-s3": "^3.1111.0",
+    "@aws-sdk/lib-storage": "^3.1111.0",
     "@fastify/cors": "^11.2.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/jwt": "^10.1.0",
