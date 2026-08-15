@@ -8,6 +8,26 @@ const JPEG = Buffer.from([0xff, 0xd8, 0xff])
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 const EBML = Buffer.from([0x1a, 0x45, 0xdf, 0xa3])
 
+export function sniffVideoFormat(
+  header: Buffer,
+): 'mp4' | 'mov' | 'webm' | null {
+  if (
+    header.length >= 12 &&
+    header.subarray(4, 8).toString('ascii') === 'ftyp'
+  ) {
+    const brand = header.subarray(8, 12).toString('ascii')
+    // 'qt  ' é a brand exclusiva do QuickTime; toda a família ISO BMFF
+    // restante (isom, mp4x, avc1, M4V etc.) toca como MP4 — enumerar seria frágil.
+    return brand.startsWith('qt') ? 'mov' : 'mp4'
+  }
+
+  if (header.length >= 4 && header.subarray(0, 4).equals(EBML)) {
+    return 'webm'
+  }
+
+  return null
+}
+
 export function sniffResourceType(header: Buffer): StorageResourceType {
   // ftyp cobre toda a família ISO BMFF (MP4, M4A/AAC do iOS, MOV/QuickTime).
   if (

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { sniffResourceType } from './content-sniffer'
+import { sniffResourceType, sniffVideoFormat } from './content-sniffer'
 
 function ftypBuffer(brand: string) {
   return Buffer.concat([
@@ -75,5 +75,54 @@ describe('sniffResourceType', () => {
       Buffer.from('WAVE'),
     ])
     expect(sniffResourceType(buffer)).toBe('raw')
+  })
+})
+
+describe('sniffVideoFormat', () => {
+  it('detecta mov (brand qt  )', () => {
+    expect(sniffVideoFormat(ftypBuffer('qt  '))).toBe('mov')
+  })
+
+  it('detecta mp4 (brand isom)', () => {
+    expect(sniffVideoFormat(ftypBuffer('isom'))).toBe('mp4')
+  })
+
+  it('detecta mp4 (brand mp42)', () => {
+    expect(sniffVideoFormat(ftypBuffer('mp42'))).toBe('mp4')
+  })
+
+  it('detecta mp4 (brand avc1)', () => {
+    expect(sniffVideoFormat(ftypBuffer('avc1'))).toBe('mp4')
+  })
+
+  it('detecta mp4 para brand M4V  (família ISO BMFF)', () => {
+    expect(sniffVideoFormat(ftypBuffer('M4V '))).toBe('mp4')
+  })
+
+  it('detecta webm (EBML)', () => {
+    const buffer = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x01, 0x02, 0x03, 0x04])
+    expect(sniffVideoFormat(buffer)).toBe('webm')
+  })
+
+  it('retorna null para avi (RIFF ... AVI )', () => {
+    const buffer = Buffer.concat([
+      Buffer.from('RIFF'),
+      Buffer.from([0x00, 0x00, 0x00, 0x00]),
+      Buffer.from('AVI '),
+    ])
+    expect(sniffVideoFormat(buffer)).toBeNull()
+  })
+
+  it('retorna null para jpeg', () => {
+    const buffer = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10])
+    expect(sniffVideoFormat(buffer)).toBeNull()
+  })
+
+  it('retorna null para buffer vazio', () => {
+    expect(sniffVideoFormat(Buffer.alloc(0))).toBeNull()
+  })
+
+  it('retorna null para buffer curto demais', () => {
+    expect(sniffVideoFormat(Buffer.from([0x00, 0x00, 0x00, 0x18]))).toBeNull()
   })
 })
