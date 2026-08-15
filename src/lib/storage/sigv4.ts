@@ -122,7 +122,9 @@ function presignGetUrl(params: PresignParams): string {
     ['X-Amz-Date', amzDate],
     ['X-Amz-Expires', String(expiresInSeconds)],
     ['X-Amz-SignedHeaders', 'host'],
-  ].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+  ]
+  // Ordem canônica byte a byte dos params — exigência do SigV4.
+  queryParams.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
   const canonicalQueryString = queryParams
     .map(([k, v]) => `${uriEncode(k, true)}=${uriEncode(v, true)}`)
