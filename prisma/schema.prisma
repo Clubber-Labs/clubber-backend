@@ -382,6 +382,7 @@ model MessageAttachment {
   width        Int?
   height       Int?
   thumbnailUrl String?
+  thumbnailKey String?
   order        Int            @default(0)
   createdAt    DateTime       @default(now())
 
