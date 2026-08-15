@@ -4,7 +4,8 @@ Documento de planejamento. Descreve **o que precisa mudar** para trocar o
 Cloudinary pelo Cloudflare R2 como storage de mídia, o que **não** pode ser
 migrado como está, e em que ordem fazer.
 
-Status: proposta — nada implementado.
+Status: decidido — migrar **tudo** para o R2, vídeo na opção A (sem Stream).
+Plano executável em [PLANO_IMPLEMENTACAO_R2.md](PLANO_IMPLEMENTACAO_R2.md).
 
 ---
 
@@ -304,13 +305,12 @@ entregam valor sozinhas e não bloqueiam nada.
 
 ## Decisões em aberto
 
-- [ ] Vídeo: opção A (R2 puro), opção B (Stream), ou manter no Cloudinary
-      indefinidamente? (Manter é uma resposta legítima — o custo de vídeo é
-      baixo se o volume for baixo.)
+- [x] Vídeo: **opção A (R2 puro)** — decidido; ver o
+      [plano de implementação](PLANO_IMPLEMENTACAO_R2.md).
 - [ ] Opção A depende do app conseguir gerar o poster localmente — confirmar
-      antes de fechar a decisão.
+      na etapa 0 do plano.
 - [ ] TTL das URLs assinadas de chat — depende de confirmar o comportamento de
-      cache do app.
-- [ ] Domínio público do R2: subdomínio próprio ou `r2.dev`?
+      cache do app (etapa 0 do plano).
+- [x] Domínio público do R2: **subdomínio próprio** em prod, `r2.dev` em dev.
 - [ ] Imagens: precisamos de transformação server-side no futuro (Cloudflare
       Images), ou o sharp no upload continua suficiente?
