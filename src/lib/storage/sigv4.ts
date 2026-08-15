@@ -10,6 +10,10 @@ interface PresignParams {
   now?: Date
 }
 
+interface PresignPutParams extends PresignParams {
+  contentType: string
+}
+
 const REGION = 'auto'
 const SERVICE = 's3'
 const ALGORITHM = 'AWS4-HMAC-SHA256'
@@ -47,9 +51,12 @@ function toAmzDate(now: Date): { amzDate: string; dateStamp: string } {
 }
 
 interface CanonicalRequestParams {
+  method?: string
   host: string
   canonicalUri: string
   canonicalQueryString: string
+  canonicalHeaders?: string
+  signedHeaders?: string
   amzDate: string
   dateStamp: string
   secretAccessKey: string
@@ -60,21 +67,23 @@ interface CanonicalRequestParams {
 // que o presign de R2 não usa — mas o cálculo HMAC por trás é o mesmo.
 function computeSignature(params: CanonicalRequestParams): string {
   const {
+    method = 'GET',
     host,
     canonicalUri,
     canonicalQueryString,
+    canonicalHeaders = `host:${host}\n`,
+    signedHeaders = 'host',
     amzDate,
     dateStamp,
     secretAccessKey,
   } = params
   const credentialScope = `${dateStamp}/${REGION}/${SERVICE}/aws4_request`
-  const canonicalHeaders = `host:${host}\n`
   const canonicalRequest = [
-    'GET',
+    method,
     canonicalUri,
     canonicalQueryString,
     canonicalHeaders,
-    'host',
+    signedHeaders,
     'UNSIGNED-PAYLOAD',
   ].join('\n')
 
@@ -143,5 +152,62 @@ function presignGetUrl(params: PresignParams): string {
   return `https://${host}${canonicalUri}?${canonicalQueryString}&X-Amz-Signature=${signature}`
 }
 
-export type { PresignParams }
-export { computeSignature, presignGetUrl }
+function presignPutUrl(params: PresignPutParams): string {
+  const {
+    accountId,
+    accessKeyId,
+    secretAccessKey,
+    bucket,
+    key,
+    expiresInSeconds,
+    contentType,
+  } = params
+
+  if (
+    expiresInSeconds < MIN_EXPIRES_SECONDS ||
+    expiresInSeconds > MAX_EXPIRES_SECONDS
+  ) {
+    throw new Error(
+      `expiresInSeconds deve estar entre ${MIN_EXPIRES_SECONDS} e ${MAX_EXPIRES_SECONDS}`,
+    )
+  }
+
+  const now = params.now ?? new Date()
+  const { amzDate, dateStamp } = toAmzDate(now)
+  const host = `${accountId}.r2.cloudflarestorage.com`
+  const credentialScope = `${dateStamp}/${REGION}/${SERVICE}/aws4_request`
+  const signedHeaders = 'content-type;host'
+
+  const queryParams: Array<[string, string]> = [
+    ['X-Amz-Algorithm', ALGORITHM],
+    ['X-Amz-Credential', `${accessKeyId}/${credentialScope}`],
+    ['X-Amz-Date', amzDate],
+    ['X-Amz-Expires', String(expiresInSeconds)],
+    ['X-Amz-SignedHeaders', signedHeaders],
+  ]
+  queryParams.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+
+  const canonicalQueryString = queryParams
+    .map(([k, v]) => `${uriEncode(k, true)}=${uriEncode(v, true)}`)
+    .join('&')
+
+  const canonicalUri = encodePath(bucket, key)
+  // assinar o Content-Type força o cliente a enviar exatamente esse header no PUT (R2 rejeita se divergir)
+  const canonicalHeaders = `content-type:${contentType}\nhost:${host}\n`
+  const signature = computeSignature({
+    method: 'PUT',
+    host,
+    canonicalUri,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeaders,
+    amzDate,
+    dateStamp,
+    secretAccessKey,
+  })
+
+  return `https://${host}${canonicalUri}?${canonicalQueryString}&X-Amz-Signature=${signature}`
+}
+
+export type { PresignParams, PresignPutParams }
+export { computeSignature, presignGetUrl, presignPutUrl }
