@@ -11,6 +11,13 @@ import type {
   UploadSignature,
 } from '../lib/storage'
 
+// Mesma tabela do driver real (r2-storage.service.ts): contentType -> extensão.
+const VIDEO_CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+}
+
 export class FakeStorageService implements IStorageService {
   uploads: {
     key: string
@@ -19,11 +26,7 @@ export class FakeStorageService implements IStorageService {
     deliveryType: StorageDeliveryType
   }[] = []
   deleted: string[] = []
-  deletedResources: {
-    key: string
-    resourceType: StorageResourceType
-    deliveryType: StorageDeliveryType
-  }[] = []
+  deletedResources: { key: string; deliveryType: StorageDeliveryType }[] = []
   // Seam de teste: força o próximo uploadStream a reportar um tamanho acima do
   // int4 do Postgres (> 2.147B). O insert do attachment estoura ("value out of
   // range for type integer") → permite testar o delete compensatório sem mockar
@@ -33,6 +36,9 @@ export class FakeStorageService implements IStorageService {
   // (ex.: o cliente mandou texto/HTML com Content-Type de áudio). O próximo
   // uploadStream reporta esse resource_type detectado.
   forceDetectedResourceType: StorageResourceType | null = null
+  // Contador próprio pro signUpload: não pode colidir com `uploads.length`
+  // (upload/uploadStream), senão duas chamadas intercaladas gerariam a mesma key.
+  private signCounter = 0
 
   private nextKey(folderConfig: string, ext: string): string {
     return `${folderConfig}/${this.uploads.length + 1}${ext}`
@@ -74,80 +80,42 @@ export class FakeStorageService implements IStorageService {
     return { key, url, bytes, detectedResourceType }
   }
 
-  // URL assinada determinística e reconhecível (marcador '/signed/'). Reflete o
-  // resource_type e, se thumbnail, termina em .jpg (como o poster de vídeo).
-  signedUrl(
-    key: string,
-    resourceType: StorageResourceType,
-    opts?: { asThumbnail?: boolean },
-  ): string {
-    const suffix = opts?.asThumbnail ? '.jpg' : ''
-    return `https://fake.storage/signed/${resourceType}/${key}${suffix}`
+  // URL assinada determinística e reconhecível (marcador '/signed/').
+  signedUrl(key: string): string {
+    return `https://fake.storage/signed/${key}`
   }
 
   async delete(
     key: string,
-    resourceType: StorageResourceType = 'image',
     deliveryType: StorageDeliveryType = 'upload',
   ): Promise<void> {
     this.deleted.push(key)
-    this.deletedResources.push({ key, resourceType, deliveryType })
+    this.deletedResources.push({ key, deliveryType })
   }
 
-  signUpload(folder: string, resourceType: 'video'): UploadSignature {
+  signUpload(folder: string, contentType: string): UploadSignature {
+    this.signCounter += 1
+    const ext = VIDEO_CONTENT_TYPE_EXTENSIONS[contentType] ?? '.bin'
+    const key = `${folder}/${this.signCounter}${ext}`
     return {
-      signature: 'fake-signature',
-      timestamp: 1_749_000_000,
-      apiKey: 'fake-api-key',
-      cloudName: 'fake-cloud',
-      folder,
-      resourceType,
-      type: 'authenticated',
+      uploadUrl: `https://fake.storage/put/${key}`,
+      key,
+      expiresAt: '2099-01-01T00:00:00.000Z',
     }
   }
 
-  // Simula o Admin API do Cloudinary de forma determinística. Convenções no
-  // publicId disparam os caminhos de erro do service:
+  // Simula o Admin API do provider de forma determinística. Convenções na key
+  // disparam os caminhos de erro do service:
   // - contém 'missing'   → asset inexistente (null)
   // - contém 'badformat' → formato não permitido
   // - contém 'toobig'    → acima do limite de tamanho
-  async getAsset(
-    publicId: string,
-    _resourceType: 'video',
-  ): Promise<RemoteAsset | null> {
-    if (publicId.includes('missing')) return null
-    // Seam: simula o modo de pasta DINÂMICA do Cloudinary. Formato
-    // 'dyn::<asset_folder>::<short_id>' → o public_id NÃO inclui o caminho da
-    // pasta (vem só em asset_folder), como o provider reporta nesse modo. Cobre
-    // o ramo `asset.folder === folder` do pertencimento.
-    if (publicId.startsWith('dyn::')) {
-      const [, folder, shortId] = publicId.split('::')
-      return {
-        publicId: shortId,
-        url: `https://fake.storage/${shortId}.mp4`,
-        bytes: 1_234_567,
-        format: 'mp4',
-        folder,
-        durationMs: 8200,
-        width: 1080,
-        height: 1920,
-        thumbnailUrl: `https://fake.storage/${shortId}.jpg`,
-      }
-    }
-    const folder = publicId.split('/').slice(0, -1).join('/')
-    const format = publicId.includes('badformat') ? 'avi' : 'mp4'
-    const bytes = publicId.includes('toobig') ? 60 * 1024 * 1024 : 1_234_567
-    return {
-      publicId,
-      url: `https://fake.storage/${publicId}.${format}`,
-      bytes,
-      format,
-      folder,
-      durationMs: 8200,
-      width: 1080,
-      height: 1920,
-      thumbnailUrl: `https://fake.storage/${publicId}.jpg`,
-    }
+  async getAsset(key: string): Promise<RemoteAsset | null> {
+    if (key.includes('missing')) return null
+    if (key.includes('badformat'))
+      return { key, bytes: 1_234_567, format: 'avi' }
+    if (key.includes('toobig'))
+      return { key, bytes: 60 * 1024 * 1024, format: 'mp4' }
+    return { key, bytes: 1_234_567, format: 'mp4' }
   }
 
   reset() {
@@ -156,6 +124,7 @@ export class FakeStorageService implements IStorageService {
     this.deletedResources = []
     this.forceOversizeBytes = false
     this.forceDetectedResourceType = null
+    this.signCounter = 0
   }
 }
 

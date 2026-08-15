@@ -27,6 +27,7 @@ const messageInclude = {
       width: true,
       height: true,
       thumbnailUrl: true,
+      thumbnailKey: true,
       order: true,
     },
   },
@@ -287,8 +288,10 @@ type AttachmentInput = {
   // Só vídeo preenche; imagem/áudio deixam null.
   width?: number | null
   height?: number | null
-  // Vídeo: poster gerado pelo provider.
+  // Vídeo: poster (upload do app). thumbnailUrl só preenchido por anexo legado
+  // do Cloudinary (ver shapeAttachments); mídia nova usa thumbnailKey.
   thumbnailUrl?: string | null
+  thumbnailKey?: string | null
 }
 
 /** Erro sentinela: a criação foi abortada (rollback) por estourar a cota. */
@@ -348,6 +351,7 @@ export async function createAttachmentMessage(
               width: attachment.width ?? null,
               height: attachment.height ?? null,
               thumbnailUrl: attachment.thumbnailUrl ?? null,
+              thumbnailKey: attachment.thumbnailKey ?? null,
               order: 0,
             },
           ],
@@ -494,11 +498,12 @@ export async function findMessageWithConversation(id: string) {
   })
 }
 
-/** Anexos (key + kind) de uma mensagem — para limpar o storage ao apagá-la. */
+/** Anexos (key + kind + thumbnailKey) de uma mensagem — para limpar o storage
+ * ao apagá-la (vídeo tem um poster em key própria). */
 export async function findMessageAttachments(messageId: string) {
   return prisma.messageAttachment.findMany({
     where: { messageId },
-    select: { key: true, kind: true },
+    select: { key: true, kind: true, thumbnailKey: true },
   })
 }
 

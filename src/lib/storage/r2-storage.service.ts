@@ -3,21 +3,24 @@ import path from 'node:path'
 import { PassThrough, Readable } from 'node:stream'
 import {
   DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
 import type { R2Credentials } from '../env'
-import { resolveCloudinaryCredentials } from '../env'
-import { CloudinaryStorageService } from './cloudinary-storage.service'
-import { SNIFF_BYTES, sniffResourceType } from './content-sniffer'
-import { presignGetUrl } from './sigv4'
+import {
+  SNIFF_BYTES,
+  sniffResourceType,
+  sniffVideoFormat,
+} from './content-sniffer'
+import { presignGetUrl, presignPutUrl } from './sigv4'
 import type {
   FileData,
   IStorageService,
   RemoteAsset,
   StorageDeliveryType,
-  StorageResourceType,
   StreamData,
   StreamUploadResult,
   UploadResult,
@@ -25,13 +28,19 @@ import type {
 } from './storage.interface'
 
 const PRESIGNED_GET_TTL_SECONDS = 3600
+const PRESIGNED_PUT_TTL_SECONDS = 900
+
+// Extensão do upload direto de vídeo: contentType assinado no PUT vem de uma
+// lista fechada (assertVideoFormat rejeita o resto no getAsset); fora dela, .bin.
+const VIDEO_CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  'video/mp4': '.mp4',
+  'video/quicktime': '.mov',
+  'video/webm': '.webm',
+}
 
 export class R2StorageService implements IStorageService {
   private readonly credentials: R2Credentials
   private readonly client: S3Client
-  // Delegação lazy: só instancia o driver Cloudinary (e exige suas credenciais)
-  // na primeira chamada de vídeo — ambiente só-R2 sobe e serve imagem/áudio sem elas.
-  private cloudinaryDelegate: CloudinaryStorageService | null = null
 
   constructor(credentials: R2Credentials) {
     this.credentials = credentials
@@ -48,15 +57,6 @@ export class R2StorageService implements IStorageService {
       requestChecksumCalculation: 'WHEN_REQUIRED',
       responseChecksumValidation: 'WHEN_REQUIRED',
     })
-  }
-
-  private get cloudinary(): CloudinaryStorageService {
-    if (!this.cloudinaryDelegate) {
-      this.cloudinaryDelegate = new CloudinaryStorageService(
-        resolveCloudinaryCredentials(),
-      )
-    }
-    return this.cloudinaryDelegate
   }
 
   private bucketFor(deliveryType: StorageDeliveryType): string {
@@ -190,11 +190,10 @@ export class R2StorageService implements IStorageService {
 
   async delete(
     key: string,
-    _resourceType: StorageResourceType = 'image',
     deliveryType: StorageDeliveryType = 'upload',
   ): Promise<void> {
-    // resourceType era namespace do Cloudinary (image/video/raw); no S3 a key já
-    // identifica o objeto sozinha, e o delete é idempotente (sem warn de not-found).
+    // No S3 a key já identifica o objeto sozinha (sem namespace por tipo); o
+    // delete é idempotente (sem warn de not-found).
     await this.client.send(
       new DeleteObjectCommand({
         Bucket: this.bucketFor(deliveryType),
@@ -203,15 +202,7 @@ export class R2StorageService implements IStorageService {
     )
   }
 
-  signedUrl(
-    key: string,
-    resourceType: StorageResourceType,
-    opts?: { asThumbnail?: boolean },
-  ): string {
-    // Poster de vídeo legado: delega ao Cloudinary (fase 1 não migra vídeo).
-    if (opts?.asThumbnail) {
-      return this.cloudinary.signedUrl(key, resourceType, opts)
-    }
+  signedUrl(key: string): string {
     return presignGetUrl({
       accountId: this.credentials.accountId,
       accessKeyId: this.credentials.accessKeyId,
@@ -222,14 +213,56 @@ export class R2StorageService implements IStorageService {
     })
   }
 
-  signUpload(folder: string, resourceType: 'video'): UploadSignature {
-    return this.cloudinary.signUpload(folder, resourceType)
+  signUpload(folder: string, contentType: string): UploadSignature {
+    const ext = VIDEO_CONTENT_TYPE_EXTENSIONS[contentType] ?? '.bin'
+    const key = `${folder}/${randomUUID()}${ext}`
+    // Vídeo é sempre mídia de chat: sobe direto pro bucket PRIVADO, sem passar
+    // pelo backend (o presign de PUT libera o cliente pra escrever só nessa key).
+    const uploadUrl = presignPutUrl({
+      accountId: this.credentials.accountId,
+      accessKeyId: this.credentials.accessKeyId,
+      secretAccessKey: this.credentials.secretAccessKey,
+      bucket: this.credentials.bucketPrivate,
+      key,
+      expiresInSeconds: PRESIGNED_PUT_TTL_SECONDS,
+      contentType,
+    })
+    const expiresAt = new Date(
+      Date.now() + PRESIGNED_PUT_TTL_SECONDS * 1000,
+    ).toISOString()
+    return { uploadUrl, key, expiresAt }
   }
 
-  async getAsset(
-    publicId: string,
-    resourceType: 'video',
-  ): Promise<RemoteAsset | null> {
-    return this.cloudinary.getAsset(publicId, resourceType)
+  async getAsset(key: string): Promise<RemoteAsset | null> {
+    let bytes: number
+    try {
+      const head = await this.client.send(
+        new HeadObjectCommand({
+          Bucket: this.credentials.bucketPrivate,
+          Key: key,
+        }),
+      )
+      bytes = head.ContentLength ?? 0
+    } catch (err) {
+      const name = (err as { name?: string })?.name
+      if (name === 'NotFound' || name === '404') return null
+      throw err
+    }
+
+    // bytes (cota) e format (tipo real, via magic bytes) são as duas validações
+    // com peso de segurança aqui — o Content-Type do PUT é o que o CLIENTE disse.
+    const range = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.credentials.bucketPrivate,
+        Key: key,
+        Range: `bytes=0-${SNIFF_BYTES - 1}`,
+      }),
+    )
+    const head = range.Body
+      ? Buffer.from(await range.Body.transformToByteArray())
+      : Buffer.alloc(0)
+    const format = sniffVideoFormat(head) ?? 'unknown'
+
+    return { key, bytes, format }
   }
 }

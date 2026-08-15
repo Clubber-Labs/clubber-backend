@@ -7,7 +7,7 @@ import {
   type ChatPaginationQuery,
   type ConversationParam,
   type CreateConversationBody,
-  type CreateVideoMessageBody,
+  type CreateVideoSignatureBody,
   type EditMessageBody,
   type MessageParam,
   type MessageReactionBody,
@@ -15,6 +15,8 @@ import {
   type RenameConversationBody,
   type SendMessageBody,
   type SetRoleBody,
+  type VideoMessageMeta,
+  videoMessageMetaSchema,
 } from './chat.schema'
 import {
   addGroupParticipant,
@@ -204,8 +206,25 @@ export async function postVideoUploadSignature(
   reply: FastifyReply,
 ) {
   const { id } = request.params as ConversationParam
-  const signature = await createVideoUploadSignature(request.user.sub, id)
+  const { mimetype } = request.body as CreateVideoSignatureBody
+  const signature = await createVideoUploadSignature(
+    request.user.sub,
+    id,
+    mimetype,
+  )
   return reply.send(signature)
+}
+
+function parseVideoMeta(fields: Record<string, string>): VideoMessageMeta {
+  const parsed = videoMessageMetaSchema.safeParse(fields)
+  if (!parsed.success) {
+    throw {
+      statusCode: 400,
+      message:
+        parsed.error.issues[0]?.message ?? 'Metadados de vídeo inválidos',
+    }
+  }
+  return parsed.data
 }
 
 export async function postMessageVideo(
@@ -213,12 +232,33 @@ export async function postMessageVideo(
   reply: FastifyReply,
 ) {
   const { id } = request.params as ConversationParam
-  const { publicId } = request.body as CreateVideoMessageBody
+  // Lê a key ANTES de abrir o multipart: mesmo motivo do áudio/imagem — se for
+  // inválida (400), nenhum stream foi aberto.
+  const idempotencyKey = readIdempotencyKey(request)
+  const fields: Record<string, string> = {}
+  let posterBuffer: Buffer | undefined
+  // NÃO usa request.file(): o poster é OPCIONAL e, sem arquivo, os campos de
+  // texto (key/durationMs/...) se perderiam. request.parts() itera os dois.
+  for await (const part of request.parts()) {
+    if (part.type === 'field') {
+      if (typeof part.value === 'string') fields[part.fieldname] = part.value
+      continue
+    }
+    if (part.fieldname === 'poster') {
+      assertImageMimetype(part.mimetype)
+      // O teto de 5 MB do multipart (fileSize) lança 413 sozinho aqui.
+      posterBuffer = await part.toBuffer()
+      continue
+    }
+    // Arquivo inesperado em outro campo: drena sem processar.
+    await part.toBuffer()
+  }
+  const meta = parseVideoMeta(fields)
   const message = await sendVideoMessage(
     request.user.sub,
     id,
-    publicId,
-    readIdempotencyKey(request),
+    { ...meta, posterBuffer },
+    idempotencyKey,
   )
   return reply.status(201).send(message)
 }

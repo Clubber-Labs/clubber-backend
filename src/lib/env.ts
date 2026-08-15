@@ -80,7 +80,7 @@ const baseSchema = z.object({
       "RATE_LIMIT_WINDOW deve ser no formato '1 minute', '30 seconds', '1 hour'…",
     )
     .default('1 minute'),
-  STORAGE_DRIVER: z.enum(['cloudinary', 'local', 'r2']).optional(),
+  STORAGE_DRIVER: z.enum(['local', 'r2']).optional(),
   UPLOADS_DIR: z.string().optional(),
   // Envio de e-mail (recuperação de senha). Driver `log` (default) só loga o
   // conteúdo — seguro em dev/test sem credencial. `resend` envia de verdade.
@@ -423,8 +423,7 @@ const parsed = baseSchema
   )
   .parse(process.env)
 
-const STORAGE_DRIVER: 'cloudinary' | 'local' | 'r2' =
-  parsed.STORAGE_DRIVER ?? 'cloudinary'
+const STORAGE_DRIVER: 'local' | 'r2' = parsed.STORAGE_DRIVER ?? 'r2'
 
 export type CloudinaryCredentials = {
   cloudName: string
@@ -432,6 +431,7 @@ export type CloudinaryCredentials = {
   apiSecret: string
 }
 
+// Legado: usado só pelo script de migração de assets do Cloudinary pro R2 (fase 3); remoção na fase 4.
 export function resolveCloudinaryCredentials(): CloudinaryCredentials {
   const isProd = parsed.NODE_ENV === 'production'
   const cloudName = isProd

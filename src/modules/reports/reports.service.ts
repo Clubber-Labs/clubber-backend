@@ -1,10 +1,6 @@
 import { cache } from '../../lib/cache'
 import { logger } from '../../lib/logger'
-import {
-  deleteChatMedia,
-  deleteUploaded,
-  resourceTypeForKind,
-} from '../../lib/uploads'
+import { deleteChatMedia, deleteUploaded } from '../../lib/uploads'
 import {
   findMessageAttachments,
   softDeleteMessage,
@@ -271,9 +267,11 @@ async function removeReportedMessage(messageId: string) {
 
   const attachments = await findMessageAttachments(messageId)
   await Promise.all(
-    attachments.map((a) =>
-      deleteChatMedia(a.key, logger, resourceTypeForKind(a.kind)),
-    ),
+    attachments.flatMap((a) => {
+      // Poster de vídeo é objeto próprio no storage (key separada do vídeo).
+      const keys = a.thumbnailKey ? [a.key, a.thumbnailKey] : [a.key]
+      return keys.map((key) => deleteChatMedia(key, logger))
+    }),
   )
 }
 
