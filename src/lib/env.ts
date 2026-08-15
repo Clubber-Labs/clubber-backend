@@ -80,7 +80,7 @@ const baseSchema = z.object({
       "RATE_LIMIT_WINDOW deve ser no formato '1 minute', '30 seconds', '1 hour'…",
     )
     .default('1 minute'),
-  STORAGE_DRIVER: z.enum(['cloudinary', 'local']).optional(),
+  STORAGE_DRIVER: z.enum(['cloudinary', 'local', 'r2']).optional(),
   UPLOADS_DIR: z.string().optional(),
   // Envio de e-mail (recuperação de senha). Driver `log` (default) só loga o
   // conteúdo — seguro em dev/test sem credencial. `resend` envia de verdade.
@@ -356,8 +356,24 @@ const cloudinarySchema = z.object({
   CLOUDINARY_AUTH_TOKEN_KEY: z.string().optional(),
 })
 
+const r2Schema = z.object({
+  R2_ACCOUNT_ID_DEV: z.string().optional(),
+  R2_ACCESS_KEY_ID_DEV: z.string().optional(),
+  R2_SECRET_ACCESS_KEY_DEV: z.string().optional(),
+  R2_BUCKET_PUBLIC_DEV: z.string().optional(),
+  R2_BUCKET_PRIVATE_DEV: z.string().optional(),
+  R2_PUBLIC_BASE_URL_DEV: z.string().optional(),
+  R2_ACCOUNT_ID_PROD: z.string().optional(),
+  R2_ACCESS_KEY_ID_PROD: z.string().optional(),
+  R2_SECRET_ACCESS_KEY_PROD: z.string().optional(),
+  R2_BUCKET_PUBLIC_PROD: z.string().optional(),
+  R2_BUCKET_PRIVATE_PROD: z.string().optional(),
+  R2_PUBLIC_BASE_URL_PROD: z.string().optional(),
+})
+
 const parsed = baseSchema
   .extend(cloudinarySchema.shape)
+  .extend(r2Schema.shape)
   // Falha de boot (em vez de falha silenciosa): o driver `log` nunca pode rodar em
   // produção — ele não envia e-mail e ainda escreveria o código OTP no log. Mesma
   // postura do resolveCloudinaryCredentials, que também dá hard-fail em produção.
@@ -407,7 +423,7 @@ const parsed = baseSchema
   )
   .parse(process.env)
 
-const STORAGE_DRIVER: 'cloudinary' | 'local' =
+const STORAGE_DRIVER: 'cloudinary' | 'local' | 'r2' =
   parsed.STORAGE_DRIVER ?? 'cloudinary'
 
 export type CloudinaryCredentials = {
@@ -436,6 +452,61 @@ export function resolveCloudinaryCredentials(): CloudinaryCredentials {
   }
 
   return { cloudName, apiKey, apiSecret }
+}
+
+export type R2Credentials = {
+  accountId: string
+  accessKeyId: string
+  secretAccessKey: string
+  bucketPublic: string
+  bucketPrivate: string
+  publicBaseUrl: string
+}
+
+export function resolveR2Credentials(): R2Credentials {
+  const isProd = parsed.NODE_ENV === 'production'
+  const accountId = isProd
+    ? parsed.R2_ACCOUNT_ID_PROD
+    : parsed.R2_ACCOUNT_ID_DEV
+  const accessKeyId = isProd
+    ? parsed.R2_ACCESS_KEY_ID_PROD
+    : parsed.R2_ACCESS_KEY_ID_DEV
+  const secretAccessKey = isProd
+    ? parsed.R2_SECRET_ACCESS_KEY_PROD
+    : parsed.R2_SECRET_ACCESS_KEY_DEV
+  const bucketPublic = isProd
+    ? parsed.R2_BUCKET_PUBLIC_PROD
+    : parsed.R2_BUCKET_PUBLIC_DEV
+  const bucketPrivate = isProd
+    ? parsed.R2_BUCKET_PRIVATE_PROD
+    : parsed.R2_BUCKET_PRIVATE_DEV
+  const publicBaseUrl = isProd
+    ? parsed.R2_PUBLIC_BASE_URL_PROD
+    : parsed.R2_PUBLIC_BASE_URL_DEV
+
+  if (
+    !accountId ||
+    !accessKeyId ||
+    !secretAccessKey ||
+    !bucketPublic ||
+    !bucketPrivate ||
+    !publicBaseUrl
+  ) {
+    const suffix = isProd ? 'PROD' : 'DEV'
+    throw new Error(
+      `R2 não configurado para ${parsed.NODE_ENV}. Defina R2_ACCOUNT_ID_${suffix}, R2_ACCESS_KEY_ID_${suffix}, R2_SECRET_ACCESS_KEY_${suffix}, R2_BUCKET_PUBLIC_${suffix}, R2_BUCKET_PRIVATE_${suffix} e R2_PUBLIC_BASE_URL_${suffix}.`,
+    )
+  }
+
+  return {
+    accountId,
+    accessKeyId,
+    secretAccessKey,
+    bucketPublic,
+    bucketPrivate,
+    // remove barra final para evitar `//` ao concatenar com o path do objeto
+    publicBaseUrl: publicBaseUrl.replace(/\/$/, ''),
+  }
 }
 
 export const env = {
