@@ -73,6 +73,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@aws-sdk/s3-request-presigner": "^3.1111.0",
     "@biomejs/biome": "2.4.8",
     "@faker-js/faker": "^10.4.0",
     "@types/node": "^25.5.0",
