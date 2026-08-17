@@ -1,6 +1,28 @@
 import path from 'node:path'
 import { z } from 'zod'
 
+// Envelope encryption do chat: uma KEK por versão, em base64 de 32 bytes.
+const CHAT_KEK_BYTES = 32
+const CHAT_KEK_MAX_VERSION = 2
+
+type ChatKekSlots = {
+  CHAT_KEK_V1?: string
+  CHAT_KEK_V2?: string
+}
+
+function rawChatKek(slots: ChatKekSlots, version: number): string | undefined {
+  if (version === 1) return slots.CHAT_KEK_V1
+  if (version === 2) return slots.CHAT_KEK_V2
+  return undefined
+}
+
+/** Devolve null se ausente OU se não decodificar para exatamente 32 bytes. */
+function decodeChatKek(raw: string | undefined): Buffer | null {
+  if (!raw) return null
+  const key = Buffer.from(raw, 'base64')
+  return key.length === CHAT_KEK_BYTES ? key : null
+}
+
 const baseSchema = z.object({
   DATABASE_URL: z.url(),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET não configurado'),
@@ -249,6 +271,21 @@ const baseSchema = z.object({
     .int()
     .positive()
     .default(1024 * 1024 * 1024),
+  // Chaves mestras (KEK) do envelope encryption do chat: 32 bytes em base64.
+  // Slots explícitos em vez de CSV porque z.object não aceita chave dinâmica e a
+  // convenção deste arquivo é cada var aparecer estaticamente — adicionar a V3 é
+  // uma linha aqui, uma em CHAT_KEK_SLOTS e uma no re-export.
+  //
+  // A rotação mantém as DUAS no ambiente: a antiga continua desembrulhando o que
+  // o reconciler ainda não reembrulhou. Só sai depois que os pendentes zeram.
+  CHAT_KEK_V1: z.string().optional(),
+  CHAT_KEK_V2: z.string().optional(),
+  CHAT_KEK_ACTIVE_VERSION: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(CHAT_KEK_MAX_VERSION)
+    .default(1),
   // Exclusão de conta (soft-delete): carência antes da anonimização, intervalo
   // do reconciler que processa as exclusões agendadas, e flag liga/desliga.
   ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(30),
@@ -421,6 +458,28 @@ const parsed = baseSchema
         'METRICS_TOKEN é obrigatório em produção com METRICS_ENABLED ligado (senão /metrics fica aberto). Defina o token ou METRICS_ENABLED=false.',
     },
   )
+  // Fail-closed em TODOS os ambientes (não só produção): sem a KEK ativa nenhuma
+  // mensagem pode ser cifrada nem lida. Falhar no boot é infinitamente melhor do
+  // que subir e gravar conteúdo em claro — ou, pior, gravar cifrado com uma
+  // chave que ninguém tem.
+  .refine((v) => decodeChatKek(rawChatKek(v, v.CHAT_KEK_ACTIVE_VERSION)), {
+    path: ['CHAT_KEK_ACTIVE_VERSION'],
+    message:
+      'CHAT_KEK_V<n> é obrigatório para a CHAT_KEK_ACTIVE_VERSION escolhida (32 bytes em base64). Gere com: openssl rand -base64 32',
+  })
+  // As versões INATIVAS também precisam ser válidas: uma KEK antiga corrompida
+  // só apareceria ao tentar ler uma mensagem velha, em produção, tarde demais.
+  .refine(
+    (v) =>
+      Array.from({ length: CHAT_KEK_MAX_VERSION }, (_, i) =>
+        rawChatKek(v, i + 1),
+      ).every((raw) => raw === undefined || decodeChatKek(raw) !== null),
+    {
+      path: ['CHAT_KEK_V1'],
+      message:
+        'Toda CHAT_KEK_V<n> definida precisa decodificar para exatamente 32 bytes em base64.',
+    },
+  )
   .parse(process.env)
 
 const STORAGE_DRIVER: 'local' | 'r2' = parsed.STORAGE_DRIVER ?? 'r2'
@@ -589,6 +648,17 @@ export const env = {
   METRICS_TOKEN: parsed.METRICS_TOKEN,
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
   CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
+  CHAT_KEK_ACTIVE_VERSION: parsed.CHAT_KEK_ACTIVE_VERSION,
+  // Mapa versão → KEK já decodificada. Os refines acima garantem que toda chave
+  // presente tem 32 bytes e que a ativa existe, então aqui não há caso de erro.
+  CHAT_KEKS: ((): ReadonlyMap<number, Buffer> => {
+    const keks = new Map<number, Buffer>()
+    for (let version = 1; version <= CHAT_KEK_MAX_VERSION; version++) {
+      const key = decodeChatKek(rawChatKek(parsed, version))
+      if (key) keks.set(version, key)
+    }
+    return keks
+  })(),
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,
