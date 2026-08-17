@@ -1,3 +1,4 @@
+import { hydrateMessage } from '../chat/chat.crypto'
 import {
   findChatPushRecipientUserIds,
   findMessageForPush,
@@ -65,6 +66,7 @@ export async function runChatMessagePush(
   if (!message || message.deletedAt || message.type === 'SYSTEM') {
     return { sent: 0 }
   }
+  await hydrateMessage(message)
   const recipients = await findChatPushRecipientUserIds(
     message.conversationId,
     message.senderId,

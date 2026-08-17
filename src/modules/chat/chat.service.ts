@@ -18,6 +18,7 @@ import {
   assertAdmin,
   assertReachable,
 } from './chat.access'
+import { encryptContent, hydrateMessage, hydrateMessages } from './chat.crypto'
 import {
   addMessageReaction,
   clearConversationForParticipant,
@@ -236,11 +237,24 @@ async function emitSystemMessage(
   content: string,
 ) {
   try {
-    const message = await createSystemMessage(conversationId, actorId, content)
+    const encrypted = await encryptContent(conversationId, content)
+    const message = await createSystemMessage(
+      conversationId,
+      actorId,
+      encrypted,
+    )
     const participantIds = await findActiveParticipantUserIds(conversationId)
-    await publishMessage(conversationId, participantIds, message)
-  } catch {
-    // best-effort: a ação principal já foi confirmada
+    await publishMessage(
+      conversationId,
+      participantIds,
+      await hydrateMessage(message),
+    )
+  } catch (err) {
+    // best-effort: a ação principal já foi confirmada. Mas LOGA — engolir em
+    // silêncio esconderia uma falha de chave, que é sintoma grave.
+    logger.error(
+      `Falha ao emitir mensagem de sistema em ${conversationId}: ${(err as Error).message}`,
+    )
   }
 }
 
@@ -306,6 +320,9 @@ export async function listInbox(
   cursor?: string,
 ) {
   const conversations = await listInboxConversations(userId, limit, cursor)
+  // Um lote só para o inbox inteiro: N conversas = N unwraps (quase todos em
+  // cache), não um por mensagem.
+  await hydrateMessages(conversations.flatMap((c) => c.messages))
   const unread = await unreadCounts(
     userId,
     conversations.map((c) => c.id),
@@ -337,6 +354,7 @@ export async function listMessages(
 ) {
   await assertActiveParticipant(conversationId, userId)
   const messages = await findConversationMessages(conversationId, limit, cursor)
+  await hydrateMessages(messages)
   const nextCursor =
     messages.length === limit ? messages[messages.length - 1].id : null
   return { data: messages.map(shapeMessage), nextCursor }
@@ -358,7 +376,7 @@ async function findIdempotentMessage(
     userId,
     idempotencyKey,
   )
-  return existing ? shapeMessage(existing) : null
+  return existing ? shapeMessage(await hydrateMessage(existing)) : null
 }
 
 /**
@@ -386,7 +404,7 @@ async function resolveIdempotencyConflict(
     userId,
     idempotencyKey,
   )
-  return existing ? shapeMessage(existing) : null
+  return existing ? shapeMessage(await hydrateMessage(existing)) : null
 }
 
 export async function sendTextMessage(
@@ -411,12 +429,13 @@ export async function sendTextMessage(
       throw { statusCode: 400, message: 'Mensagem citada inválida' }
     }
   }
+  const encrypted = await encryptContent(conversationId, content)
   let message: MessageRow
   try {
     message = await createTextMessage(
       conversationId,
       userId,
-      content,
+      encrypted,
       replyToId,
       idempotencyKey,
     )
@@ -430,6 +449,7 @@ export async function sendTextMessage(
     if (dup) return dup
     throw err
   }
+  await hydrateMessage(message)
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
@@ -760,15 +780,19 @@ export async function editMessage(
   if (message.deletedAt !== null) {
     throw { statusCode: 403, message: 'Mensagem apagada não pode ser editada' }
   }
-  if (message.content === null) {
+  // Mensagem de mídia não é editável. Precisa checar os DOIS: texto legado mora
+  // em `content`, texto cifrado em `contentCipher` — só a ausência de ambos
+  // significa "não tem texto".
+  if (message.content === null && message.contentCipher === null) {
     throw {
       statusCode: 403,
       message: 'Apenas mensagens de texto podem ser editadas',
     }
   }
+  const encrypted = await encryptContent(conversationId, content)
   let updated: MessageRow
   try {
-    updated = await editMessageContent(messageId, content)
+    updated = await editMessageContent(messageId, encrypted)
   } catch (err) {
     // Corrida: um DELETE concorrente apagou a mensagem (P2025). Mesmo contrato
     // do check de deletedAt acima — não edita tombstone.
@@ -780,6 +804,7 @@ export async function editMessage(
     }
     throw err
   }
+  await hydrateMessage(updated)
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }
@@ -820,6 +845,7 @@ export async function reactToMessage(
   if (!updated) {
     throw { statusCode: 404, message: 'Mensagem não encontrada' }
   }
+  await hydrateMessage(updated)
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }
@@ -842,6 +868,7 @@ export async function removeReaction(
   if (!updated) {
     throw { statusCode: 404, message: 'Mensagem não encontrada' }
   }
+  await hydrateMessage(updated)
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }

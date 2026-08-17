@@ -15,7 +15,11 @@ export async function findMessageForPush(id: string) {
       conversationId: true,
       senderId: true,
       type: true,
+      // Leitura dual do preview: o worker decifra antes de montar o corpo — ou
+      // seja, ele também precisa da KEK no ambiente (ver DEPLOY).
       content: true,
+      contentCipher: true,
+      contentKeyVersion: true,
       deletedAt: true,
       createdAt: true,
       sender: { select: { name: true, lastname: true } },

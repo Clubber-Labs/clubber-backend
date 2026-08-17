@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
+import { __resetDekCache } from '../../lib/crypto/dek-cache'
 import {
   makeBlock,
   makeDirectConversation,
@@ -55,6 +56,29 @@ describe('runChatMessagePush — DM', () => {
         messageId: message.id,
       },
     })
+  })
+
+  // O worker roda em OUTRO processo, com cache de DEK vazio: precisa desembrulhar
+  // a chave do banco para montar o preview. Se algum dia a KEK faltar no
+  // ambiente do worker, é este teste que quebra.
+  it('decifra o preview com o cache de DEK frio', async () => {
+    const sender = await makeUser()
+    const recipient = await makePushableUser()
+    const convo = await makeDirectConversation(sender.id, recipient.id)
+    const message = await makeMessage(convo.id, sender.id, {
+      content: 'texto cifrado no banco',
+    })
+
+    const row = await testPrisma.message.findUniqueOrThrow({
+      where: { id: message.id },
+    })
+    expect(row.content).toBeNull()
+    expect(row.contentCipher).not.toBeNull()
+
+    __resetDekCache()
+    await runChatMessagePush(message.id)
+
+    expect(fakePush.sent[0]).toMatchObject({ body: 'texto cifrado no banco' })
   })
 
   it('pula quem já recebeu via socket (lastDeliveredAt cobre a mensagem)', async () => {

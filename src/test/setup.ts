@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll } from 'vitest'
+import { __resetDekCache } from '../lib/crypto/dek-cache'
 import { setMailer } from '../lib/mailer'
 import { setPlacesClient } from '../lib/places'
 import { setPushService } from '../lib/push'
@@ -76,6 +77,10 @@ afterEach(async () => {
     testPrisma.passwordResetCode.deleteMany(),
     testPrisma.user.deleteMany(),
   ])
+  // O cache de DEK é global do processo: sem reset, uma conversa recriada com o
+  // mesmo id herdaria a chave do teste anterior (e o shred/rotação passariam
+  // por engano).
+  __resetDekCache()
   fakeStorage.reset()
   fakeMailer.reset()
   fakePush.reset()
