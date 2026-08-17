@@ -9,7 +9,7 @@ export async function findUserByEmailForReset(email: string) {
   if (!id) return null
   return prisma.user.findUnique({
     where: { id },
-    select: { id: true, accountStatus: true },
+    select: { id: true, name: true, accountStatus: true },
   })
 }
 
