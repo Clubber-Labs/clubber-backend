@@ -141,6 +141,9 @@ model User {
   // Ciclo de vida da conta (motivo de saída / churn)
   accountLifecycleLogs AccountLifecycleLog[]
 
+  // Trilha de leitura de conteúdo privado pela moderação (quando é admin)
+  moderationAccessLogs ModerationAccessLog[] @relation("moderationAccessLogs")
+
   // Notificações (push + in-app)
   deviceTokens  DeviceToken[]
   notifications Notification[]
@@ -283,10 +286,41 @@ model Conversation {
   participants ConversationParticipant[]
   messages     Message[]
   spot         Spot?
+  keys         ConversationKey[]
 
   @@index([lastMessageAt])
   @@index([createdById])
   @@map("conversations")
+}
+
+/// Chave de dados (DEK) da conversa, envelopada pela chave mestra (KEK).
+/// Cifra o TEXTO das mensagens — a mídia usa DEK própria por anexo, porque o
+/// material do anexo é entregue ao cliente e não pode abrir a conversa inteira.
+///
+/// Provisionada preguiçosamente na primeira escrita: conversas nascem em três
+/// lugares (DM, grupo e spot), e criar a chave no envio cobre os três sem tocar
+/// em nenhum.
+model ConversationKey {
+  id             String       @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  // Versionada: a rotação cria a N+1 e aposenta a N, sem recifrar o histórico.
+  version        Int
+  wrappedDek     Bytes
+  // Versão da KEK que envelopou — o unwrap usa ESTA, não a ativa, para as duas
+  // conviverem durante a rotação.
+  kekVersion     Int
+  createdAt      DateTime     @default(now())
+  retiredAt      DateTime?
+  // Crypto-shredding: zerar a chave torna o ciphertext ruído permanente, sem
+  // UPDATE em milhões de linhas.
+  shreddedAt     DateTime?
+
+  @@unique([conversationId, version])
+  @@index([conversationId, retiredAt])
+  // Só para o reconciler de rotação varrer `kekVersion < ativa` sem seq scan.
+  @@index([kekVersion])
+  @@map("conversation_keys")
 }
 
 model ConversationParticipant {
@@ -315,16 +349,23 @@ enum MessageType {
 }
 
 model Message {
-  id             String       @id @default(uuid())
-  conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderId       String
-  sender         User         @relation("messagesSent", fields: [senderId], references: [id], onDelete: Cascade)
-  type           MessageType  @default(USER)
-  content        String?
-  createdAt      DateTime     @default(now())
-  editedAt       DateTime?
-  deletedAt      DateTime?
+  id                String       @id @default(uuid())
+  conversationId    String
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId          String
+  sender            User         @relation("messagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  type              MessageType  @default(USER)
+  // Plaintext LEGADO. Segue nullable durante a leitura dual (ciphertext quando
+  // houver, este senão) e só é dropado depois do backfill — ver migration
+  // drop_messages_content_plaintext.
+  content           String?
+  // Conteúdo cifrado: `1.<b64 iv>.<b64 tag>.<b64 ct>`. contentKeyVersion aponta
+  // para a ConversationKey.version usada; a coluna nula é o que marca legado.
+  contentCipher     String?
+  contentKeyVersion Int?
+  createdAt         DateTime     @default(now())
+  editedAt          DateTime?
+  deletedAt         DateTime?
 
   // Resposta/citação a outra mensagem da mesma conversa.
   replyToId String?
@@ -386,7 +427,31 @@ model MessageAttachment {
   order        Int            @default(0)
   createdAt    DateTime       @default(now())
 
+  // ── Cifra dos bytes da mídia ────────────────────────────────────────────────
+  // DEK PRÓPRIA por anexo, envelopada pela KEK. NUNCA a DEK da conversa: este
+  // material é entregue ao app para decifrar localmente, e um cliente
+  // comprometido não pode ganhar o histórico de texto junto. dekWrapped nulo =
+  // anexo legado (em claro no storage), servido como sempre foi.
+  dekWrapped   Bytes?
+  kekVersion   Int?
+  // IV e tag em COLUNA, não no blob: assim o ciphertext tem exatamente o tamanho
+  // do plaintext e a cota de storage (e o MAX_VIDEO_SIZE) seguem significando o
+  // mesmo que antes — e o app não precisa fatiar o arquivo baixado.
+  cipherIv     Bytes?
+  cipherTag    Bytes?
+  cipherAlg    String?
+  plainSize    Int?
+  // Só VIDEO: o app cifra em chunks para decifrar de forma incremental (50 MB
+  // de uma vez é inviável em RN). Nesse modo a tag de cada chunk vai no blob,
+  // então cipherTag fica nulo.
+  chunkSize    Int?
+  // O poster compartilha a DEK do anexo com IV PRÓPRIO — seguro em GCM enquanto
+  // o IV não se repetir, e evita uma segunda chave para o mesmo anexo.
+  thumbnailIv  Bytes?
+  thumbnailTag Bytes?
+
   @@index([messageId, order])
+  @@index([kekVersion])
   @@map("message_attachments")
 }
 
@@ -444,27 +509,27 @@ model Follow {
 }
 
 model Event {
-  id          String          @id @default(uuid())
-  title       String
-  description String?
-  date        DateTime
-  endDate     DateTime?
-  latitude    Float
-  longitude   Float
-  address     String?
-  placeId     String?
-  venueName   String?
-  categories  EventCategory[]
+  id            String          @id @default(uuid())
+  title         String
+  description   String?
+  date          DateTime
+  endDate       DateTime?
+  latitude      Float
+  longitude     Float
+  address       String?
+  placeId       String?
+  venueName     String?
+  categories    EventCategory[]
   // Subcategorias/gêneros (chaves de interesse config — src/lib/subcategories.ts).
   // text[] (não enum), validado no input. Casa com as preferências do usuário no
   // ranking do feed e nas notificações de proximidade (match de 2º nível).
-  subcategories String[]      @default([])
-  isPublic    Boolean         @default(true)
-  isFeatured  Boolean         @default(false)
-  maxCapacity Int?
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  canceledAt  DateTime?
+  subcategories String[]        @default([])
+  isPublic      Boolean         @default(true)
+  isFeatured    Boolean         @default(false)
+  maxCapacity   Int?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  canceledAt    DateTime?
 
   authorId String
   author   User   @relation(fields: [authorId], references: [id])
@@ -525,19 +590,19 @@ model EventSeries {
   // última ocorrência), então editar uma ocorrência individual não propaga
   // para as ocorrências geradas depois. Nullable: séries antigas não têm
   // template e o reconciler as pula. durationMs = endDate-date da 1ª ocorrência.
-  title       String?
-  description String?
-  latitude    Float?
-  longitude   Float?
-  address     String?
-  placeId     String?
-  venueName   String?
-  categories  EventCategory[]
+  title         String?
+  description   String?
+  latitude      Float?
+  longitude     Float?
+  address       String?
+  placeId       String?
+  venueName     String?
+  categories    EventCategory[]
   // Template de subcategorias: o reconciler clona daqui para cada ocorrência.
-  subcategories String[]      @default([])
-  maxCapacity Int?
-  isPublic    Boolean         @default(true)
-  durationMs  Int?
+  subcategories String[]        @default([])
+  maxCapacity   Int?
+  isPublic      Boolean         @default(true)
+  durationMs    Int?
 
   events Event[]
 
@@ -716,6 +781,8 @@ model Report {
   reviewerId String?
   reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
+  evidence ReportEvidence?
+
   @@unique([reporterId, eventId, status], map: "reports_reporter_event_status_unique")
   @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
   @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
@@ -732,6 +799,74 @@ model Report {
   @@index([messageId], map: "reports_message_idx")
   @@index([status, createdAt, id], map: "reports_status_created_at_id_idx")
   @@map("reports")
+}
+
+enum ReportEvidenceKind {
+  CHAT_MESSAGE
+}
+
+/// Snapshot IMUTÁVEL do conteúdo denunciado, capturado no ato da denúncia.
+/// Existe porque a mensagem cifrada é um alvo móvel: o autor pode editá-la ou
+/// apagá-la depois de denunciada, e sem snapshot a moderação perderia a prova
+/// que justifica a punição.
+model ReportEvidence {
+  id       String             @id @default(uuid())
+  reportId String             @unique
+  report   Report             @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  kind     ReportEvidenceKind @default(CHAT_MESSAGE)
+
+  // DEK PRÓPRIA da evidência, envelopada pela KEK — deliberadamente NÃO a da
+  // conversa: rotação e crypto-shredding da conversa não podem destruir a prova.
+  wrappedDek    Bytes
+  kekVersion    Int
+  iv            Bytes
+  tag           Bytes
+  alg           String @default("AES-256-GCM")
+  // JSON cifrado: a mensagem denunciada, o contexto ao redor e as DEKs dos
+  // anexos — autocontido, para seguir legível após o shred da conversa.
+  payloadCipher Bytes
+
+  // Referências DESNORMALIZADAS, sem FK, de propósito: a evidência precisa
+  // sobreviver ao cascade da conversa e ao SetNull de Report.messageId.
+  conversationId    String?
+  reportedMessageId String?
+  reportedUserId    String?
+  contextCount      Int      @default(0)
+  // Mídia que a remoção do conteúdo NÃO apaga, por ser prova. O reconciler de
+  // retenção é quem a expurga no fim do prazo.
+  retainedMediaKeys String[]
+
+  capturedAt DateTime  @default(now())
+  purgedAt   DateTime?
+
+  @@index([kekVersion])
+  @@index([capturedAt])
+  @@map("report_evidences")
+}
+
+enum ModerationAccessAction {
+  VIEW_EVIDENCE
+}
+
+/// Trilha de quem da moderação leu conteúdo privado de chat em claro. Gravado
+/// na MESMA transação da leitura, antes de qualquer decifra: se o log falha, o
+/// admin não vê nada (fail-closed).
+model ModerationAccessLog {
+  id      String @id @default(uuid())
+  adminId String
+  admin   User   @relation("moderationAccessLogs", fields: [adminId], references: [id], onDelete: Cascade)
+
+  action     ModerationAccessAction
+  reportId   String?
+  evidenceId String?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime               @default(now())
+
+  @@index([adminId, createdAt])
+  @@index([reportId])
+  @@index([createdAt])
+  @@map("moderation_access_logs")
 }
 
 model EventImage {
