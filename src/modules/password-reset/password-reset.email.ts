@@ -32,7 +32,7 @@ export function passwordResetText({
   expiresInMinutes,
 }: PasswordResetEmailParams) {
   return [
-    `Oi, ${name} — recebemos um pedido para redefinir a senha da conta ligada a este e-mail.`,
+    `Olá, ${name} — recebemos um pedido para redefinir a senha da conta ligada a este e-mail.`,
     '',
     `Seu código: ${code}`,
     '',
