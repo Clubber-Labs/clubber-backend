@@ -74,6 +74,7 @@ import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { startSuspensionReconciler } from './modules/users/suspension.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
+import { localePlugin } from './plugins/locale'
 import { metricsPlugin } from './plugins/metrics'
 import { requestIdPlugin } from './plugins/request-id'
 
@@ -101,6 +102,7 @@ app.setSerializerCompiler(serializerCompiler)
 app.setErrorHandler(errorHandler)
 
 app.register(requestIdPlugin)
+app.register(localePlugin)
 app.register(metricsPlugin)
 
 // Headers de segurança (clickjacking, MIME sniffing, HSTS, etc.). CSP fica

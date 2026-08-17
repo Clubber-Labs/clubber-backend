@@ -62,6 +62,59 @@ describe('GET /categories', () => {
     expect(res.statusCode).toBe(200)
   })
 
+  it('traduz categorias, subcategorias e gêneros com Accept-Language: en', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/categories',
+      headers: { 'accept-language': 'en' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.locale).toBe('en')
+    const gastronomy = body.data.find(
+      (c: { value: string }) => c.value === 'GASTRONOMY',
+    )
+    expect(gastronomy).toMatchObject({
+      value: 'GASTRONOMY',
+      label: 'Food',
+    })
+    expect(gastronomy.subcategories).toEqual(
+      expect.arrayContaining([
+        { value: 'GASTRONOMY_JAPONESA', label: 'Sushi & Japanese' },
+      ]),
+    )
+    const funk = body.genres.find(
+      (g: { value: string }) => g.value === 'GENRE_FUNK',
+    )
+    expect(funk).toMatchObject({ value: 'GENRE_FUNK', label: 'Baile funk' })
+  })
+
+  it('negocia es por q-value a partir de variante regional', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/categories',
+      headers: { 'accept-language': 'es-AR,es;q=0.9,en;q=0.8' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.locale).toBe('es')
+    expect(
+      body.data.find((c: { value: string }) => c.value === 'GASTRONOMY'),
+    ).toMatchObject({ label: 'Comida' })
+  })
+
+  it('marca a resposta com Vary: Accept-Language para caches/CDNs', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/categories',
+      headers: { 'accept-language': 'en' },
+    })
+
+    expect(res.headers.vary).toContain('Accept-Language')
+  })
+
   it('respeita Accept-Language com fallback para pt-BR', async () => {
     const res = await app.inject({
       method: 'GET',
