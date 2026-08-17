@@ -157,7 +157,7 @@ export function passwordResetHtml({
             <td align="center" style="padding:28px 24px 0;">
               <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">Você recebeu este e-mail porque alguém pediu a recuperação desta conta no Clubber.</p>
               <p style="margin:8px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">Clubber · Curitiba, PR, Brasil · <a href="https://clubber.social/ajuda" style="color:#52525B; text-decoration:underline;">Central de ajuda</a></p>
-              <img src="${ASSETS_BASE_URL}sticker.png" width="36" height="36" alt="b" style="display:inline-block; width:36px; height:36px; border:0; margin-top:20px;">
+              <img src="${ASSETS_BASE_URL}sticker.png" width="36" height="36" alt="" style="display:inline-block; width:36px; height:36px; border:0; margin-top:20px;">
               <p style="margin:10px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:11px; color:#A1A1AA; mso-line-height-rule:exactly; line-height:16px;">clubber.social</p>
             </td>
           </tr>

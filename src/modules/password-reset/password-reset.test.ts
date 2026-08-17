@@ -182,12 +182,13 @@ describe('POST /auth/forgot-password', () => {
   })
 
   it('escapa HTML no nome do usuário', async () => {
-    const user = await makeUser({ name: '<img src=x>' })
+    // Sem espaços: a saudação usa só o primeiro nome (split por whitespace).
+    const user = await makeUser({ name: '<hacker>' })
 
     await forgot(user.email)
 
-    expect(fakeMailer.last?.html).not.toContain('<img src=x>')
-    expect(fakeMailer.last?.html).toContain('&lt;img src=x&gt;')
+    expect(fakeMailer.last?.html).not.toContain('<hacker>')
+    expect(fakeMailer.last?.html).toContain('&lt;hacker&gt;')
   })
 })
 
