@@ -6,6 +6,11 @@ import { getMailer } from '../../lib/mailer'
 import { revokeAllSessions } from '../auth/auth.service'
 import { reactivateOnLogin } from '../users/users.repository'
 import {
+  passwordResetHtml,
+  passwordResetSubject,
+  passwordResetText,
+} from './password-reset.email'
+import {
   consumeCodeAndSetPassword,
   createCodeIfNoneActive,
   findActiveCodeByUser,
@@ -29,13 +34,6 @@ const INVALID_RESET = {
 function generateCode(): string {
   // randomInt é cripto-forte; padStart preserva zeros à esquerda (ex.: 012345).
   return String(randomInt(0, 1_000_000)).padStart(6, '0')
-}
-
-function buildEmail(code: string) {
-  const minutes = env.PASSWORD_RESET_CODE_TTL_MINUTES
-  const text = `Seu código de recuperação de senha é: ${code}\n\nEle expira em ${minutes} minutos. Se você não pediu, ignore este e-mail.`
-  const html = `<p>Seu código de recuperação de senha é:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px">${code}</p><p>Ele expira em ${minutes} minutos. Se você não pediu, ignore este e-mail.</p>`
-  return { text, html }
 }
 
 export async function requestPasswordReset({ email }: ForgotPasswordBody) {
@@ -66,12 +64,16 @@ export async function requestPasswordReset({ email }: ForgotPasswordBody) {
   // Envio best-effort: uma falha transitória do provedor não pode quebrar o
   // contrato sempre-200/sem-enumeração. O usuário simplesmente pede de novo.
   try {
-    const { text, html } = buildEmail(code)
+    const params = {
+      name: user.name.trim().split(/\s+/)[0],
+      code,
+      expiresInMinutes: env.PASSWORD_RESET_CODE_TTL_MINUTES,
+    }
     await getMailer().sendMail({
       to: email,
-      subject: 'Código de recuperação de senha',
-      text,
-      html,
+      subject: passwordResetSubject(code),
+      text: passwordResetText(params),
+      html: passwordResetHtml(params),
     })
   } catch (err) {
     log.error({ err, userId: user.id }, 'falha ao enviar e-mail de recuperação')

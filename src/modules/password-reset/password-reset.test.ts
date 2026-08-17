@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { env } from '../../lib/env'
 import { buildApp } from '../../test/app'
 import { makeUser } from '../../test/factories'
 import { fakeMailer } from '../../test/fake-mailer'
@@ -159,6 +160,34 @@ describe('POST /auth/forgot-password', () => {
 
     const blocked = await forgot(user.email)
     expect(blocked.statusCode).toBe(429)
+  })
+
+  it('envia o template com código no assunto, primeiro nome e validade', async () => {
+    const user = await makeUser({ name: 'Luiza Andrade' })
+
+    await forgot(user.email)
+    const code = lastCode()
+    const mail = fakeMailer.last
+
+    expect(mail?.subject).toBe(
+      `${code} é o seu código de recuperação — Clubber`,
+    )
+    expect(mail?.html).toContain(code)
+    expect(mail?.html).toContain('Luiza')
+    expect(mail?.html).not.toContain('Andrade')
+    expect(mail?.text).toContain(code)
+    expect(mail?.text).toContain(
+      `${env.PASSWORD_RESET_CODE_TTL_MINUTES} minutos`,
+    )
+  })
+
+  it('escapa HTML no nome do usuário', async () => {
+    const user = await makeUser({ name: '<img src=x>' })
+
+    await forgot(user.email)
+
+    expect(fakeMailer.last?.html).not.toContain('<img src=x>')
+    expect(fakeMailer.last?.html).toContain('&lt;img src=x&gt;')
   })
 })
 
