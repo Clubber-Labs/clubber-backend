@@ -24,6 +24,7 @@ export async function getNotificationsHandler(
   const result = await getNotifications(
     request.user.sub,
     request.query as ListNotificationsQuery,
+    request.locale,
   )
   return reply.send(result)
 }

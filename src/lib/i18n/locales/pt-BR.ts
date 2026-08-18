@@ -1,3 +1,4 @@
+import type { AttachmentKind } from '@prisma/client'
 import type { EventCategory } from '../../event-categories'
 import type { GenreKey } from '../../genres'
 import type { SubcategoryKey } from '../../subcategories'
@@ -93,4 +94,93 @@ const genres = {
   GENRE_EDM: 'EDM',
 } as const satisfies Record<GenreKey, string>
 
-export const ptBR = { categories, subcategories, genres } as const
+// Copy das notificações: mesma fonte para a lista in-app e para o push. O nome
+// do autor entra como {{actor}} na leitura (derivado da FK, acompanha rename);
+// os demais params são snapshot gravado na escrita (ver notification-params).
+const notifications = {
+  unknownActor: 'Alguém',
+  followRequest: {
+    title: 'Nova solicitação',
+    body: '{{actor}} quer te seguir',
+  },
+  followAccepted: {
+    title: 'Solicitação aceita',
+    body: '{{actor}} aceitou seu pedido para seguir',
+  },
+  newFollower: {
+    title: 'Novo seguidor',
+    body: '{{actor}} começou a te seguir',
+  },
+  eventInvite: {
+    title: 'Convite para evento',
+    body: '{{actor}} te convidou para um evento',
+  },
+  eventComment: {
+    title: 'Novo comentário',
+    body: '{{actor}} comentou no seu evento',
+  },
+  postComment: {
+    title: 'Novo comentário',
+    body: '{{actor}} comentou no seu post',
+  },
+  eventReaction: {
+    title: 'Nova curtida',
+    body: '{{actor}} curtiu seu evento',
+  },
+  postReaction: {
+    title: 'Nova curtida',
+    body: '{{actor}} curtiu seu post',
+  },
+  commentReaction: {
+    title: 'Nova curtida',
+    body: '{{actor}} curtiu seu comentário',
+  },
+  eventAttendance: {
+    title: 'Nova presença',
+    body: '{{actor}} vai ao seu evento',
+  },
+  eventNearby: {
+    title: 'Tem evento perto de você',
+    body: '{{eventTitle}}',
+  },
+  eventPromoted: {
+    title: 'Em destaque perto de você',
+    body: '{{eventTitle}}',
+  },
+  spotNearby: {
+    title: 'Tem rolê perto de você',
+    body: '{{spotTitle}}',
+  },
+  spotJoin: {
+    title: 'Novo membro no rolê',
+    body: '{{actor}} entrou em "{{spotTitle}}"',
+  },
+  spotRenewal: {
+    title: 'Seu rolê está acabando',
+    body: '"{{spotTitle}}" expira em breve — renove por mais 24h',
+  },
+} as const
+
+// Push de mensagem de chat: não tem linha de Notification, então a copy é
+// resolvida na hora do envio, no idioma de cada destinatário.
+const chatPush = {
+  groupFallbackTitle: 'Grupo',
+  groupBody: '{{sender}}: {{preview}}',
+  emptyPreview: 'Nova mensagem',
+  attachment: {
+    IMAGE: '📷 Foto',
+    AUDIO: '🎤 Mensagem de voz',
+    VIDEO: '🎬 Vídeo',
+  },
+} as const satisfies { attachment: Record<AttachmentKind, string> } & Record<
+  string,
+  unknown
+>
+
+export const ptBR = {
+  categories,
+  subcategories,
+  genres,
+  notifications,
+  chatPush,
+} as const

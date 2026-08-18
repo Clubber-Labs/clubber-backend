@@ -2,13 +2,11 @@ import { Prisma } from '@prisma/client'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { prisma } from '../../lib/prisma'
-import { realtime } from '../../lib/realtime'
 import {
   createManyNotifications,
   findNotificationsForEvent,
 } from './notification.repository'
-import { sendPushBatch } from './notification-push.service'
-import { buildPushData, shapeNotification } from './notification-shape'
+import { deliverNotifications } from './notification-delivery'
 
 const digestLog = logger.child({ component: 'promoted-digest' })
 
@@ -156,13 +154,18 @@ export async function runPromotedDigest(
       }
 
       for (const [eventId, userIds] of byEvent) {
+        const eventTitle = titleByEvent.get(eventId)
+        // O evento veio do SELECT desta rodada; sem título a linha não teria
+        // corpo renderizável, então some do lote em vez de virar texto vazio.
+        if (!eventTitle) continue
         await createManyNotifications(
           userIds.map((userId) => ({
             userId,
             type: 'EVENT_NEARBY' as const,
             eventId,
-            title: 'Em destaque perto de você',
-            body: titleByEvent.get(eventId) ?? 'Evento em destaque',
+            // `promoted` escolhe a copy de destaque: mesmo tipo (o deep-link é
+            // o mesmo), mensagem diferente da de evento novo.
+            params: { eventTitle, promoted: true },
             data: { eventId },
             dedupeKey: promotedDedupeKey(eventId),
           })),
@@ -175,25 +178,7 @@ export async function runPromotedDigest(
           eventId,
           'EVENT_NEARBY',
         )
-        await Promise.all(
-          created.map((n) =>
-            realtime.publishNotification({
-              type: 'notification',
-              recipientId: n.userId,
-              notification: shapeNotification(n),
-            }),
-          ),
-        )
-        await sendPushBatch(
-          created.map((n) => ({
-            userId: n.userId,
-            content: {
-              title: n.title,
-              body: n.body,
-              data: buildPushData(n),
-            },
-          })),
-        )
+        await deliverNotifications(created)
         notified += created.length
       }
 

@@ -89,4 +89,79 @@ export const en: Dictionary = {
     GENRE_DNB: 'Drum and bass',
     GENRE_EDM: 'EDM',
   },
+  // 'rolê' vira 'hangout' em todas as chaves de spot: 'spot' em inglês soa a
+  // lugar, não a encontro, e é o termo casual que essa faixa etária usa.
+  notifications: {
+    unknownActor: 'Someone',
+    followRequest: {
+      title: 'New request',
+      body: '{{actor}} wants to follow you',
+    },
+    followAccepted: {
+      title: 'Request accepted',
+      body: '{{actor}} accepted your follow request',
+    },
+    newFollower: {
+      title: 'New follower',
+      body: '{{actor}} started following you',
+    },
+    eventInvite: {
+      title: 'Event invite',
+      body: '{{actor}} invited you to an event',
+    },
+    eventComment: {
+      title: 'New comment',
+      body: '{{actor}} commented on your event',
+    },
+    postComment: {
+      title: 'New comment',
+      body: '{{actor}} commented on your post',
+    },
+    eventReaction: {
+      title: 'New like',
+      body: '{{actor}} liked your event',
+    },
+    postReaction: {
+      title: 'New like',
+      body: '{{actor}} liked your post',
+    },
+    commentReaction: {
+      title: 'New like',
+      body: '{{actor}} liked your comment',
+    },
+    eventAttendance: {
+      title: 'New RSVP',
+      body: '{{actor}} is going to your event',
+    },
+    eventNearby: {
+      title: 'Event near you',
+      body: '{{eventTitle}}',
+    },
+    eventPromoted: {
+      title: 'Featured near you',
+      body: '{{eventTitle}}',
+    },
+    spotNearby: {
+      title: 'Hangout near you',
+      body: '{{spotTitle}}',
+    },
+    spotJoin: {
+      title: 'Someone joined',
+      body: '{{actor}} joined "{{spotTitle}}"',
+    },
+    spotRenewal: {
+      title: 'Your hangout is ending',
+      body: '"{{spotTitle}}" expires soon — renew it for another 24h',
+    },
+  },
+  chatPush: {
+    groupFallbackTitle: 'Group',
+    groupBody: '{{sender}}: {{preview}}',
+    emptyPreview: 'New message',
+    attachment: {
+      IMAGE: '📷 Photo',
+      AUDIO: '🎤 Voice message',
+      VIDEO: '🎬 Video',
+    },
+  },
 }

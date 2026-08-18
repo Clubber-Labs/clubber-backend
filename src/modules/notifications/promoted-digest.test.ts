@@ -124,8 +124,7 @@ describe('runPromotedDigest', () => {
         userId: user.id,
         type: 'EVENT_NEARBY',
         eventId: previous.id,
-        title: 'x',
-        body: 'x',
+        params: { eventTitle: 'x', promoted: true },
         dedupeKey: `EVENT_NEARBY:promoted:${previous.id}`,
       },
     })
