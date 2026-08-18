@@ -2,6 +2,7 @@ import type { NotificationType, Prisma } from '@prisma/client'
 import { Expo } from 'expo-server-sdk'
 import { env } from '../../lib/env'
 import { AppError } from '../../lib/errors/app-error'
+import { DEFAULT_LOCALE, type Locale } from '../../lib/i18n/locale'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
@@ -18,6 +19,7 @@ import {
   countUnreadNotifications,
   createNotificationIfNew,
   deleteFollowNotifications,
+  findActorNames,
   findActorSummary,
   listNotifications,
   markAllNotificationsRead,
@@ -25,10 +27,12 @@ import {
   type NotificationCursor,
   notificationExists,
 } from './notification.repository'
-import {
-  type SocialNotificationKind,
-  socialNotificationContent,
+import type {
+  NotificationActor,
+  SocialNotificationKind,
 } from './notification-content'
+import { resolveRecipientLocales } from './notification-delivery'
+import type { NotificationParamsFor } from './notification-params'
 import { enqueuePush } from './notification-queue'
 import {
   buildPushData,
@@ -37,13 +41,16 @@ import {
 } from './notification-shape'
 import type { ListNotificationsQuery } from './notifications.schema'
 
-export type SocialNotificationInput = {
+export type SocialNotificationInput<
+  T extends NotificationType = NotificationType,
+> = {
   recipientId: string
   /** Quem causou a notificação. Ausente em eventos não-sociais (ex.: sistema). */
   actorId?: string | null
-  type: NotificationType
-  title: string
-  body: string
+  /** Resumo do autor já em mãos, para renderizar sem reconsultar o banco. */
+  actor?: NotificationActor | null
+  type: T
+  params: NotificationParamsFor<T>
   eventId?: string | null
   postId?: string | null
   commentId?: string | null
@@ -66,8 +73,8 @@ function buildDedupeKey(input: SocialNotificationInput): string {
  * Guardas: não notifica a si mesmo (autor == destinatário) nem quando há
  * bloqueio entre as partes (reusa isBlockedEitherWay do módulo blocks).
  */
-export async function dispatchSocial(
-  input: SocialNotificationInput,
+export async function dispatchSocial<T extends NotificationType>(
+  input: SocialNotificationInput<T>,
 ): Promise<void> {
   // Master switch: feature desligada → nenhum despacho (in-app/foreground/push).
   // Ponto único de controle — os gatilhos da entrega 3 não precisam checar o flag.
@@ -84,18 +91,26 @@ export async function dispatchSocial(
       eventId: input.eventId ?? null,
       postId: input.postId ?? null,
       commentId: input.commentId ?? null,
-      title: input.title,
-      body: input.body,
+      params: input.params,
       data: input.data,
       dedupeKey: buildDedupeKey(input),
     })
     // Duplicada (mesmo dedupeKey): pula o foreground — idempotência completa.
     if (!notification) return
 
+    // Foreground e push saem no idioma do destinatário: nenhum dos dois tem
+    // request (socket/worker), então vem do effectiveLocale dele.
+    const locales = await resolveRecipientLocales([recipientId])
+    const shaped = shapeNotification(
+      notification,
+      input.actor ?? null,
+      locales.get(recipientId) ?? DEFAULT_LOCALE,
+    )
+
     await realtime.publishNotification({
       type: 'notification',
       recipientId,
-      notification: shapeNotification(notification),
+      notification: shaped,
     })
 
     // Push (canal do SO): só com consentimento de push. Enfileirado — não bloqueia
@@ -103,8 +118,8 @@ export async function dispatchSocial(
     // type/ids para o deep-link e o mark-as-read no tap (contrato do mobile).
     if (await hasConsent(recipientId, 'pushNotifications')) {
       await enqueuePush(recipientId, {
-        title: notification.title,
-        body: notification.body,
+        title: shaped.title,
+        body: shaped.body,
         data: buildPushData(notification),
       })
     }
@@ -144,16 +159,15 @@ export async function notifyFromActor(
     const actor = await findActorSummary(input.actorId)
     if (!actor) return
 
-    const { title, body } = socialNotificationContent(input.type, actor)
     await dispatchSocial({
       recipientId: input.recipientId,
       actorId: input.actorId,
+      actor,
       type: input.type,
+      params: undefined,
       eventId: input.eventId,
       postId: input.postId,
       commentId: input.commentId,
-      title,
-      body,
       data: {
         actor: {
           id: actor.id,
@@ -220,6 +234,7 @@ function decodeCursor(raw: string): NotificationCursor | null {
 export async function getNotifications(
   userId: string,
   query: ListNotificationsQuery,
+  locale: Locale,
 ) {
   const decoded = query.cursor ? decodeCursor(query.cursor) : undefined
   if (query.cursor && !decoded) {
@@ -230,12 +245,27 @@ export async function getNotifications(
     query.limit,
     decoded ?? undefined,
   )
+  // Nome do autor vem do banco, não da linha da notificação: quem trocou de
+  // nome aparece com o nome de hoje, inclusive nas notificações antigas.
+  const actorIds = [
+    ...new Set(rows.flatMap((n) => (n.actorId ? [n.actorId] : []))),
+  ]
+  const actors = new Map((await findActorNames(actorIds)).map((a) => [a.id, a]))
   const last = rows[rows.length - 1]
   const nextCursor =
     rows.length === query.limit && last
       ? encodeCursor({ createdAt: last.createdAt, id: last.id })
       : null
-  return { data: rows.map(shapeNotification), nextCursor }
+  return {
+    data: rows.map((n) =>
+      shapeNotification(
+        n,
+        n.actorId ? (actors.get(n.actorId) ?? null) : null,
+        locale,
+      ),
+    ),
+    nextCursor,
+  }
 }
 
 export async function markRead(userId: string, id: string) {

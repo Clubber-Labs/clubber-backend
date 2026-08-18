@@ -88,4 +88,79 @@ export const es: Dictionary = {
     GENRE_DNB: 'Drum and bass',
     GENRE_EDM: 'EDM',
   },
+  // 'rolê' vira 'plan' — é como se fala de sair em espanhol coloquial
+  // ('hay plan hoy?'), muito mais natural que traduzir por 'evento'.
+  notifications: {
+    unknownActor: 'Alguien',
+    followRequest: {
+      title: 'Nueva solicitud',
+      body: '{{actor}} quiere seguirte',
+    },
+    followAccepted: {
+      title: 'Solicitud aceptada',
+      body: '{{actor}} aceptó tu solicitud',
+    },
+    newFollower: {
+      title: 'Nuevo seguidor',
+      body: '{{actor}} empezó a seguirte',
+    },
+    eventInvite: {
+      title: 'Invitación a un evento',
+      body: '{{actor}} te invitó a un evento',
+    },
+    eventComment: {
+      title: 'Nuevo comentario',
+      body: '{{actor}} comentó en tu evento',
+    },
+    postComment: {
+      title: 'Nuevo comentario',
+      body: '{{actor}} comentó en tu post',
+    },
+    eventReaction: {
+      title: 'Nuevo me gusta',
+      body: 'A {{actor}} le gustó tu evento',
+    },
+    postReaction: {
+      title: 'Nuevo me gusta',
+      body: 'A {{actor}} le gustó tu post',
+    },
+    commentReaction: {
+      title: 'Nuevo me gusta',
+      body: 'A {{actor}} le gustó tu comentario',
+    },
+    eventAttendance: {
+      title: 'Nueva asistencia',
+      body: '{{actor}} va a tu evento',
+    },
+    eventNearby: {
+      title: 'Hay un evento cerca',
+      body: '{{eventTitle}}',
+    },
+    eventPromoted: {
+      title: 'Destacado cerca de ti',
+      body: '{{eventTitle}}',
+    },
+    spotNearby: {
+      title: 'Hay plan cerca de ti',
+      body: '{{spotTitle}}',
+    },
+    spotJoin: {
+      title: 'Alguien se unió',
+      body: '{{actor}} se unió a "{{spotTitle}}"',
+    },
+    spotRenewal: {
+      title: 'Tu plan está por terminar',
+      body: '"{{spotTitle}}" expira pronto — renuévalo por 24 h más',
+    },
+  },
+  chatPush: {
+    groupFallbackTitle: 'Grupo',
+    groupBody: '{{sender}}: {{preview}}',
+    emptyPreview: 'Nuevo mensaje',
+    attachment: {
+      IMAGE: '📷 Foto',
+      AUDIO: '🎤 Mensaje de voz',
+      VIDEO: '🎬 Video',
+    },
+  },
 }

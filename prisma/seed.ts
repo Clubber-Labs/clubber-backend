@@ -333,44 +333,6 @@ const CONSENT_FIELDS = [
   'surveys',
 ] as const
 
-// Copy das notificações sociais — espelha notification-content.ts (mantido inline
-// pra o seed seguir autossuficiente, como os demais textos acima).
-function notificationCopy(
-  type: string,
-  who: string,
-): { title: string; body: string } {
-  switch (type) {
-    case 'FOLLOW_REQUEST':
-      return { title: 'Nova solicitação', body: `${who} quer te seguir` }
-    case 'NEW_FOLLOWER':
-      return { title: 'Novo seguidor', body: `${who} começou a te seguir` }
-    case 'FOLLOW_ACCEPTED':
-      return {
-        title: 'Solicitação aceita',
-        body: `${who} aceitou seu pedido para seguir`,
-      }
-    case 'EVENT_INVITE':
-      return {
-        title: 'Convite para evento',
-        body: `${who} te convidou para um evento`,
-      }
-    case 'EVENT_COMMENT':
-      return { title: 'Novo comentário', body: `${who} comentou no seu evento` }
-    case 'POST_COMMENT':
-      return { title: 'Novo comentário', body: `${who} comentou no seu post` }
-    case 'EVENT_REACTION':
-      return { title: 'Nova curtida', body: `${who} curtiu seu evento` }
-    case 'POST_REACTION':
-      return { title: 'Nova curtida', body: `${who} curtiu seu post` }
-    case 'COMMENT_REACTION':
-      return { title: 'Nova curtida', body: `${who} curtiu seu comentário` }
-    case 'EVENT_ATTENDANCE':
-      return { title: 'Nova presença', body: `${who} vai ao seu evento` }
-    default:
-      return { title: 'Novidade', body: `${who} interagiu com você` }
-  }
-}
-
 async function main() {
   console.log('🌱 Limpando banco...')
   await prisma.report.deleteMany()
@@ -1404,7 +1366,6 @@ async function main() {
     for (const type of NOTIF_TYPES) {
       // Ator: qualquer outro usuário. Proximidade/renovação não têm ator.
       const actor = pick(randomUsers.filter((u) => u.id !== recipient.id))
-      const who = [actor.name, actor.lastname].filter(Boolean).join(' ')
       const actorData = {
         id: actor.id,
         name: actor.name,
@@ -1418,8 +1379,8 @@ async function main() {
       let postId: string | null = null
       let commentId: string | null = null
       let spotId: string | null = null
-      let title: string
-      let body: string
+      // Texto não é gravado: sai de (tipo + params) no idioma de quem lê.
+      let params: Prisma.InputJsonValue | undefined
       // Sociais carregam data.actor (avatar + nome); proximidade/spot espelham
       // o payload de produção (só ids do alvo).
       let data: Prisma.InputJsonValue = { actor: actorData }
@@ -1428,7 +1389,6 @@ async function main() {
         case 'EVENT_INVITE': {
           // Convite pra evento de outra pessoa — qualquer evento do pool.
           eventId = pick(events).id
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'EVENT_COMMENT':
@@ -1436,29 +1396,25 @@ async function main() {
         case 'EVENT_ATTENDANCE': {
           eventId =
             ownOrAny(events, (e) => e.authorId === recipient.id)?.id ?? null
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'POST_COMMENT':
         case 'POST_REACTION': {
           postId =
             ownOrAny(posts, (p) => p.authorId === recipient.id)?.id ?? null
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'COMMENT_REACTION': {
           commentId =
             ownOrAny(allComments, (c) => c.authorId === recipient.id)?.id ??
             null
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'EVENT_NEARBY': {
           const ev = pick(events)
           eventId = ev.id
           actorId = null
-          title = 'Tem evento perto de você'
-          body = ev.title
+          params = { eventTitle: ev.title }
           data = { eventId: ev.id }
           break
         }
@@ -1466,8 +1422,7 @@ async function main() {
           const sp = pick(allSpots)
           spotId = sp.id
           actorId = null
-          title = 'Tem rolê perto de você'
-          body = sp.title
+          params = { spotTitle: sp.title }
           data = { spotId: sp.id }
           break
         }
@@ -1476,8 +1431,7 @@ async function main() {
             ownOrAny(allSpots, (s) => s.creatorId === recipient.id) ??
             pick(allSpots)
           spotId = sp.id
-          title = 'Novo membro no rolê'
-          body = `${who} entrou em "${sp.title}"`
+          params = { spotTitle: sp.title }
           data = { spotId: sp.id, actorId: actor.id }
           break
         }
@@ -1487,15 +1441,13 @@ async function main() {
             pick(allSpots)
           spotId = sp.id
           actorId = null
-          title = 'Seu rolê está acabando'
-          body = `"${sp.title}" expira em breve — renove por mais 24h`
+          params = { spotTitle: sp.title }
           data = { spotId: sp.id }
           break
         }
-        default: {
+        default:
           // Sociais sem alvo: NEW_FOLLOWER, FOLLOW_REQUEST, FOLLOW_ACCEPTED.
-          ;({ title, body } = notificationCopy(type, who))
-        }
+          break
       }
 
       // Escalona nas últimas ~72h; lidas têm readAt DEPOIS do createdAt (e nunca
@@ -1522,8 +1474,7 @@ async function main() {
         postId,
         commentId,
         spotId,
-        title,
-        body,
+        params,
         data,
         // notifSeq garante unicidade global do (userId, dedupeKey).
         dedupeKey: `${type}:${actorId ?? 'sys'}:${target}:${notifSeq++}`,

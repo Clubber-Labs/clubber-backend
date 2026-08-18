@@ -1021,8 +1021,9 @@ model Notification {
   postId    String?
   commentId String?
   spotId    String?
-  title     String
-  body      String
+  /// Snapshot do que a leitura não deriva da FK (título de spot/evento). O texto
+  /// em si não é gravado: sai de params + tipo no idioma de quem lê.
+  params    Json?
   data      Json?
   dedupeKey String
   readAt    DateTime?

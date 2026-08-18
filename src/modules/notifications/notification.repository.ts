@@ -1,19 +1,35 @@
 import type { NotificationType } from '@prisma/client'
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
+import {
+  type NotificationParamsFor,
+  parseNotificationParams,
+} from './notification-params'
 
-export type CreateNotificationInput = {
+/**
+ * Genérico no tipo: com `type: 'SPOT_NEARBY' as const` no call site, T colapsa
+ * no literal e o compilador cobra exatamente os params daquela variante.
+ */
+export type CreateNotificationInput<
+  T extends NotificationType = NotificationType,
+> = {
   userId: string
-  type: NotificationType
+  type: T
   actorId?: string | null
   eventId?: string | null
   postId?: string | null
   commentId?: string | null
   spotId?: string | null
-  title: string
-  body: string
+  params: NotificationParamsFor<T>
   data?: Prisma.InputJsonValue
   dedupeKey: string
+}
+
+/** Params validados + achatados no formato que o Prisma grava. */
+function toRow<T extends NotificationType>(input: CreateNotificationInput<T>) {
+  const { params, ...rest } = input
+  const parsed = parseNotificationParams(input.type, params)
+  return { ...rest, ...(parsed && { params: parsed }) }
 }
 
 export type NotificationCursor = { createdAt: Date; id: string }
@@ -30,9 +46,11 @@ function isUniqueViolation(err: unknown): boolean {
  * tornando o fan-out idempotente sob retry ou duplo gatilho. Mesma técnica do
  * resolveIdempotencyConflict do chat (catch P2002), sem propagar o erro.
  */
-export async function createNotificationIfNew(input: CreateNotificationInput) {
+export async function createNotificationIfNew<T extends NotificationType>(
+  input: CreateNotificationInput<T>,
+) {
   try {
-    return await prisma.notification.create({ data: input })
+    return await prisma.notification.create({ data: toRow(input) })
   } catch (err) {
     if (isUniqueViolation(err)) return null
     throw err
@@ -101,12 +119,12 @@ export async function notificationExists(userId: string, id: string) {
  * Cria várias notificações de uma vez, pulando duplicatas (unique userId+dedupeKey).
  * Base do fan-out de proximidade. Retorna quantas foram efetivamente criadas.
  */
-export async function createManyNotifications(
-  inputs: CreateNotificationInput[],
+export async function createManyNotifications<T extends NotificationType>(
+  inputs: CreateNotificationInput<T>[],
 ) {
   if (inputs.length === 0) return 0
   const result = await prisma.notification.createMany({
-    data: inputs,
+    data: inputs.map(toRow),
     skipDuplicates: true,
   })
   return result.count
@@ -176,6 +194,27 @@ export async function findActorSummary(userId: string) {
       username: true,
       avatarUrl: true,
     },
+  })
+}
+
+/** Nome atual dos autores de uma página de notificações, em uma query só. */
+export async function findActorNames(userIds: string[]) {
+  if (userIds.length === 0) return []
+  return prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, lastname: true },
+  })
+}
+
+/**
+ * Campos de idioma dos destinatários. Alimenta o `effectiveLocale` dos canais
+ * sem request (push e realtime rodam em job/worker, sem Accept-Language).
+ */
+export async function findRecipientLocaleFields(userIds: string[]) {
+  if (userIds.length === 0) return []
+  return prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, localePreference: true, deviceLocale: true },
   })
 }
 

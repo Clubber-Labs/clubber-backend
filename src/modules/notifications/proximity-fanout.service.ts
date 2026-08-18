@@ -1,18 +1,13 @@
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
-import { realtime } from '../../lib/realtime'
 import { findEventForFanout } from '../events/events.repository'
 import {
   createManyNotifications,
   findExistingNearbyUserIds,
   findNotificationsForEvent,
 } from './notification.repository'
-import { sendPushBatch } from './notification-push.service'
-import {
-  buildPushData,
-  notificationDedupeKey,
-  shapeNotification,
-} from './notification-shape'
+import { deliverNotifications } from './notification-delivery'
+import { notificationDedupeKey } from './notification-shape'
 import { findUsersToNotifyNearEvent } from './proximity.repository'
 
 /**
@@ -32,11 +27,6 @@ export async function runEventCreatedFanout(
     const event = await findEventForFanout(eventId)
     if (!event || !event.isPublic || event.canceledAt) return { notified: 0 }
 
-    const content = {
-      title: 'Tem evento perto de você',
-      body: event.title,
-      data: { eventId },
-    }
     const dedupeKey = notificationDedupeKey({ type: 'EVENT_NEARBY', eventId })
     const batchSize = env.NOTIFY_FANOUT_BATCH_SIZE
 
@@ -72,44 +62,20 @@ export async function runEventCreatedFanout(
             userId,
             type: 'EVENT_NEARBY' as const,
             eventId,
-            title: content.title,
-            body: content.body,
-            data: content.data,
+            params: { eventTitle: event.title },
+            data: { eventId },
             dedupeKey,
           })),
         )
 
-        // Foreground (best-effort) das que foram criadas — em paralelo: cada
-        // publish é um roundtrip Redis independente e nunca lança (catch
-        // interno); sequencial somaria ~1s por lote de 500.
+        // Foreground + push (a query invertida já garantiu consentimento), cada
+        // um no idioma do seu destinatário.
         const created = await findNotificationsForEvent(
           newUserIds,
           eventId,
           'EVENT_NEARBY',
         )
-        await Promise.all(
-          created.map((n) =>
-            realtime.publishNotification({
-              type: 'notification',
-              recipientId: n.userId,
-              notification: shapeNotification(n),
-            }),
-          ),
-        )
-
-        // Push (a query invertida já garantiu consentimento). O data leva o
-        // notificationId de CADA destinatário (deep-link + mark-as-read no
-        // tap), num único envio chunkado.
-        await sendPushBatch(
-          created.map((n) => ({
-            userId: n.userId,
-            content: {
-              title: n.title,
-              body: n.body,
-              data: buildPushData(n),
-            },
-          })),
-        )
+        await deliverNotifications(created)
         // `created` (linhas que de fato existem), não `newUserIds`: se o
         // createMany pulou alguém numa corrida, o contador não infla.
         notified += created.length
