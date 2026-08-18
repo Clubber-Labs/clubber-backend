@@ -1,4 +1,5 @@
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import { stripe } from '../../lib/stripe'
 import {
   extractCustomerId,
@@ -315,7 +316,7 @@ export async function processStripeWebhook(
   signature: string | undefined,
 ): Promise<void> {
   if (!signature) {
-    throw { statusCode: 400, message: 'Missing Stripe-Signature header' }
+    throw new AppError(400, 'MISSING_STRIPE_SIGNATURE')
   }
 
   let event: StripeEvent
@@ -326,7 +327,7 @@ export async function processStripeWebhook(
       env.STRIPE_WEBHOOK_SECRET,
     )
   } catch {
-    throw { statusCode: 400, message: 'Invalid signature' }
+    throw new AppError(400, 'INVALID_SIGNATURE')
   }
 
   // Short-circuit otimista: se já processamos, retorna sem tx

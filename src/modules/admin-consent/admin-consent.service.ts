@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import {
   findConsentAuditLogs,
   findUserById,
@@ -9,10 +10,7 @@ import type { AdminConsentAuditQuery } from './admin-consent.schema'
 async function assertAdmin(userId: string) {
   const user = await findUserRoleById(userId)
   if (user?.role !== 'ADMIN') {
-    throw {
-      statusCode: 403,
-      message: 'Apenas administradores podem acessar este recurso',
-    }
+    throw new AppError(403, 'ADMIN_ONLY')
   }
 }
 
@@ -68,7 +66,7 @@ export async function listUserAuditLogs(
 
   const target = await findUserById(targetUserId)
   if (!target) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+    throw new AppError(404, 'USER_NOT_FOUND')
   }
 
   const rows = await findConsentAuditLogs({

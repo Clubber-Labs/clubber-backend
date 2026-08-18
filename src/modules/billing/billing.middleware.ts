@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { AppError } from '../../lib/errors/app-error'
 import { findUserIsPremium } from './billing.repository'
 
 /**
@@ -18,13 +19,10 @@ export async function requirePremium(
 ) {
   const userId = request.user?.sub
   if (!userId) {
-    throw { statusCode: 401, message: 'Autenticação necessária' }
+    throw new AppError(401, 'AUTH_REQUIRED')
   }
 
   if (!(await findUserIsPremium(userId))) {
-    throw {
-      statusCode: 403,
-      message: 'Funcionalidade exclusiva para usuários Premium',
-    }
+    throw new AppError(403, 'PREMIUM_REQUIRED')
   }
 }

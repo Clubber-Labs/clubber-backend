@@ -1,4 +1,5 @@
 import sharp, { type ResizeOptions } from 'sharp'
+import { AppError } from '../errors/app-error'
 
 export interface ProcessedImage {
   buffer: Buffer
@@ -27,7 +28,7 @@ async function process(
       size: info.size ?? data.length,
     }
   } catch {
-    throw { statusCode: 400, message: 'Imagem inválida ou corrompida' }
+    throw new AppError(400, 'INVALID_IMAGE')
   }
 }
 

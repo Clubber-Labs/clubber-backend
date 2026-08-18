@@ -707,7 +707,7 @@ describe('anexo de imagem', () => {
       payload: body,
     })
     expect(res.statusCode).toBe(413)
-    expect(res.json().message).toMatch(/limite/i)
+    expect(res.json().code).toBe('FILE_TOO_LARGE')
   })
 })
 
@@ -862,6 +862,12 @@ describe('anexo de áudio', () => {
       payload: body,
     })
     expect(res.statusCode).toBe(400)
+    // code fixo + field apontando o campo inválido: o cliente traduz pelo code
+    // e ainda sabe qual metadado rejeitar (sem mensagem livre do Zod).
+    expect(res.json()).toMatchObject({
+      code: 'INVALID_AUDIO_METADATA',
+      field: 'durationMs',
+    })
   })
 
   it('áudio sem durationMs → 400', async () => {
@@ -979,7 +985,7 @@ describe('anexo de áudio', () => {
     })
 
     expect(res.statusCode).toBe(413)
-    expect(res.json().message).toMatch(/limite/i)
+    expect(res.json().code).toBe('FILE_TOO_LARGE')
     // O parcial que subiu foi removido (não vira órfão pago).
     expect(fakeStorage.deleted.length).toBeGreaterThanOrEqual(1)
     // E nada foi persistido.

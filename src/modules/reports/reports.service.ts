@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
 import { deleteChatMedia, deleteUploaded } from '../../lib/uploads'
 import {
@@ -43,10 +44,7 @@ import type {
 async function assertAdmin(userId: string) {
   const user = await findUserRoleById(userId)
   if (user?.role !== 'ADMIN') {
-    throw {
-      statusCode: 403,
-      message: 'Apenas administradores podem gerenciar denúncias',
-    }
+    throw new AppError(403, 'ADMIN_ONLY')
   }
 }
 
@@ -58,18 +56,12 @@ export async function reportEvent(
   const event = await ensureEventAccess(eventId, reporterId)
 
   if (event.authorId === reporterId) {
-    throw {
-      statusCode: 400,
-      message: 'Não é possível denunciar o próprio conteúdo',
-    }
+    throw new AppError(400, 'SELF_REPORT')
   }
 
   const existing = await findExistingEventReport(reporterId, eventId)
   if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já possui uma denúncia ativa para este evento',
-    }
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
   }
 
   return createEventReport(data, reporterId, eventId)
@@ -82,25 +74,19 @@ export async function reportComment(
 ) {
   const comment = await findCommentById(commentId)
   if (!comment) {
-    throw { statusCode: 404, message: 'Comentário não encontrado' }
+    throw new AppError(404, 'COMMENT_NOT_FOUND')
   }
 
   const parentEventId = await resolveCommentEventId(comment)
   await ensureEventAccess(parentEventId, reporterId)
 
   if (comment.authorId === reporterId) {
-    throw {
-      statusCode: 400,
-      message: 'Não é possível denunciar o próprio conteúdo',
-    }
+    throw new AppError(400, 'SELF_REPORT')
   }
 
   const existing = await findExistingCommentReport(reporterId, commentId)
   if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já possui uma denúncia ativa para este comentário',
-    }
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
   }
 
   return createCommentReport(data, reporterId, commentId)
@@ -113,24 +99,18 @@ export async function reportPost(
 ) {
   const post = await findReportPostById(postId)
   if (!post) {
-    throw { statusCode: 404, message: 'Post não encontrado' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
 
   await ensureEventAccess(post.eventId, reporterId)
 
   if (post.authorId === reporterId) {
-    throw {
-      statusCode: 400,
-      message: 'Não é possível denunciar o próprio conteúdo',
-    }
+    throw new AppError(400, 'SELF_REPORT')
   }
 
   const existing = await findExistingPostReport(reporterId, postId)
   if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já possui uma denúncia ativa para esta publicação',
-    }
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
   }
 
   return createPostReport(data, reporterId, postId)
@@ -143,7 +123,7 @@ export async function reportMessage(
 ) {
   const message = await findMessageById(messageId)
   if (!message) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
 
   const participant = await findActiveConversationParticipant(
@@ -151,22 +131,16 @@ export async function reportMessage(
     reporterId,
   )
   if (!participant) {
-    throw { statusCode: 403, message: 'Você não participa desta conversa' }
+    throw new AppError(403, 'NOT_CONVERSATION_MEMBER')
   }
 
   if (message.senderId === reporterId) {
-    throw {
-      statusCode: 400,
-      message: 'Não é possível denunciar o próprio conteúdo',
-    }
+    throw new AppError(400, 'SELF_REPORT')
   }
 
   const existing = await findExistingMessageReport(reporterId, messageId)
   if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já possui uma denúncia ativa para esta mensagem',
-    }
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
   }
 
   return createMessageReport(data, reporterId, messageId)
@@ -179,22 +153,16 @@ export async function reportUser(
 ) {
   const targetUser = await findReportTargetUserById(targetUserId)
   if (!targetUser) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+    throw new AppError(404, 'USER_NOT_FOUND')
   }
 
   if (targetUserId === reporterId) {
-    throw {
-      statusCode: 400,
-      message: 'Não é possível denunciar o próprio usuário',
-    }
+    throw new AppError(400, 'SELF_REPORT')
   }
 
   const existing = await findExistingUserReport(reporterId, targetUserId)
   if (existing) {
-    throw {
-      statusCode: 409,
-      message: 'Você já possui uma denúncia ativa para este usuário',
-    }
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
   }
 
   return createUserReport(data, reporterId, targetUserId)
@@ -217,7 +185,7 @@ export async function getReport(reportId: string, requesterId: string) {
   await assertAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
-    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+    throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
   return report
@@ -231,7 +199,7 @@ export async function resolveReport(
   await assertAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
-    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+    throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
   return updateReportResolution(reportId, requesterId, data)
@@ -258,7 +226,7 @@ async function removeReportedPost(postId: string) {
 async function removeReportedMessage(messageId: string) {
   const message = await findMessageById(messageId)
   if (!message) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
 
   if (!message.deletedAt) {
@@ -282,7 +250,7 @@ export async function removeReportTarget(
   await assertAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
-    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+    throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
   if (
@@ -296,11 +264,7 @@ export async function removeReportTarget(
   }
 
   if (report.targetUserId) {
-    throw {
-      statusCode: 400,
-      message:
-        'Denúncia de usuário: use POST /reports/:id/moderate-user (suspender/banir)',
-    }
+    throw new AppError(400, 'INVALID_REPORT_ACTION')
   }
 
   if (
@@ -309,10 +273,7 @@ export async function removeReportTarget(
     !report.messageId &&
     !report.postId
   ) {
-    throw {
-      statusCode: 409,
-      message: 'O conteúdo denunciado já não está disponível',
-    }
+    throw new AppError(409, 'REPORTED_CONTENT_GONE')
   }
 
   // Atualiza o status antes de excluir o conteúdo — se a exclusão falhar,
@@ -335,7 +296,7 @@ export async function removeReportTarget(
 
   // Re-fetch para refletir as FKs nulas após cascade SetNull da deleção de conteúdo
   const updated = await findReportById(reportId)
-  if (!updated) throw { statusCode: 404, message: 'Denúncia não encontrada' }
+  if (!updated) throw new AppError(404, 'REPORT_NOT_FOUND')
   return updated
 }
 
@@ -343,7 +304,7 @@ export async function removeReport(reportId: string, requesterId: string) {
   await assertAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
-    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+    throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
   await deleteReportById(reportId)
@@ -364,13 +325,10 @@ export async function moderateReportedUser(
   await assertAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
-    throw { statusCode: 404, message: 'Denúncia não encontrada' }
+    throw new AppError(404, 'REPORT_NOT_FOUND')
   }
   if (!report.targetUserId) {
-    throw {
-      statusCode: 400,
-      message: 'Esta denúncia não é sobre um usuário',
-    }
+    throw new AppError(400, 'REPORT_NOT_ABOUT_USER')
   }
 
   if (body.action === 'SUSPEND') {

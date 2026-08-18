@@ -1,5 +1,6 @@
 import { cache } from '../../lib/cache'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import type { EventCategory } from '../../lib/event-categories'
 import { DEFAULT_LOCALE } from '../../lib/i18n/locale'
 import { t } from '../../lib/i18n/translate'
@@ -98,14 +99,11 @@ export async function createSpot(creatorId: string, body: CreateSpotBody) {
   // morto" (janela inteira no passado) — `now` é estado externo, fora do Zod.
   const now = Date.now()
   if (body.endsAt <= new Date(now)) {
-    throw { statusCode: 400, message: 'endsAt deve estar no futuro' }
+    throw new AppError(400, 'ENDS_AT_IN_PAST')
   }
   // Teto de 24h por janela: além disso, renova (POST /spots/:id/renew).
   if (body.endsAt.getTime() > now + SPOT_WINDOW_MS) {
-    throw {
-      statusCode: 400,
-      message: 'O rolê pode durar no máximo 24h por vez (renove depois)',
-    }
+    throw new AppError(400, 'SPOT_WINDOW_TOO_LONG', undefined, { maxHours: 24 })
   }
   // Teto verificado dentro da transação (advisory lock) — à prova de corrida.
   const spot = await createSpotWithConversation(
@@ -121,14 +119,14 @@ export async function createSpot(creatorId: string, body: CreateSpotBody) {
 
 export async function getSpot(viewerId: string | null, id: string) {
   const spot = await findSpotDetail(id)
-  if (!spot) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (!spot) throw new AppError(404, 'SPOT_NOT_FOUND')
 
   // Bloqueio e privacidade ficam atrás de 404 (não vaza existência).
   if (viewerId && (await isBlockedEitherWay(viewerId, spot.creatorId))) {
-    throw { statusCode: 404, message: 'Spot não encontrado' }
+    throw new AppError(404, 'SPOT_NOT_FOUND')
   }
   if (!(await canView(spot, viewerId))) {
-    throw { statusCode: 404, message: 'Spot não encontrado' }
+    throw new AppError(404, 'SPOT_NOT_FOUND')
   }
 
   const counts = await countActiveMembersByConversation([spot.conversationId])
@@ -140,7 +138,7 @@ export async function listSpotsOnMap(
   query: ListSpotsQuery,
 ) {
   if (query.friendsOnly && !viewerId) {
-    throw { statusCode: 400, message: 'friendsOnly exige autenticação' }
+    throw new AppError(400, 'FRIENDS_FILTER_REQUIRES_AUTH')
   }
   const ids = await findSpotIdsInBbox(
     viewerId,
@@ -183,17 +181,17 @@ export async function listOwnSpots(creatorId: string) {
  */
 export async function joinSpot(userId: string, id: string) {
   const spot = await findSpotDetail(id)
-  if (!spot) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (!spot) throw new AppError(404, 'SPOT_NOT_FOUND')
 
   // Bloqueio em qualquer direção: trata como inexistente.
   if (await isBlockedEitherWay(userId, spot.creatorId)) {
-    throw { statusCode: 404, message: 'Spot não encontrado' }
+    throw new AppError(404, 'SPOT_NOT_FOUND')
   }
   if (spot.canceledAt || spot.endsAt <= new Date()) {
-    throw { statusCode: 409, message: 'Este rolê não está mais ativo' }
+    throw new AppError(409, 'SPOT_INACTIVE')
   }
   if (!(await canView(spot, userId))) {
-    throw { statusCode: 403, message: 'Spot restrito a amigos do criador' }
+    throw new AppError(403, 'SPOT_FRIENDS_ONLY')
   }
 
   // Já é membro ativo (inclui o criador, que é ADMIN): idempotente e sem
@@ -214,12 +212,12 @@ export async function editSpot(
   data: UpdateSpotBody,
 ) {
   const spot = await findSpotForMutation(id)
-  if (!spot) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (!spot) throw new AppError(404, 'SPOT_NOT_FOUND')
   if (spot.creatorId !== requesterId) {
-    throw { statusCode: 403, message: 'Você não tem permissão para editar' }
+    throw new AppError(403, 'NOT_SPOT_CREATOR')
   }
   if (spot.canceledAt) {
-    throw { statusCode: 409, message: 'Spot cancelado não pode ser editado' }
+    throw new AppError(409, 'SPOT_CANCELED')
   }
   const updated = await updateSpotById(id, data)
   const counts = await countActiveMembersByConversation([
@@ -231,9 +229,9 @@ export async function editSpot(
 /** Só o criador cancela. Idempotente: cancelar de novo é no-op. */
 export async function cancelSpot(id: string, requesterId: string) {
   const spot = await findSpotForMutation(id)
-  if (!spot) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (!spot) throw new AppError(404, 'SPOT_NOT_FOUND')
   if (spot.creatorId !== requesterId) {
-    throw { statusCode: 403, message: 'Você não tem permissão para cancelar' }
+    throw new AppError(403, 'NOT_SPOT_CREATOR')
   }
   if (!spot.canceledAt) await cancelSpotById(id, new Date())
 }
@@ -245,26 +243,23 @@ export async function cancelSpot(id: string, requesterId: string) {
  */
 export async function renewSpot(id: string, requesterId: string) {
   const spot = await findSpotForRenew(id)
-  if (!spot) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (!spot) throw new AppError(404, 'SPOT_NOT_FOUND')
   if (spot.creatorId !== requesterId) {
-    throw { statusCode: 403, message: 'Você não tem permissão para renovar' }
+    throw new AppError(403, 'NOT_SPOT_CREATOR')
   }
   if (spot.canceledAt || spot.endsAt <= new Date()) {
-    throw { statusCode: 409, message: 'Este rolê não está mais ativo' }
+    throw new AppError(409, 'SPOT_INACTIVE')
   }
 
   const isPremium = await getUserPremiumStatus(requesterId)
   const limit = isPremium ? PREMIUM_DAILY_QUOTA : FREE_DAILY_QUOTA
   const quota = await consumeGenerationQuota(requesterId, limit)
   if (!quota.allowed) {
-    throw {
-      statusCode: 429,
-      message: `Limite diário de ${limit} usos atingido`,
-    }
+    throw new AppError(429, 'DAILY_LIMIT_REACHED', undefined, { limit })
   }
 
   const updated = await renewSpotById(id)
-  if (!updated) throw { statusCode: 404, message: 'Spot não encontrado' }
+  if (!updated) throw new AppError(404, 'SPOT_NOT_FOUND')
   const counts = await countActiveMembersByConversation([
     updated.conversationId,
   ])
@@ -310,11 +305,7 @@ export async function generateSuggestions(
   let radiusKm: number
   if (body.radiusKm !== undefined) {
     if (body.radiusKm > maxKm) {
-      throw {
-        statusCode: 400,
-        message: `Raio máximo permitido: ${maxKm}km`,
-        code: 'SPOT_RADIUS_TOO_LARGE',
-      }
+      throw new AppError(400, 'SPOT_RADIUS_TOO_LARGE', undefined, { maxKm })
     }
     radiusKm = body.radiusKm
   } else {
@@ -334,11 +325,7 @@ export async function generateSuggestions(
   if (!intent) {
     const categories = await findUserPreferredCategories(userId)
     if (categories.length === 0) {
-      throw {
-        statusCode: 400,
-        message: 'Configure suas preferências de rolê para gerar sugestões',
-        code: 'SPOT_NO_PREFERENCES',
-      }
+      throw new AppError(400, 'SPOT_NO_PREFERENCES')
     }
     const subcats = await findUserPreferredSubcategories(userId)
     // Prompt da IA fixo em pt-BR enquanto o idioma do prompt não for decidido
@@ -361,10 +348,7 @@ export async function generateSuggestions(
   // retry imediato pagaria Places+IA de novo sem teto.
   const quota = await consumeGenerationQuota(userId, limit)
   if (!quota.allowed) {
-    throw {
-      statusCode: 429,
-      message: `Limite diário de ${limit} gerações atingido`,
-    }
+    throw new AppError(429, 'DAILY_LIMIT_REACHED', undefined, { limit })
   }
 
   // Chave de cache: célula geográfica + raio + (intenção OU categorias). A
@@ -468,11 +452,9 @@ export async function generateSuggestions(
  */
 export async function setSpotRadius(userId: string, radiusKm: number) {
   if (radiusKm > env.SPOT_MAX_RADIUS_KM) {
-    throw {
-      statusCode: 400,
-      message: `Raio máximo permitido: ${env.SPOT_MAX_RADIUS_KM}km`,
-      code: 'SPOT_RADIUS_TOO_LARGE',
-    }
+    throw new AppError(400, 'SPOT_RADIUS_TOO_LARGE', undefined, {
+      maxKm: env.SPOT_MAX_RADIUS_KM,
+    })
   }
   return updateSpotRadius(userId, radiusKm)
 }

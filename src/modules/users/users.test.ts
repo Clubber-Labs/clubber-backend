@@ -410,7 +410,7 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este telefone já está cadastrado em outra conta.',
+      code: 'PHONE_TAKEN',
       field: 'phone',
     })
     // Garante que NÃO vaza path/SQL/stack
@@ -431,7 +431,7 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este nome de usuário já está em uso.',
+      code: 'USERNAME_TAKEN',
       field: 'username',
     })
   })
@@ -479,7 +479,7 @@ describe('GET /users/username-available', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(res.json().message).toBe('Dados inválidos.')
+    expect(res.json().code).toBe('VALIDATION_ERROR')
   })
 
   it('retorna 400 quando o username não é informado', async () => {
@@ -543,7 +543,7 @@ describe('POST /users — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este e-mail já está cadastrado em outra conta.',
+      code: 'EMAIL_TAKEN',
       field: 'email',
     })
   })
@@ -615,7 +615,7 @@ describe('POST /users — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este telefone já está cadastrado em outra conta.',
+      code: 'PHONE_TAKEN',
       field: 'phone',
     })
   })
@@ -662,7 +662,7 @@ describe('POST /users — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este nome de usuário já está em uso.',
+      code: 'USERNAME_TAKEN',
       field: 'username',
     })
   })

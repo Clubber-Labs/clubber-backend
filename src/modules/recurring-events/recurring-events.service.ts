@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { AppError } from '../../lib/errors/app-error'
 import type { CreateEventBody } from '../events/events.schema'
 import { enqueueEventCreated } from '../notifications/notification-queue'
 import { buildOccurrenceDates } from './recurrence'
@@ -25,10 +26,7 @@ export async function createRecurringEvent(
 ) {
   const author = await findAuthorPremium(authorId)
   if (!author?.isPremium) {
-    throw {
-      statusCode: 403,
-      message: 'Eventos recorrentes são exclusivos para usuários Premium',
-    }
+    throw new AppError(403, 'PREMIUM_REQUIRED')
   }
 
   const now = new Date()
@@ -91,17 +89,14 @@ export async function createRecurringEvent(
 
 export async function cancelSeries(seriesId: string, requesterId: string) {
   const series = await findSeriesById(seriesId)
-  if (!series) throw { statusCode: 404, message: 'Série não encontrada' }
+  if (!series) throw new AppError(404, 'SERIES_NOT_FOUND')
 
   if (series.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas o autor da série pode cancelá-la',
-    }
+    throw new AppError(403, 'NOT_SERIES_AUTHOR')
   }
 
   if (series.canceledAt !== null) {
-    throw { statusCode: 409, message: 'Série já cancelada' }
+    throw new AppError(409, 'SERIES_ALREADY_CANCELED')
   }
 
   await cancelSeriesRepo(seriesId)

@@ -1,4 +1,5 @@
 import { env } from '../env'
+import { AppError } from '../errors/app-error'
 import { GooglePlacesService } from './google-places.service'
 import type { IPlacesClient } from './places.interface'
 
@@ -12,10 +13,7 @@ let instance: IPlacesClient | null = null
 export function getPlacesClient(): IPlacesClient {
   if (instance) return instance
   if (!env.GOOGLE_PLACES_API_KEY) {
-    throw {
-      statusCode: 503,
-      message: 'Busca de locais indisponível no momento',
-    }
+    throw new AppError(503, 'PLACES_UNAVAILABLE')
   }
   instance = new GooglePlacesService(env.GOOGLE_PLACES_API_KEY)
   return instance

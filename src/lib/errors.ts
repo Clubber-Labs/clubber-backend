@@ -1,9 +1,10 @@
 import { Prisma } from '@prisma/client'
+import type { ErrorCode } from './errors/error-codes'
 
-const UNIQUE_FIELD_MESSAGES: Record<string, string> = {
-  phone: 'Este telefone já está cadastrado em outra conta.',
-  email: 'Este e-mail já está cadastrado em outra conta.',
-  username: 'Este nome de usuário já está em uso.',
+const UNIQUE_FIELD_CODES: Record<string, ErrorCode> = {
+  phone: 'PHONE_TAKEN',
+  email: 'EMAIL_TAKEN',
+  username: 'USERNAME_TAKEN',
 }
 
 // Violação vinda de índice funcional (unicidade case-insensitive da identidade)
@@ -14,16 +15,12 @@ const UNIQUE_INDEX_FIELDS: Record<string, string> = {
   users_username_lower_key: 'username',
 }
 
-const DEFAULT_UNIQUE_MESSAGE = 'Este dado já está em uso em outra conta.'
-const DUPLICATE_REPORT_MESSAGE =
-  'Você já possui uma denúncia ativa para este item.'
-
 // `field` só sai para as colunas conhecidas acima: o cliente marca o campo do
-// formulário sem inferir pela mensagem, e o contrato fica restrito a nomes que
+// formulário sem inferir pelo código, e o contrato fica restrito a nomes que
 // ele reconhece (nome de constraint interna não vaza).
 export type FriendlyError = {
   statusCode: number
-  message: string
+  code: ErrorCode
   field?: string
 }
 
@@ -48,10 +45,10 @@ export function handlePrismaUniqueError(error: unknown): FriendlyError | null {
       ['eventId', 'commentId', 'messageId', 'targetUserId'].includes(field),
     )
   ) {
-    return { statusCode: 409, message: DUPLICATE_REPORT_MESSAGE }
+    return { statusCode: 409, code: 'REPORT_ALREADY_OPEN' }
   }
 
-  const field = fields.find((f) => f in UNIQUE_FIELD_MESSAGES)
-  if (!field) return { statusCode: 409, message: DEFAULT_UNIQUE_MESSAGE }
-  return { statusCode: 409, message: UNIQUE_FIELD_MESSAGES[field], field }
+  const field = fields.find((f) => f in UNIQUE_FIELD_CODES)
+  if (!field) return { statusCode: 409, code: 'DUPLICATE_VALUE' }
+  return { statusCode: 409, code: UNIQUE_FIELD_CODES[field], field }
 }

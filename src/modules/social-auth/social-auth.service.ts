@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type SocialProvider } from '@prisma/client'
+import { AppError } from '../../lib/errors/app-error'
 import { unblock } from '../../lib/moderation-denylist'
 import {
   clearExpiredSuspension,
@@ -63,28 +64,24 @@ async function generateUniqueUsername(email: string) {
 async function loadUserAndDecorate(userId: string) {
   const user = await findOwnUserById(userId)
   if (!user) {
-    throw {
-      statusCode: 500,
-      message: 'Usuário não encontrado após autenticação social',
-    }
+    throw new AppError(500, 'SOCIAL_USER_MISSING')
   }
   // Defesa em profundidade (simétrico ao getMe): conta anonimizada não loga.
   // Inatingível na prática — a anonimização apaga as social accounts e troca o
   // email por placeholder, então nem `existing` nem `linkable` resolvem aqui.
   if (user.accountStatus === 'ANONYMIZED') {
-    throw { statusCode: 401, message: 'Sessão inválida' }
+    throw new AppError(401, 'SESSION_INVALID')
   }
   // Moderação: conta punida não loga (sessão existente é barrada na denylist do
   // authenticate). suspendedUntil vem no próprio select privado (sem 2ª query).
   if (user.accountStatus === 'BANNED') {
-    throw { statusCode: 403, message: 'Esta conta foi banida permanentemente.' }
+    throw new AppError(403, 'ACCOUNT_BANNED')
   }
   if (user.accountStatus === 'SUSPENDED') {
     if (user.suspendedUntil && user.suspendedUntil > new Date()) {
-      throw {
-        statusCode: 403,
-        message: `Esta conta está suspensa até ${user.suspendedUntil.toISOString()}.`,
-      }
+      throw new AppError(403, 'ACCOUNT_SUSPENDED', undefined, {
+        until: user.suspendedUntil.toISOString(),
+      })
     }
     const res = await clearExpiredSuspension(user.id, new Date())
     if (res.count > 0) await unblock(user.id)
@@ -110,10 +107,10 @@ export async function socialLogin(
   const profile = await verifyTokenByProvider(body.provider, body.token)
 
   if (!profile.email) {
-    throw { statusCode: 400, message: 'Permissão de email é obrigatória' }
+    throw new AppError(400, 'SOCIAL_EMAIL_PERMISSION_REQUIRED')
   }
   if (!profile.emailVerified) {
-    throw { statusCode: 400, message: 'Email não verificado pelo provider' }
+    throw new AppError(400, 'SOCIAL_EMAIL_UNVERIFIED')
   }
 
   // Normaliza pra case-insensitive: Postgres unique é binário, mas provedores
@@ -139,11 +136,7 @@ export async function socialLogin(
     // numa conta tradicional existente. Pra Facebook + email já cadastrado,
     // exigimos login tradicional primeiro (linkagem manual via perfil — TODO).
     if (profile.provider !== 'GOOGLE') {
-      throw {
-        statusCode: 409,
-        message:
-          'Esse email já tem uma conta. Faça login com sua senha primeiro.',
-      }
+      throw new AppError(409, 'EMAIL_TAKEN', 'email')
     }
     await createSocialAccount({
       userId: linkable.id,
@@ -185,8 +178,5 @@ export async function socialLogin(
     }
   }
 
-  throw {
-    statusCode: 500,
-    message: 'Não foi possível gerar username único após múltiplas tentativas',
-  }
+  throw new AppError(500, 'USERNAME_GENERATION_FAILED')
 }

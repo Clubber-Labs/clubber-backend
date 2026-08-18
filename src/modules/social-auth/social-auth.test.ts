@@ -228,7 +228,7 @@ describe('POST /auth/social — erros', () => {
   it('retorna 401 quando o provider rejeita o token', async () => {
     mockedGoogle.mockRejectedValueOnce({
       statusCode: 401,
-      message: 'Token Google inválido',
+      code: 'INVALID_PROVIDER_TOKEN',
     })
 
     const res = await app.inject({
@@ -252,7 +252,7 @@ describe('POST /auth/social — erros', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(res.json().message).toMatch(/Email não verificado/)
+    expect(res.json().code).toBe('SOCIAL_EMAIL_UNVERIFIED')
   })
 
   it('retorna 400 quando o Facebook não devolve email', async () => {
@@ -265,7 +265,7 @@ describe('POST /auth/social — erros', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(res.json().message).toMatch(/Permissão de email/)
+    expect(res.json().code).toBe('SOCIAL_EMAIL_PERMISSION_REQUIRED')
   })
 
   it('retorna 400 quando o provider é inválido', async () => {
@@ -307,7 +307,7 @@ describe('POST /auth/social — segurança auto-link', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().message).toMatch(/já tem uma conta/i)
+    expect(res.json()).toMatchObject({ code: 'EMAIL_TAKEN', field: 'email' })
   })
 
   it('normaliza email do provider para lowercase no auto-link via Google', async () => {
@@ -468,7 +468,7 @@ describe('POST /auth/social — moderação (suspensão/banimento)', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json().message).toMatch(/banida/i)
+    expect(res.json().code).toBe('ACCOUNT_BANNED')
   })
 
   it('nega login social de conta SUSPENDED dentro da vigência com 403', async () => {
@@ -497,7 +497,7 @@ describe('POST /auth/social — moderação (suspensão/banimento)', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json().message).toMatch(/suspensa/i)
+    expect(res.json().code).toBe('ACCOUNT_SUSPENDED')
 
     const reloaded = await testPrisma.user.findUnique({
       where: { id: user.id },

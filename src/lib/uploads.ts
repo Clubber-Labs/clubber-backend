@@ -1,4 +1,5 @@
 import type { Readable } from 'node:stream'
+import { AppError } from './errors/app-error'
 import { imageProcessorService } from './image-processor'
 import { logger } from './logger'
 import { getStorage, type StorageDeliveryType } from './storage'
@@ -11,7 +12,6 @@ const ALLOWED_MIMETYPES = ['image/jpeg', 'image/png', 'image/webp']
 // Imagem e áudio compartilham o teto global do multipart (5 MB). Mensagem em PT
 // reaproveitada no truncamento do áudio e no error handler global (vídeo tem o
 // próprio 413, com limite de 50 MB).
-export const FILE_TOO_LARGE_MESSAGE = 'Arquivo acima do limite permitido (5 MB)'
 
 // Áudio AAC em container MP4/M4A — o formato que iOS grava nativamente.
 const AUDIO_MIMETYPE_EXTENSIONS: Record<string, string> = {
@@ -31,28 +31,19 @@ export const MAX_VIDEO_SIZE = 50 * 1024 * 1024
 
 export function assertImageMimetype(mimetype: string) {
   if (!ALLOWED_MIMETYPES.includes(mimetype)) {
-    throw {
-      statusCode: 400,
-      message: 'Formato de imagem não suportado. Use JPEG, PNG ou WebP',
-    }
+    throw new AppError(400, 'UNSUPPORTED_IMAGE_FORMAT')
   }
 }
 
 export function assertAudioMimetype(mimetype: string) {
   if (!(mimetype in AUDIO_MIMETYPE_EXTENSIONS)) {
-    throw {
-      statusCode: 400,
-      message: 'Formato de áudio não suportado. Use M4A/AAC',
-    }
+    throw new AppError(400, 'UNSUPPORTED_AUDIO_FORMAT')
   }
 }
 
 export function assertVideoFormat(format: string) {
   if (!VIDEO_FORMATS.includes(format)) {
-    throw {
-      statusCode: 400,
-      message: 'Formato de vídeo não suportado. Use MP4, MOV ou WebM',
-    }
+    throw new AppError(400, 'UNSUPPORTED_VIDEO_FORMAT')
   }
 }
 
@@ -139,7 +130,7 @@ export async function uploadMessageAudio(
   // teto e marca `truncated`. Se truncou, o asset parcial já subiu → limpa e 413.
   if (file.truncated) {
     await deleteChatMedia(result.key, logger)
-    throw { statusCode: 413, message: FILE_TOO_LARGE_MESSAGE }
+    throw new AppError(413, 'FILE_TOO_LARGE', undefined, { maxMb: 5 })
   }
   // Validação por CONTEÚDO (não pelo Content-Type do cliente): o driver
   // detecta o tipo real por magic bytes. Áudio/vídeo são 'video'; 'raw'/
@@ -147,10 +138,7 @@ export async function uploadMessageAudio(
   // (imagem já é validada pelo sharp; vídeo, pelo formato do getAsset).
   if (result.detectedResourceType !== 'video') {
     await deleteChatMedia(result.key, logger)
-    throw {
-      statusCode: 400,
-      message: 'Conteúdo de áudio inválido: o arquivo não é um áudio',
-    }
+    throw new AppError(400, 'INVALID_AUDIO_CONTENT')
   }
   return { ...result, format, size: result.bytes }
 }

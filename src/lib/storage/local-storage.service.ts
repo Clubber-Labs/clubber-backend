@@ -4,6 +4,7 @@ import fs from 'node:fs/promises'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { env } from '../env'
+import { AppError } from '../errors/app-error'
 import type {
   FileData,
   IStorageService,
@@ -77,16 +78,10 @@ export class LocalStorageService implements IStorageService {
   // Upload direto assinado depende de um provider com presigned PUT (R2). No
   // storage local não há para onde o cliente subir direto nem como verificar.
   signUpload(): UploadSignature {
-    throw {
-      statusCode: 501,
-      message: 'Upload direto de vídeo requer o storage R2',
-    }
+    throw new AppError(501, 'VIDEO_UPLOAD_REQUIRES_R2')
   }
 
   async getAsset(): Promise<RemoteAsset | null> {
-    throw {
-      statusCode: 501,
-      message: 'Upload direto de vídeo requer o storage R2',
-    }
+    throw new AppError(501, 'VIDEO_UPLOAD_REQUIRES_R2')
   }
 }
