@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { selectableCategorySchema } from '../../lib/event-categories'
 import { SUPPORTED_LOCALES } from '../../lib/i18n/locale'
+import { timezoneSchema } from '../../lib/i18n/timezone'
 import { interestSchema } from '../../lib/subcategories'
 
 // Fonte única das regras de formato do username: cadastro e checagem de
@@ -54,6 +55,9 @@ export const createUserSchema = z.object({
   // Interesses do 2º nível (subcategorias de venue + gêneros) — refinam o perfil.
   // Uma subcategoria implica seu pai no matching; não exige a categoria também.
   preferredSubcategories: z.array(interestSchema).max(30).optional(),
+  // IANA do aparelho — o cadastro é o primeiro ponto onde o app conhece o
+  // device; persiste junto da criação (o deviceLocale vem do Accept-Language).
+  timezone: timezoneSchema.optional(),
 })
 
 export type CreateUserBody = z.infer<typeof createUserSchema>

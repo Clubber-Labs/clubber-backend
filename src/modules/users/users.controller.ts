@@ -12,6 +12,7 @@ import type {
   UsernameAvailabilityQuery,
 } from './users.schema'
 import {
+  captureDeviceContext,
   changeUserAvatar,
   checkUsernameAvailability,
   deactivateAccount,
@@ -87,6 +88,12 @@ export async function postUser(request: FastifyRequest, reply: FastifyReply) {
   const user = await registerUser(
     request.body as CreateUserBody,
     extractRequestMeta(request),
+  )
+  // timezone já entrou na criação (schema); aqui captura só o idioma do aparelho.
+  await captureDeviceContext(
+    user.id,
+    request.headers['accept-language'],
+    undefined,
   )
   const { token, refreshToken } = await issueSession(reply, user.id, {
     userAgent: request.headers['user-agent'] ?? null,

@@ -212,12 +212,21 @@ export async function updateUser(id: string, data: Prisma.UserUpdateInput) {
   })
 }
 
-/** Contexto do aparelho (idioma/fuso), capturado no login e no registro de device. */
+/**
+ * Contexto do aparelho (idioma/fuso), capturado em cadastro, login e registro
+ * de device. updateMany condicional: roda em todo login, então só escreve
+ * quando algum valor de fato mudou (poupa write na tabela quente).
+ */
 export async function updateUserDeviceContext(
   id: string,
   data: { deviceLocale?: string; timezone?: string },
 ) {
-  await prisma.user.update({ where: { id }, data, select: { id: true } })
+  const changed: Prisma.UserWhereInput[] = []
+  if (data.deviceLocale)
+    changed.push({ deviceLocale: { not: data.deviceLocale } })
+  if (data.timezone) changed.push({ timezone: { not: data.timezone } })
+  if (changed.length === 0) return
+  await prisma.user.updateMany({ where: { id, OR: changed }, data })
 }
 
 /**
