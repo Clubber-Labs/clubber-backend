@@ -30,9 +30,9 @@ const CATEGORIES = [
   'SPORTS',
   'ART',
   'GASTRONOMY',
-  'TECH',
+  'CAFE',
   'NIGHTLIFE',
-  'EDUCATION',
+  'OUTDOORS',
 ] as const
 
 const ATTENDANCE_TYPES = [AttendanceType.CONFIRMED, AttendanceType.INTERESTED]
@@ -46,8 +46,8 @@ const CATEGORY_WEIGHTS: Record<(typeof CATEGORIES)[number], number> = {
   GASTRONOMY: 1,
   SPORTS: 1,
   ART: 1,
-  TECH: 1,
-  EDUCATION: 1,
+  CAFE: 1,
+  OUTDOORS: 1,
 }
 const WEIGHTED_CATEGORIES = CATEGORIES.flatMap((c) =>
   Array.from({ length: CATEGORY_WEIGHTS[c] }, () => c),
@@ -94,12 +94,12 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
     'Festival de Inverno — Fondue & Vinho',
     'Rota da Cerveja Artesanal',
   ],
-  TECH: [
-    'Meetup de Devs Curitiba',
-    'Hackathon de IA',
-    'Talk: Carreira em Tecnologia',
-    'Workshop de React Native',
-    'Café com Código',
+  CAFE: [
+    'Café da Tarde no Centro Histórico',
+    'Tour de Cafeterias da Vila',
+    'Tarde de Doceria e Prosa',
+    'Rolê do Sorvete Artesanal',
+    'Brunch de Domingo',
   ],
   NIGHTLIFE: [
     'Show de DJ no Rooftop',
@@ -108,12 +108,12 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
     'Pagode da Vila',
     'Festa Open Bar com Banda ao Vivo',
   ],
-  EDUCATION: [
-    'Palestra sobre Finanças Pessoais',
-    'Roda de Conversa sobre Carreira',
-    'Workshop de Oratória',
-    'Clube do Livro',
-    'Talk Show com Convidado Especial',
+  OUTDOORS: [
+    'Piquenique no Parque Barigui',
+    'Pôr do Sol no Mirante',
+    'Trilha Leve de Sábado',
+    'Rolê de Bike pela Ciclovia',
+    'Acampamento de Fim de Semana',
   ],
 }
 
@@ -201,7 +201,7 @@ const SPOTS = [
     categories: ['NIGHTLIFE', 'GASTRONOMY'],
   },
   { title: 'Pelada no Parque Barigui', categories: ['SPORTS', 'OUTDOORS'] },
-  { title: 'Café & code na Vila', categories: ['TECH', 'GASTRONOMY'] },
+  { title: 'Café da tarde na Vila', categories: ['CAFE', 'GASTRONOMY'] },
   {
     title: 'Som ao vivo no bar da esquina',
     categories: ['MUSIC', 'NIGHTLIFE'],

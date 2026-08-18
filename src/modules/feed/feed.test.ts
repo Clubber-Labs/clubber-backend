@@ -952,13 +952,13 @@ describe('GET /feed — descoberta', () => {
   it('subcategoria preferida puxa evento taguado mesmo sem categoria preferida', async () => {
     const viewer = await makeUser()
     // Só interesse de 2º nível; nenhuma categoria preferida.
-    await makeUserSubcategoryPreference(viewer.id, 'PARTY_BALADA')
+    await makeUserSubcategoryPreference(viewer.id, 'NIGHTLIFE_BALADA')
     const stranger = await makeUser()
     // Categoria que o viewer NÃO prefere; só a subcategoria casa.
     const balada = await makeEvent(stranger.id, {
       isPublic: true,
       categories: ['OTHER'],
-      subcategories: ['PARTY_BALADA'],
+      subcategories: ['NIGHTLIFE_BALADA'],
     })
 
     const res = await app.inject({

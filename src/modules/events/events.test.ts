@@ -1132,7 +1132,7 @@ describe('POST /events', () => {
         date: new Date(Date.now() + 86400000).toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        categories: ['PARTY', 'MUSIC', 'SPORTS', 'TECH', 'ART', 'GAMING'],
+        categories: ['PARTY', 'MUSIC', 'SPORTS', 'CAFE', 'ART', 'GAMING'],
         isPublic: true,
       },
     })

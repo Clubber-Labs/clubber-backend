@@ -167,7 +167,7 @@ describe('POST /spots', () => {
       url: '/spots',
       headers: auth(user.id),
       body: spotBody({
-        categories: ['PARTY', 'MUSIC', 'SPORTS', 'TECH', 'ART', 'GAMING'],
+        categories: ['PARTY', 'MUSIC', 'SPORTS', 'CAFE', 'ART', 'GAMING'],
       }),
     })
     expect(res.statusCode).toBe(400)

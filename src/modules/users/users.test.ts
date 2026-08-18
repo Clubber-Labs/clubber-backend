@@ -772,20 +772,20 @@ describe('preferredCategories no perfil', () => {
         email: 'maria@exemplo.com',
         password: 'senha12345',
         birthdate: '2000-01-01T00:00:00.000Z',
-        preferredCategories: ['MUSIC', 'TECH'],
+        preferredCategories: ['MUSIC', 'GASTRONOMY'],
       },
     })
 
     expect(res.statusCode).toBe(201)
     const { user, token: jwt } = res.json()
     expect(user.preferredCategories).toEqual(
-      expect.arrayContaining(['MUSIC', 'TECH']),
+      expect.arrayContaining(['MUSIC', 'GASTRONOMY']),
     )
 
     const rows = await testPrisma.userCategoryPreference.findMany({
       where: { userId: user.id },
     })
-    expect(rows.map((r) => r.category).sort()).toEqual(['MUSIC', 'TECH'])
+    expect(rows.map((r) => r.category).sort()).toEqual(['GASTRONOMY', 'MUSIC'])
 
     const me = await app.inject({
       method: 'GET',
@@ -793,7 +793,7 @@ describe('preferredCategories no perfil', () => {
       headers: { authorization: `Bearer ${jwt}` },
     })
     expect(me.json().preferredCategories).toEqual(
-      expect.arrayContaining(['MUSIC', 'TECH']),
+      expect.arrayContaining(['MUSIC', 'GASTRONOMY']),
     )
   })
 
@@ -868,18 +868,18 @@ describe('preferredCategories no perfil', () => {
       method: 'PUT',
       url: `/users/${user.id}`,
       headers: { authorization: `Bearer ${token(app, user.id)}` },
-      payload: { preferredCategories: ['ART', 'TECH'] },
+      payload: { preferredCategories: ['ART', 'GASTRONOMY'] },
     })
 
     expect(res.statusCode).toBe(200)
     expect(res.json().preferredCategories).toEqual(
-      expect.arrayContaining(['ART', 'TECH']),
+      expect.arrayContaining(['ART', 'GASTRONOMY']),
     )
 
     const rows = await testPrisma.userCategoryPreference.findMany({
       where: { userId: user.id },
     })
-    expect(rows.map((r) => r.category).sort()).toEqual(['ART', 'TECH'])
+    expect(rows.map((r) => r.category).sort()).toEqual(['ART', 'GASTRONOMY'])
   })
 
   it('PUT /users/:id rejeita menos de 2 categorias (perfil nunca vazio)', async () => {

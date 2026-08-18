@@ -236,6 +236,8 @@ enum EventCategory {
   VOLUNTEERING
   PARTY
   OTHER
+  BRECHO
+  FESTIVAL
 }
 
 model UserCategoryPreference {

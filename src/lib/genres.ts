@@ -17,25 +17,34 @@ export type Genre = {
   appliesTo: EventCategory[]
 }
 
-const NIGHTLIFE_CATS: EventCategory[] = ['PARTY', 'MUSIC', 'NIGHTLIFE']
+const NIGHTLIFE_CATS: EventCategory[] = [
+  'PARTY',
+  'MUSIC',
+  'NIGHTLIFE',
+  'FESTIVAL',
+]
 
 // `as const` estreita as chaves para literais (GenreKey), amarrando cada gênero
 // ao seu rótulo nos dicionários de i18n em tempo de compilação.
+// Curadoria jovem: só os gêneros que tocam em rolê/evento. As vertentes
+// eletrônicas substituem o antigo GENRE_ELETRONICA genérico.
 export const GENRES = [
   { key: 'GENRE_SERTANEJO', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_FUNK', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_PAGODE_SAMBA', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_ROCK', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_POP', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_ELETRONICA', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_MPB', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_RAP', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_FORRO', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_PISEIRO', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_REGGAE', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_AXE', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_JAZZ_BLUES', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_INDIE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_HOUSE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_TECH_HOUSE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_TECHNO', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_PSYTRANCE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_DNB', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_EDM', appliesTo: NIGHTLIFE_CATS },
 ] as const satisfies readonly Genre[]
 
 export type GenreKey = (typeof GENRES)[number]['key']

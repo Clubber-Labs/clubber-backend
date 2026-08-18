@@ -65,7 +65,7 @@ describe('t (dicionários reais)', () => {
     expect(t('categories.MUSIC', 'pt-BR')).toBe('Música')
     expect(t('categories.GASTRONOMY', 'en')).toBe('Food')
     expect(t('categories.NIGHTLIFE', 'es')).toBe('Vida nocturna')
-    expect(t('subcategories.PARTY_BALADA', 'en')).toBe('Clubbing')
+    expect(t('subcategories.NIGHTLIFE_BALADA', 'en')).toBe('Clubbing')
     expect(t('genres.GENRE_FUNK', 'es')).toBe('Funk brasileño')
   })
 })
