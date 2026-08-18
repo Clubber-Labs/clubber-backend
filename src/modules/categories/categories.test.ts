@@ -91,6 +91,8 @@ describe('GET /categories', () => {
     expect(funk.appliesTo).toEqual(
       expect.arrayContaining(['PARTY', 'MUSIC', 'NIGHTLIFE']),
     )
+    // Curadoria: festival é rolê musical — gênero aplica lá também.
+    expect(funk.appliesTo).toContain('FESTIVAL')
   })
 
   it('é público (não exige autenticação)', async () => {

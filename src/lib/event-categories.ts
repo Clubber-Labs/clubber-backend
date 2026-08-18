@@ -50,7 +50,7 @@ export const eventCategorySchema = z.enum(EVENT_CATEGORIES)
 // oferecidas para nova seleção (some do /categories e da validação de input).
 // Curadoria jovem: o app é de rolê social — trabalho, palestra, estudo e
 // serviço/varejo utilitário ficam fora do seletor.
-const DEPRECATED_CATEGORIES = new Set<EventCategory>([
+const DEPRECATED_CATEGORY_LIST = [
   'RELIGION',
   'TECH',
   'BUSINESS',
@@ -59,17 +59,11 @@ const DEPRECATED_CATEGORIES = new Set<EventCategory>([
   'VOLUNTEERING',
   'FASHION',
   'HEALTH_WELLNESS',
-])
+] as const satisfies readonly EventCategory[]
 
-type DeprecatedCategory =
-  | 'RELIGION'
-  | 'TECH'
-  | 'BUSINESS'
-  | 'EDUCATION'
-  | 'FAMILY'
-  | 'VOLUNTEERING'
-  | 'FASHION'
-  | 'HEALTH_WELLNESS'
+type DeprecatedCategory = (typeof DEPRECATED_CATEGORY_LIST)[number]
+
+const DEPRECATED_CATEGORIES = new Set<EventCategory>(DEPRECATED_CATEGORY_LIST)
 
 // Categorias SELECIONÁVEIS: o subconjunto que o usuário pode escolher hoje. É a
 // fonte do GET /categories e da validação de input (criar evento, preferências).
