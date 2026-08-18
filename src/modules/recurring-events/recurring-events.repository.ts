@@ -94,6 +94,7 @@ export async function findReplenishableSeries(now: Date) {
       authorId: true,
       title: true,
       description: true,
+      timezone: true,
       latitude: true,
       longitude: true,
       address: true,

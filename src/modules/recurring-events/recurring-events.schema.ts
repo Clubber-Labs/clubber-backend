@@ -6,6 +6,7 @@ import { z } from 'zod'
 export type OccurrenceContent = {
   title: string
   description: string | null
+  timezone: string
   latitude: number
   longitude: number
   address: string | null
@@ -24,6 +25,7 @@ export type SeriesRule = {
   until: Date | null
   count: number | null
   authorId: string
+  timezone: string
 }
 
 // Regra de recorrência aninhada no corpo de POST /events. A validação

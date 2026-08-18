@@ -4,6 +4,7 @@ import { buildApp } from '../../test/app'
 import { makeEvent, makeFeaturedEvent, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { reconcileFeaturedEvents } from './featured-events.reconciler'
+import { promotionPeriodFor } from './featured-events.repository'
 
 let app: FastifyInstance
 
@@ -510,15 +511,35 @@ describe('reconcileFeaturedEvents', () => {
 
 // Quota mensal de promoções (RF11.4+): consumida atomicamente na criação.
 describe('quota mensal de promoções', () => {
+  // A chave da quota é o 1º do mês no fuso do usuário (default São Paulo), não
+  // em UTC — os helpers precisam da mesma chave para achar a linha.
   function currentPeriod() {
-    const now = new Date()
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    return promotionPeriodFor()
   }
 
   function previousPeriod() {
-    const now = new Date()
-    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+    const current = currentPeriod()
+    return promotionPeriodFor(new Date(current.getTime() - 15 * 86_400_000))
   }
+
+  it('o mês da quota vira à meia-noite LOCAL, não em UTC', () => {
+    // 01/03 02h UTC ainda é 28/02 23h em São Paulo: a promoção pertence ao
+    // balde de fevereiro. Em UTC caía em março e liberava quota adiantada.
+    expect(
+      promotionPeriodFor(
+        new Date('2026-03-01T02:00:00Z'),
+        'America/Sao_Paulo',
+      ).toISOString(),
+    ).toBe('2026-02-01T03:00:00.000Z')
+
+    // Mesmo instante, usuário em Tóquio (UTC+9): já é 1º de março lá.
+    expect(
+      promotionPeriodFor(
+        new Date('2026-03-01T02:00:00Z'),
+        'Asia/Tokyo',
+      ).toISOString(),
+    ).toBe('2026-02-28T15:00:00.000Z')
+  })
 
   async function promote(authorId: string) {
     const event = await makeEvent(authorId, { date: inFuture(86_400_000) })
