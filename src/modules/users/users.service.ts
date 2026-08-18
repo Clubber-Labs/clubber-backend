@@ -172,6 +172,7 @@ export async function checkUsernameAvailability(username: string) {
 export async function registerUser(
   data: CreateUserBody,
   meta: { ipAddress: string | null; userAgent: string | null },
+  acceptLanguage?: string,
 ) {
   const emailExists = await findUserIdByEmail(data.email)
   const usernameExists = await findUserIdByUsername(data.username)
@@ -193,7 +194,13 @@ export async function registerUser(
 
   const passwordHash = await hash(data.password, 10)
 
-  const user = await createUser({ ...data, password: passwordHash }, meta)
+  // Idioma do aparelho entra no próprio create (como o timezone): um write só,
+  // e a resposta do cadastro já sai com o valor capturado, não com o default.
+  const deviceLocale = preferredLanguage(acceptLanguage)
+  const user = await createUser(
+    { ...data, password: passwordHash, ...(deviceLocale && { deviceLocale }) },
+    meta,
+  )
   return withPreferredCategories(user)
 }
 

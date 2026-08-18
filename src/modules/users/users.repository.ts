@@ -175,7 +175,10 @@ export async function findUserByEmail(email: string) {
 }
 
 export async function createUser(
-  data: Omit<CreateUserBody, 'password'> & { password: string | null },
+  data: Omit<CreateUserBody, 'password'> & {
+    password: string | null
+    deviceLocale?: string
+  },
   meta: SignupMeta,
 ) {
   const { preferredCategories, preferredSubcategories, ...userData } = data
@@ -213,9 +216,10 @@ export async function updateUser(id: string, data: Prisma.UserUpdateInput) {
 }
 
 /**
- * Contexto do aparelho (idioma/fuso), capturado em cadastro, login e registro
- * de device. updateMany condicional: roda em todo login, então só escreve
- * quando algum valor de fato mudou (poupa write na tabela quente).
+ * Contexto do aparelho (idioma/fuso), capturado em login e registro de device
+ * (no cadastro os valores entram no próprio create). updateMany condicional:
+ * roda em todo login, então só escreve quando algum valor de fato mudou
+ * (poupa write na tabela quente).
  */
 export async function updateUserDeviceContext(
   id: string,

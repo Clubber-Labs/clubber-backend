@@ -1052,12 +1052,18 @@ describe('localePreference e fuso no perfil', () => {
     })
 
     expect(res.statusCode).toBe(201)
+    // Cadastro é o PRIMEIRO ponto onde o app conhece o device: sem essa captura,
+    // quem nunca refaz login ficaria nos defaults até o próximo /auth/login.
+    // A resposta também precisa refletir o valor capturado (não o default),
+    // por isso ambos entram no mesmo prisma.user.create.
+    expect(res.json().user).toMatchObject({
+      deviceLocale: 'en-US',
+      timezone: 'Europe/Lisbon',
+    })
     const stored = await testPrisma.user.findUnique({
       where: { id: res.json().user.id },
       select: { deviceLocale: true, timezone: true },
     })
-    // Cadastro é o PRIMEIRO ponto onde o app conhece o device: sem essa captura,
-    // quem nunca refaz login ficaria nos defaults até o próximo /auth/login.
     expect(stored?.deviceLocale).toBe('en-US')
     expect(stored?.timezone).toBe('Europe/Lisbon')
   })
