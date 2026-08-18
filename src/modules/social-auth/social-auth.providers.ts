@@ -1,5 +1,6 @@
 import { OAuth2Client, type TokenPayload } from 'google-auth-library'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import type { VerifiedSocialProfile } from './social-auth.schema'
 
 const googleClient = new OAuth2Client()
@@ -8,7 +9,7 @@ export async function verifyGoogleToken(
   idToken: string,
 ): Promise<VerifiedSocialProfile> {
   if (!env.GOOGLE_CLIENT_ID) {
-    throw { statusCode: 500, message: 'GOOGLE_CLIENT_ID não configurado' }
+    throw new AppError(500, 'SOCIAL_PROVIDER_MISCONFIGURED')
   }
 
   let payload: TokenPayload | undefined
@@ -19,11 +20,11 @@ export async function verifyGoogleToken(
     })
     payload = ticket.getPayload()
   } catch {
-    throw { statusCode: 401, message: 'Token Google inválido' }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
   if (!payload?.sub) {
-    throw { statusCode: 401, message: 'Token Google inválido' }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
   return {
@@ -62,13 +63,14 @@ async function fetchJson<T>(
   try {
     response = await fetch(url, init)
   } catch {
-    throw {
-      statusCode: 502,
-      message: `Falha ao validar com o ${providerLabel}`,
-    }
+    throw new AppError(502, 'SOCIAL_PROVIDER_UNAVAILABLE', undefined, {
+      provider: providerLabel,
+    })
   }
   if (!response.ok) {
-    throw { statusCode: 401, message: `Token ${providerLabel} inválido` }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN', undefined, {
+      provider: providerLabel,
+    })
   }
   return (await response.json()) as T
 }
@@ -77,10 +79,7 @@ export async function verifyFacebookToken(
   accessToken: string,
 ): Promise<VerifiedSocialProfile> {
   if (!env.FACEBOOK_APP_ID || !env.FACEBOOK_APP_SECRET) {
-    throw {
-      statusCode: 500,
-      message: 'FACEBOOK_APP_ID/FACEBOOK_APP_SECRET não configurado',
-    }
+    throw new AppError(500, 'SOCIAL_PROVIDER_MISCONFIGURED')
   }
 
   const appToken = `${env.FACEBOOK_APP_ID}|${env.FACEBOOK_APP_SECRET}`
@@ -104,7 +103,7 @@ export async function verifyFacebookToken(
     debug.data.app_id !== env.FACEBOOK_APP_ID ||
     !debug.data.user_id
   ) {
-    throw { statusCode: 401, message: 'Token Facebook inválido' }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
   const me = await fetchJson<FacebookMeResponse>(

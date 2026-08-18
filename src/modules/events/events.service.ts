@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { AppError } from '../../lib/errors/app-error'
 import { interestMatchesCategories } from '../../lib/subcategories'
 import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
@@ -147,10 +148,7 @@ function hydrateWithState(
 
 function assertCanFilterByFriends(friendsOnly: boolean, viewerId?: string) {
   if (friendsOnly && !viewerId) {
-    throw {
-      statusCode: 401,
-      message: 'Autenticação necessária para filtrar por amigos',
-    }
+    throw new AppError(401, 'AUTH_REQUIRED')
   }
 }
 
@@ -301,7 +299,7 @@ export async function listUserEvents(
 
 export async function getEventById(id: string, requesterId?: string) {
   const event = await findEventById(id)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
   await checkEventAccess(
     event as { id: string; isPublic: boolean; authorId: string },
     requesterId,
@@ -366,18 +364,14 @@ export async function editEvent(
   requesterId: string,
 ) {
   const event = await findEventAccess(id)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
-  if (event.authorId !== requesterId)
-    throw {
-      statusCode: 403,
-      message: 'Você não tem permissão para realizar esta ação',
-    }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
+  if (event.authorId !== requesterId) throw new AppError(403, 'FORBIDDEN')
 
   const effectiveDate = data.date ?? event.date
   const effectiveEndDate =
     data.endDate === undefined ? event.endDate : data.endDate
   if (effectiveEndDate && effectiveEndDate <= effectiveDate) {
-    throw { statusCode: 400, message: 'endDate deve ser depois de date' }
+    throw new AppError(400, 'END_DATE_BEFORE_START')
   }
 
   // Coerência das tags contra o estado EFETIVO: mexer em categories e/ou
@@ -388,10 +382,7 @@ export async function editEvent(
     const effectiveSubcategories = data.subcategories ?? event.subcategories
     for (const key of effectiveSubcategories) {
       if (!interestMatchesCategories(key, effectiveCategories)) {
-        throw {
-          statusCode: 400,
-          message: `A subcategoria "${key}" não pertence a nenhuma categoria selecionada`,
-        }
+        throw new AppError(400, 'SUBCATEGORY_INCOHERENT', undefined, { key })
       }
     }
   }
@@ -409,12 +400,8 @@ export async function removeEvent(
   logger: Logger,
 ) {
   const event = await findEventAccess(id)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
-  if (event.authorId !== requesterId)
-    throw {
-      statusCode: 403,
-      message: 'Você não tem permissão para realizar esta ação',
-    }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
+  if (event.authorId !== requesterId) throw new AppError(403, 'FORBIDDEN')
 
   const images = (await findEventImageKeys(id)) as { key: string }[]
   await Promise.all(images.map((img) => deleteUploaded(img.key, logger)))
@@ -431,12 +418,8 @@ export async function addEventImage(
   logger: Logger,
 ) {
   const event = await findEventAccess(id)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
-  if (event.authorId !== requesterId)
-    throw {
-      statusCode: 403,
-      message: 'Você não tem permissão para realizar esta ação',
-    }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
+  if (event.authorId !== requesterId) throw new AppError(403, 'FORBIDDEN')
 
   const uploaded = await uploadEventImage(buffer, id)
 

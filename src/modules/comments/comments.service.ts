@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { AppError } from '../../lib/errors/app-error'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { notifyFromActor } from '../notifications/notifications.service'
 import { findPostById } from '../posts/posts.repository'
@@ -25,11 +26,11 @@ export async function resolveCommentEventId(comment: {
 }): Promise<string> {
   if (comment.eventId) return comment.eventId
   if (!comment.postId) {
-    throw { statusCode: 500, message: 'Comentário sem evento ou post' }
+    throw new AppError(500, 'COMMENT_SCOPE_MISSING')
   }
   const post = await findPostById(comment.postId)
   if (!post) {
-    throw { statusCode: 404, message: 'Post do comentário não encontrado' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
   return post.eventId
 }
@@ -61,7 +62,7 @@ export async function addCommentToPost(
 ) {
   const post = await findPostById(postId)
   if (!post) {
-    throw { statusCode: 404, message: 'Post não encontrado' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
   await ensureEventAccess(post.eventId, authorId)
   const comment = await createComment(authorId, body.content, { postId })
@@ -97,7 +98,7 @@ export async function listPostComments(
 ) {
   const post = await findPostById(postId)
   if (!post) {
-    throw { statusCode: 404, message: 'Post não encontrado' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
   await ensureEventAccess(post.eventId, requesterId)
   const rows = await findCommentsByPost(postId, limit, cursor, requesterId)
@@ -112,23 +113,20 @@ export async function removeComment(
 ) {
   const comment = await findCommentById(commentId)
   if (!comment) {
-    throw { statusCode: 404, message: 'Comentário não encontrado' }
+    throw new AppError(404, 'COMMENT_NOT_FOUND')
   }
 
   const belongsToScope =
     comment.eventId === scopeId || comment.postId === scopeId
   if (!belongsToScope) {
-    throw { statusCode: 404, message: 'Comentário não encontrado neste escopo' }
+    throw new AppError(404, 'COMMENT_NOT_FOUND')
   }
 
   const eventId = await resolveCommentEventId(comment)
   const event = await ensureEventAccess(eventId, requesterId)
 
   if (comment.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Sem permissão para deletar este comentário',
-    }
+    throw new AppError(403, 'NOT_COMMENT_AUTHOR')
   }
 
   const result = await deleteComment(commentId)

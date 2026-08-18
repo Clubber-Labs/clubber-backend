@@ -109,7 +109,7 @@ describe('POST /auth/login', () => {
     })
 
     expect(res.statusCode).toBe(401)
-    expect(res.json().message).toBe('Invalid credentials')
+    expect(res.json().code).toBe('INVALID_CREDENTIALS')
   })
 
   it('retorna 400 quando nenhum identificador é enviado', async () => {
@@ -254,7 +254,7 @@ describe('POST /auth/login — moderação (suspensão/banimento)', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json().message).toMatch(/banida/i)
+    expect(res.json().code).toBe('ACCOUNT_BANNED')
   })
 
   it('nega login de conta SUSPENDED dentro da vigência com 403', async () => {
@@ -272,7 +272,7 @@ describe('POST /auth/login — moderação (suspensão/banimento)', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json().message).toMatch(/suspensa/i)
+    expect(res.json().code).toBe('ACCOUNT_SUSPENDED')
 
     // Suspensão vigente NÃO é curada: o estado no banco continua SUSPENDED.
     const reloaded = await testPrisma.user.findUnique({

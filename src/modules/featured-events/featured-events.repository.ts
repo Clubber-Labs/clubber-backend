@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { AppError } from '../../lib/errors/app-error'
 import { prisma } from '../../lib/prisma'
 
 type TxClient = Prisma.TransactionClient
@@ -57,10 +58,7 @@ export async function consumePromotionQuotaTx(
     update: { count: { increment: 1 } },
   })
   if (usage.count > limit) {
-    throw {
-      statusCode: 429,
-      message: 'Limite mensal de promoções atingido',
-    }
+    throw new AppError(429, 'MONTHLY_PROMOTION_LIMIT')
   }
 }
 

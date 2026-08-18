@@ -1,5 +1,6 @@
 import Stripe from 'stripe'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import { STRIPE_API_VERSION, stripe } from '../../lib/stripe'
 import {
   mapStripeSubscription,
@@ -57,18 +58,14 @@ function wrapStripeError(err: unknown): never {
     err instanceof Stripe.errors.StripeAPIError ||
     err instanceof Stripe.errors.StripeConnectionError
   ) {
-    throw {
-      statusCode: 502,
-      message:
-        'Gateway de pagamento indisponível, tente novamente em alguns instantes.',
-    }
+    throw new AppError(502, 'BILLING_GATEWAY_UNAVAILABLE')
   }
   throw err
 }
 
 async function findUserOrThrow(userId: string) {
   const user = await findUserById(userId)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND')
   return user
 }
 
@@ -85,14 +82,14 @@ function assertAllowedRedirectUrl(
   try {
     const parsed = new URL(url)
     if (!env.STRIPE_CHECKOUT_ALLOWED_REDIRECT_HOSTS.includes(parsed.host)) {
-      throw {
-        statusCode: 400,
-        message: `${kind} aponta para host não permitido: ${parsed.host}`,
-      }
+      throw new AppError(400, 'URL_HOST_NOT_ALLOWED', undefined, {
+        kind,
+        host: parsed.host,
+      })
     }
   } catch (err) {
     if (err && typeof err === 'object' && 'statusCode' in err) throw err
-    throw { statusCode: 400, message: `${kind} é uma URL inválida` }
+    throw new AppError(400, 'INVALID_URL', undefined, { kind })
   }
 }
 
@@ -146,10 +143,7 @@ export async function createCheckoutSession(
 
   const existingActive = await findActiveSubscriptionByUserId(userId)
   if (existingActive) {
-    throw {
-      statusCode: 409,
-      message: 'Usuário já tem uma assinatura ativa',
-    }
+    throw new AppError(409, 'SUBSCRIPTION_ALREADY_ACTIVE')
   }
 
   const customerId = await ensureStripeCustomer(user)
@@ -205,16 +199,10 @@ async function getPremiumPlanPrice(): Promise<PlanPrice> {
   }
 
   if (!price.recurring) {
-    throw {
-      statusCode: 500,
-      message: 'Preço do plano Premium não é recorrente (esperado assinatura).',
-    }
+    throw new AppError(500, 'BILLING_PRICE_MISCONFIGURED')
   }
   if (price.unit_amount === null) {
-    throw {
-      statusCode: 500,
-      message: 'Preço do plano Premium não tem valor unitário definido.',
-    }
+    throw new AppError(500, 'BILLING_PRICE_MISCONFIGURED')
   }
 
   const value: PlanPrice = {
@@ -245,10 +233,7 @@ export async function getPlan(userId: string) {
 export async function getSubscription(userId: string) {
   const sub = await findActiveSubscriptionByUserId(userId)
   if (!sub) {
-    throw {
-      statusCode: 404,
-      message: 'Nenhuma assinatura ativa encontrada',
-    }
+    throw new AppError(404, 'SUBSCRIPTION_NOT_FOUND')
   }
   return sub
 }
@@ -266,10 +251,7 @@ export async function getUserPremiumStatus(userId: string): Promise<boolean> {
 export async function cancelSubscription(userId: string) {
   const sub = await findActiveSubscriptionByUserId(userId)
   if (!sub) {
-    throw {
-      statusCode: 404,
-      message: 'Nenhuma assinatura ativa encontrada',
-    }
+    throw new AppError(404, 'SUBSCRIPTION_NOT_FOUND')
   }
 
   try {
@@ -286,17 +268,11 @@ export async function cancelSubscription(userId: string) {
 export async function resumeSubscription(userId: string) {
   const sub = await findActiveSubscriptionByUserId(userId)
   if (!sub) {
-    throw {
-      statusCode: 404,
-      message: 'Nenhuma assinatura ativa encontrada',
-    }
+    throw new AppError(404, 'SUBSCRIPTION_NOT_FOUND')
   }
 
   if (!sub.cancelAtPeriodEnd) {
-    throw {
-      statusCode: 409,
-      message: 'Assinatura não está marcada para cancelamento',
-    }
+    throw new AppError(409, 'SUBSCRIPTION_NOT_CANCELING')
   }
 
   try {
@@ -334,10 +310,7 @@ export async function createSubscriptionIntent(userId: string) {
 
   const existingActive = await findActiveSubscriptionByUserId(userId)
   if (existingActive) {
-    throw {
-      statusCode: 409,
-      message: 'Usuário já tem uma assinatura ativa',
-    }
+    throw new AppError(409, 'SUBSCRIPTION_ALREADY_ACTIVE')
   }
 
   const customerId = await ensureStripeCustomer(user)
@@ -394,11 +367,7 @@ export async function createSubscriptionIntent(userId: string) {
   if (!intent.secret) {
     // Payload inesperado (sem secret em nenhum dos dois caminhos) — não dá
     // pra abrir a PaymentSheet. 502 orienta o app a tentar de novo.
-    throw {
-      statusCode: 502,
-      message:
-        'Gateway de pagamento indisponível, tente novamente em alguns instantes.',
-    }
+    throw new AppError(502, 'BILLING_GATEWAY_UNAVAILABLE')
   }
 
   try {
@@ -426,11 +395,7 @@ export async function createSetupIntent(userId: string) {
   const user = await findUserOrThrow(userId)
 
   if (!user.stripeCustomerId) {
-    throw {
-      statusCode: 409,
-      message:
-        'Usuário ainda não tem cadastro no gateway. Faça um checkout antes de atualizar método de pagamento.',
-    }
+    throw new AppError(409, 'BILLING_CUSTOMER_MISSING')
   }
 
   try {

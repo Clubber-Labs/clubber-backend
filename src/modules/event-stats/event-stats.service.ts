@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { AppError } from '../../lib/errors/app-error'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   countAnalyticsMetricByType,
@@ -47,22 +48,16 @@ export async function getEventStats(
   options: { refresh?: boolean } = {},
 ): Promise<EventStats> {
   const event = await findEventForStats(eventId)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
 
   if (event.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas o autor do evento pode ver as estatísticas',
-    }
+    throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
 
   // requirePremium na rota já barra requester não-premium; aqui cobre a race
   // entre downgrade e o GET, igual ao padrão de featured-events.service.
   if (!event.author.isPremium) {
-    throw {
-      statusCode: 403,
-      message: 'Estatísticas são exclusivas para usuários Premium',
-    }
+    throw new AppError(403, 'PREMIUM_REQUIRED')
   }
 
   // Cache lido DEPOIS das checagens de 404/403: a key é só por evento, então

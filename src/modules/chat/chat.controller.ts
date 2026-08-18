@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { AppError } from '../../lib/errors/app-error'
 import { assertAudioMimetype, assertImageMimetype } from '../../lib/uploads'
 import {
   type AddParticipantBody,
@@ -91,10 +92,7 @@ function readIdempotencyKey(request: FastifyRequest): string | undefined {
   const trimmed = value?.trim()
   if (!trimmed) return undefined
   if (trimmed.length > 200) {
-    throw {
-      statusCode: 400,
-      message: 'Idempotency-Key inválido (máx. 200 caracteres)',
-    }
+    throw new AppError(400, 'INVALID_IDEMPOTENCY_KEY')
   }
   return trimmed
 }
@@ -125,7 +123,7 @@ export async function postMessageImage(
   const idempotencyKey = readIdempotencyKey(request)
   const data = await request.file()
   if (!data) {
-    throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
+    throw new AppError(400, 'IMAGE_REQUIRED')
   }
   assertImageMimetype(data.mimetype)
   const buffer = await data.toBuffer()
@@ -157,18 +155,14 @@ function parseAudioMeta(fields: Record<string, unknown>): AudioMessageMeta {
     try {
       waveform = JSON.parse(waveformRaw)
     } catch {
-      throw { statusCode: 400, message: 'waveform inválido: JSON esperado' }
+      throw new AppError(400, 'INVALID_WAVEFORM')
     }
   }
   const parsed = audioMessageMetaSchema.safeParse({ durationMs, waveform })
   if (!parsed.success) {
     // Expõe a mensagem do primeiro campo inválido (PT, definidas no schema)
     // em vez de um genérico — facilita o debug no cliente.
-    throw {
-      statusCode: 400,
-      message:
-        parsed.error.issues[0]?.message ?? 'Metadados de áudio inválidos',
-    }
+    throw new AppError(400, 'INVALID_AUDIO_METADATA')
   }
   return parsed.data
 }
@@ -185,7 +179,7 @@ export async function postMessageAudio(
   // toBuffer) e o truncamento é tratado na camada de upload (413).
   const data = await request.file({ throwFileSizeLimit: false })
   if (!data) {
-    throw { statusCode: 400, message: 'Nenhum áudio foi enviado' }
+    throw new AppError(400, 'AUDIO_REQUIRED')
   }
   assertAudioMimetype(data.mimetype)
   // Campos de texto (enviados antes do arquivo) já estão em data.fields aqui.
@@ -218,11 +212,7 @@ export async function postVideoUploadSignature(
 function parseVideoMeta(fields: Record<string, string>): VideoMessageMeta {
   const parsed = videoMessageMetaSchema.safeParse(fields)
   if (!parsed.success) {
-    throw {
-      statusCode: 400,
-      message:
-        parsed.error.issues[0]?.message ?? 'Metadados de vídeo inválidos',
-    }
+    throw new AppError(400, 'INVALID_VIDEO_METADATA')
   }
   return parsed.data
 }

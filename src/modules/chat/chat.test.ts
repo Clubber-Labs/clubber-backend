@@ -707,7 +707,7 @@ describe('anexo de imagem', () => {
       payload: body,
     })
     expect(res.statusCode).toBe(413)
-    expect(res.json().message).toMatch(/limite/i)
+    expect(res.json().code).toBe('FILE_TOO_LARGE')
   })
 })
 
@@ -979,7 +979,7 @@ describe('anexo de áudio', () => {
     })
 
     expect(res.statusCode).toBe(413)
-    expect(res.json().message).toMatch(/limite/i)
+    expect(res.json().code).toBe('FILE_TOO_LARGE')
     // O parcial que subiu foi removido (não vira órfão pago).
     expect(fakeStorage.deleted.length).toBeGreaterThanOrEqual(1)
     // E nada foi persistido.

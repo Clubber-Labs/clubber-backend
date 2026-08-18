@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { AppError } from '../../lib/errors/app-error'
 import { extractRequestMeta } from '../../lib/request-meta'
 import { assertImageMimetype } from '../../lib/uploads'
 import { issueSession } from '../auth/auth.session'
@@ -98,11 +99,7 @@ export async function postUser(request: FastifyRequest, reply: FastifyReply) {
 
 export async function putUser(request: FastifyRequest, reply: FastifyReply) {
   const { id } = request.params as UserIdParam
-  if (request.user.sub !== id)
-    throw {
-      statusCode: 403,
-      message: 'Você não tem permissão para editar este usuário',
-    }
+  if (request.user.sub !== id) throw new AppError(403, 'NOT_PROFILE_OWNER')
   const user = await editUser(id, request.body as UpdateUserBody)
   request.log.info(
     { userId: request.user.sub, targetUserId: id },
@@ -116,11 +113,7 @@ export async function deleteUserHandler(
   reply: FastifyReply,
 ) {
   const { id } = request.params as UserIdParam
-  if (request.user.sub !== id)
-    throw {
-      statusCode: 403,
-      message: 'Você não tem permissão para deletar este usuário',
-    }
+  if (request.user.sub !== id) throw new AppError(403, 'NOT_PROFILE_OWNER')
   const body = (request.body ?? {}) as NonNullable<DeleteAccountBody>
   const result = await scheduleAccountDeletion(id, body?.password, body?.reason)
   request.log.info(
@@ -160,7 +153,7 @@ export async function uploadUserAvatar(
 ) {
   const data = await request.file()
   if (!data) {
-    throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
+    throw new AppError(400, 'IMAGE_REQUIRED')
   }
   assertImageMimetype(data.mimetype)
 

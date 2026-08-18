@@ -1,6 +1,7 @@
 import type { NotificationType, Prisma } from '@prisma/client'
 import { Expo } from 'expo-server-sdk'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
@@ -222,7 +223,7 @@ export async function getNotifications(
 ) {
   const decoded = query.cursor ? decodeCursor(query.cursor) : undefined
   if (query.cursor && !decoded) {
-    throw { statusCode: 400, message: 'Cursor inválido' }
+    throw new AppError(400, 'INVALID_CURSOR')
   }
   const rows = await listNotifications(
     userId,
@@ -242,7 +243,7 @@ export async function markRead(userId: string, id: string) {
   if (updated > 0) return
   // Não atualizou: já lida (idempotente, ok) ou não existe/é de outro (404).
   if (!(await notificationExists(userId, id))) {
-    throw { statusCode: 404, message: 'Notificação não encontrada' }
+    throw new AppError(404, 'NOTIFICATION_NOT_FOUND')
   }
 }
 
@@ -260,7 +261,7 @@ export async function registerDevice(
   platform?: string,
 ) {
   if (!Expo.isExpoPushToken(token)) {
-    throw { statusCode: 400, message: 'Token de push inválido' }
+    throw new AppError(400, 'INVALID_PUSH_TOKEN')
   }
   return registerDeviceToken(userId, token, platform)
 }
@@ -280,10 +281,7 @@ export async function removeDevice(userId: string, token: string) {
  */
 export async function setUserLocation(userId: string, geohash: string) {
   if (!(await hasConsent(userId, 'locationPrecise'))) {
-    throw {
-      statusCode: 403,
-      message: 'Consentimento de localização necessário',
-    }
+    throw new AppError(403, 'LOCATION_CONSENT_REQUIRED')
   }
   return updateUserLocation(userId, geohash)
 }
@@ -294,10 +292,9 @@ export async function setNotifyRadius(userId: string, radiusKm: number) {
   // o teto baixar via env, raios acima dele param de ser aceitos (sem degradação
   // silenciosa onde o ST_DWithin cortaria antes do refino).
   if (radiusKm > env.NOTIFY_MAX_RADIUS_KM) {
-    throw {
-      statusCode: 400,
-      message: `Raio máximo permitido: ${env.NOTIFY_MAX_RADIUS_KM}km`,
-    }
+    throw new AppError(400, 'RADIUS_TOO_LARGE', undefined, {
+      maxKm: env.NOTIFY_MAX_RADIUS_KM,
+    })
   }
   return updateNotifyRadius(userId, radiusKm)
 }
