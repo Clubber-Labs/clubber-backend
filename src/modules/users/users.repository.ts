@@ -61,6 +61,11 @@ const userPrivateProfileSelect = {
   socialFeed: true,
   socialVisibility: true,
   analytics: true,
+  // Idioma/fuso do usuário — o app lê o estado atual no /users/me. Select
+  // privado: não vaza em perfis de terceiros.
+  localePreference: true,
+  deviceLocale: true,
+  timezone: true,
 } as const
 
 // Campos do estado de conta usados internamente pelas transições de ciclo de
@@ -205,6 +210,14 @@ export async function updateUser(id: string, data: Prisma.UserUpdateInput) {
     data,
     select: userPrivateProfileSelect,
   })
+}
+
+/** Contexto do aparelho (idioma/fuso), capturado no login e no registro de device. */
+export async function updateUserDeviceContext(
+  id: string,
+  data: { deviceLocale?: string; timezone?: string },
+) {
+  await prisma.user.update({ where: { id }, data, select: { id: true } })
 }
 
 /**

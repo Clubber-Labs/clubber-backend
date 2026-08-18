@@ -75,6 +75,14 @@ model User {
   // teto em SPOT_MAX_RADIUS_KM.
   spotRadiusKm      Int       @default(10)
 
+  /// Escolha explícita de idioma nas configurações. Null = seguir o aparelho.
+  localePreference String?
+  /// Última tag de idioma vista do aparelho (Accept-Language). Fallback para
+  /// push/e-mail, que rodam em job sem request.
+  deviceLocale     String    @default("pt-BR")
+  /// IANA do aparelho. Usuário viaja; o evento não (Event.timezone é outro dado).
+  timezone         String    @default("America/Sao_Paulo")
+
   // Preferências de produto, não consentimento: base legal é execução do
   // contrato / legítimo interesse, por isso nascem ligadas com opt-out no
   // PATCH /users/me. Moram aqui, e não em user_consents, para que ninguém

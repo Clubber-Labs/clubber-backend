@@ -1,5 +1,7 @@
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
+import { preferredLanguage } from '../../lib/i18n/locale'
+import { logger } from '../../lib/logger'
 import * as moderationDenylist from '../../lib/moderation-denylist'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import {
@@ -32,6 +34,7 @@ import {
   setUserSuspended,
   setUserUnsuspended,
   updateUser,
+  updateUserDeviceContext,
   updateUserWithPreferences,
 } from './users.repository'
 import type {
@@ -218,6 +221,31 @@ export async function editUser(id: string, data: UpdateUserBody) {
         })
       : await updateUser(id, rest)
   return withPreferredCategories(updated)
+}
+
+/**
+ * Captura idioma (Accept-Language) e fuso do aparelho nos pontos onde o app
+ * fala com o servidor conhecendo o device (login, registro de push). Guarda a
+ * tag CRUA de maior prioridade — a resolução contra os dicionários acontece na
+ * leitura (effectiveLocale). Best-effort: telemetria de aparelho nunca derruba
+ * o fluxo principal.
+ */
+export async function captureDeviceContext(
+  userId: string,
+  acceptLanguage: string | undefined,
+  timezone: string | undefined,
+) {
+  const deviceLocale = preferredLanguage(acceptLanguage)
+  const data: { deviceLocale?: string; timezone?: string } = {
+    ...(deviceLocale && { deviceLocale }),
+    ...(timezone && { timezone }),
+  }
+  if (!data.deviceLocale && !data.timezone) return
+  try {
+    await updateUserDeviceContext(userId, data)
+  } catch (err) {
+    logger.warn({ err, userId }, 'contexto do aparelho não atualizado')
+  }
 }
 
 /**

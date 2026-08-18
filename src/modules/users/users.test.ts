@@ -1032,6 +1032,67 @@ describe('preferredSubcategories no perfil', () => {
   })
 })
 
+describe('localePreference e fuso no perfil', () => {
+  it('PUT /users/:id salva localePreference; GET /users/me devolve idioma e fuso', async () => {
+    const user = await makeUser()
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: 'en' },
+    })
+    expect(put.statusCode).toBe(200)
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(me.statusCode).toBe(200)
+    expect(me.json()).toMatchObject({
+      localePreference: 'en',
+      deviceLocale: 'pt-BR',
+      timezone: 'America/Sao_Paulo',
+    })
+  })
+
+  it('localePreference null volta a seguir o aparelho', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { localePreference: 'en' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: null },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { localePreference: true },
+    })
+    expect(stored?.localePreference).toBeNull()
+  })
+
+  it('rejeita localePreference fora dos locales suportados (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: 'de' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+})
+
 describe('GET /users/search', () => {
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({

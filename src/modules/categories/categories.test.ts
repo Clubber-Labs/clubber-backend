@@ -115,16 +115,18 @@ describe('GET /categories', () => {
     expect(res.headers.vary).toContain('Accept-Language')
   })
 
-  it('respeita Accept-Language com fallback para pt-BR', async () => {
-    const res = await app.inject({
+  it('idioma sem dicionário cai no inglês; sem header, pt-BR', async () => {
+    const fr = await app.inject({
       method: 'GET',
       url: '/categories',
       headers: { 'accept-language': 'fr-FR,fr;q=0.9' },
     })
+    expect(fr.statusCode).toBe(200)
+    // fr não tem dicionário → fallback internacional (en), não pt-BR
+    expect(fr.json().locale).toBe('en')
 
-    expect(res.statusCode).toBe(200)
-    // fr não tem dicionário ainda → fallback pt-BR
-    expect(res.json().locale).toBe('pt-BR')
+    const none = await app.inject({ method: 'GET', url: '/categories' })
+    expect(none.json().locale).toBe('pt-BR')
   })
 
   it('resolve idioma base pt para pt-BR', async () => {
