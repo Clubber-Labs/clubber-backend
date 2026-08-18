@@ -177,10 +177,36 @@ const chatPush = {
   unknown
 >
 
+// Copy dos e-mails. Só texto: a marcação (tabelas, estilos inline, <strong>)
+// fica no template, que interpola o resultado já escapado em {{name}}.
+const emails = {
+  passwordReset: {
+    subject: '{{code}} é o seu código de recuperação — Clubber',
+    documentTitle: 'Seu código de recuperação — Clubber',
+    preheader: 'Seu código de recuperação é {{code}} — vale por {{duration}}.',
+    heading: 'Vamos recuperar sua conta',
+    greeting:
+      'Oi, {{name}} — recebemos um pedido para redefinir a senha da conta ligada a este e-mail. Use o código abaixo no app para criar uma senha nova.',
+    greetingText:
+      'Olá, {{name}} — recebemos um pedido para redefinir a senha da conta ligada a este e-mail.',
+    codeLabel: 'Seu código',
+    minutes_one: '{{count}} minuto',
+    minutes_other: '{{count}} minutos',
+    expiry:
+      'O código vale por {{duration}} e só pode ser usado uma vez. Digite-o na tela de recuperação do app — nunca compartilhe com ninguém.',
+    notYou:
+      'Não foi você? Pode ignorar este e-mail — o código expira sozinho e sua senha continua a mesma.',
+    footerReason:
+      'Você recebeu este e-mail porque alguém pediu a recuperação desta conta no Clubber.',
+    helpCenter: 'Central de ajuda',
+  },
+} as const
+
 export const ptBR = {
   categories,
   subcategories,
   genres,
   notifications,
   chatPush,
+  emails,
 } as const

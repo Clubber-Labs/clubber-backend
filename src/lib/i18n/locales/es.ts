@@ -163,4 +163,27 @@ export const es: Dictionary = {
       VIDEO: '🎬 Video',
     },
   },
+  emails: {
+    passwordReset: {
+      subject: '{{code}} es tu código de recuperación — Clubber',
+      documentTitle: 'Tu código de recuperación — Clubber',
+      preheader:
+        'Tu código de recuperación es {{code}} — vale por {{duration}}.',
+      heading: 'Vamos a recuperar tu cuenta',
+      greeting:
+        'Hola {{name}} — recibimos una solicitud para cambiar la contraseña de la cuenta ligada a este correo. Usa el código de abajo en la app para crear una nueva.',
+      greetingText:
+        'Hola {{name}} — recibimos una solicitud para cambiar la contraseña de la cuenta ligada a este correo.',
+      codeLabel: 'Tu código',
+      minutes_one: '{{count}} minuto',
+      minutes_other: '{{count}} minutos',
+      expiry:
+        'El código vale por {{duration}} y se usa una sola vez. Escríbelo en la pantalla de recuperación de la app — nunca lo compartas con nadie.',
+      notYou:
+        '¿No fuiste tú? Ignora este correo — el código expira solo y tu contraseña sigue igual.',
+      footerReason:
+        'Recibiste este correo porque alguien pidió recuperar esta cuenta en Clubber.',
+      helpCenter: 'Centro de ayuda',
+    },
+  },
 }
