@@ -1,7 +1,8 @@
 import { cache } from '../../lib/cache'
 import { env } from '../../lib/env'
-import { type EventCategory, listCategories } from '../../lib/event-categories'
+import type { EventCategory } from '../../lib/event-categories'
 import { DEFAULT_LOCALE } from '../../lib/i18n/locale'
+import { t } from '../../lib/i18n/translate'
 import {
   adultVenueFilteredTotal,
   socialFilterEmptyTotal,
@@ -342,10 +343,11 @@ export async function generateSuggestions(
     const subcats = await findUserPreferredSubcategories(userId)
     // Prompt da IA fixo em pt-BR enquanto o idioma do prompt não for decidido
     // (plano de i18n) — comportamento de hoje, sem regressão.
-    const categoryLabel = new Map(
-      listCategories(DEFAULT_LOCALE).map((c) => [c.value, c.label]),
+    // t() direto (não listCategories): preferência legada em categoria
+    // deprecada continua com rótulo humano no prompt.
+    profileCategoryLabels = categories.map((c) =>
+      t(`categories.${c}`, DEFAULT_LOCALE),
     )
-    profileCategoryLabels = categories.map((c) => categoryLabel.get(c) ?? c)
     profileInterestLabels = interestLabels(subcats, DEFAULT_LOCALE)
     sortedCats = [...categories].sort()
     sortedSubcats = [...subcats].sort()

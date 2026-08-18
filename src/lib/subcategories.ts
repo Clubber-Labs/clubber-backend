@@ -26,15 +26,23 @@ import { t } from './i18n/translate'
 export type Subcategory = {
   key: string
   category: EventCategory
-  /** Tipos do Google Places (New) que esta subcategoria representa. */
+  /**
+   * Tipos do Google Places (New) que esta subcategoria representa. Vazio =
+   * interesse SEM venue (ex.: jogos de tabuleiro, RPG): enriquece perfil,
+   * match e o sinal da IA, mas não estreita a busca de lugares — igual gênero.
+   */
   placeTypes: readonly string[]
 }
 
 // `as const` estreita as chaves para literais (SubcategoryKey), amarrando cada
 // subcategoria ao seu rótulo nos dicionários de i18n em tempo de compilação.
 export const SUBCATEGORIES = [
-  // PARTY / NIGHTLIFE / MUSIC — a vida noturna repartida
-  { key: 'PARTY_BALADA', category: 'PARTY', placeTypes: ['night_club'] },
+  // NIGHTLIFE / PARTY / MUSIC — a vida noturna repartida
+  {
+    key: 'NIGHTLIFE_BALADA',
+    category: 'NIGHTLIFE',
+    placeTypes: ['night_club'],
+  },
   { key: 'PARTY_DANCA', category: 'PARTY', placeTypes: ['dance_hall'] },
   { key: 'NIGHTLIFE_BAR', category: 'NIGHTLIFE', placeTypes: ['bar'] },
   { key: 'NIGHTLIFE_PUB', category: 'NIGHTLIFE', placeTypes: ['pub'] },
@@ -71,16 +79,6 @@ export const SUBCATEGORIES = [
     key: 'GASTRONOMY_BRUNCH',
     category: 'GASTRONOMY',
     placeTypes: ['brunch_restaurant'],
-  },
-  {
-    key: 'GASTRONOMY_FAST_FOOD',
-    category: 'GASTRONOMY',
-    placeTypes: ['fast_food_restaurant', 'meal_takeaway'],
-  },
-  {
-    key: 'GASTRONOMY_ALTA',
-    category: 'GASTRONOMY',
-    placeTypes: ['fine_dining_restaurant'],
   },
 
   // CAFE
@@ -119,33 +117,7 @@ export const SUBCATEGORIES = [
   },
   { key: 'SPORTS_NATACAO', category: 'SPORTS', placeTypes: ['swimming_pool'] },
   { key: 'SPORTS_GOLFE', category: 'SPORTS', placeTypes: ['golf_course'] },
-  {
-    key: 'SPORTS_RADICAIS',
-    category: 'SPORTS',
-    placeTypes: ['skateboard_park', 'ski_resort'],
-  },
-  {
-    key: 'SPORTS_PATINACAO',
-    category: 'SPORTS',
-    placeTypes: ['ice_skating_rink'],
-  },
-
-  // HEALTH_WELLNESS
-  {
-    key: 'HEALTH_WELLNESS_SPA',
-    category: 'HEALTH_WELLNESS',
-    placeTypes: ['spa', 'sauna', 'massage'],
-  },
-  {
-    key: 'HEALTH_WELLNESS_YOGA',
-    category: 'HEALTH_WELLNESS',
-    placeTypes: ['yoga_studio', 'wellness_center'],
-  },
-  {
-    key: 'HEALTH_WELLNESS_BELEZA',
-    category: 'HEALTH_WELLNESS',
-    placeTypes: ['beauty_salon'],
-  },
+  { key: 'SPORTS_SKATE', category: 'SPORTS', placeTypes: ['skateboard_park'] },
 
   // ART
   { key: 'ART_MUSEU', category: 'ART', placeTypes: ['museum'] },
@@ -155,12 +127,6 @@ export const SUBCATEGORIES = [
     placeTypes: ['art_gallery', 'art_studio'],
   },
   { key: 'ART_CULTURAL', category: 'ART', placeTypes: ['cultural_center'] },
-  {
-    key: 'ART_MONUMENTO',
-    category: 'ART',
-    placeTypes: ['monument', 'sculpture'],
-  },
-  { key: 'ART_PLANETARIO', category: 'ART', placeTypes: ['planetarium'] },
 
   // FILM_THEATER
   {
@@ -174,32 +140,16 @@ export const SUBCATEGORIES = [
     placeTypes: ['performing_arts_theater', 'auditorium'],
   },
 
-  // GAMING
+  // GAMING — jogos de rolê: fliperama, e-sports e mesa (tabuleiro/RPG não têm
+  // tipo no Places — interesse sem venue)
   {
     key: 'GAMING_FLIPERAMA',
     category: 'GAMING',
     placeTypes: ['video_arcade', 'amusement_center'],
   },
-  { key: 'GAMING_BOLICHE', category: 'GAMING', placeTypes: ['bowling_alley'] },
-  { key: 'GAMING_CASSINO', category: 'GAMING', placeTypes: ['casino'] },
-  { key: 'GAMING_LAN', category: 'GAMING', placeTypes: ['internet_cafe'] },
-
-  // FAMILY
-  {
-    key: 'FAMILY_DIVERSOES',
-    category: 'FAMILY',
-    placeTypes: ['amusement_park', 'water_park'],
-  },
-  {
-    key: 'FAMILY_ZOO',
-    category: 'FAMILY',
-    placeTypes: ['zoo', 'aquarium', 'wildlife_park', 'wildlife_refuge'],
-  },
-  {
-    key: 'FAMILY_PLAY',
-    category: 'FAMILY',
-    placeTypes: ['playground', 'childrens_camp'],
-  },
+  { key: 'GAMING_ESPORTS', category: 'GAMING', placeTypes: ['internet_cafe'] },
+  { key: 'GAMING_TABULEIRO', category: 'GAMING', placeTypes: [] },
+  { key: 'GAMING_RPG', category: 'GAMING', placeTypes: [] },
 
   // OUTDOORS
   {
@@ -214,12 +164,6 @@ export const SUBCATEGORIES = [
   },
   { key: 'OUTDOORS_PRAIA', category: 'OUTDOORS', placeTypes: ['beach'] },
   {
-    key: 'OUTDOORS_JARDIM',
-    category: 'OUTDOORS',
-    placeTypes: ['garden', 'botanical_garden'],
-  },
-  { key: 'OUTDOORS_MARINA', category: 'OUTDOORS', placeTypes: ['marina'] },
-  {
     key: 'OUTDOORS_TURISMO',
     category: 'OUTDOORS',
     placeTypes: [
@@ -230,30 +174,13 @@ export const SUBCATEGORIES = [
     ],
   },
 
-  // FASHION
+  // BRECHO — Places não tem tipo "thrift": clothing_store é o sinal aproximado;
+  // o garimpo fino fica com a busca semântica dos spots
   {
-    key: 'FASHION_SHOPPING',
-    category: 'FASHION',
-    placeTypes: ['shopping_mall', 'department_store'],
+    key: 'BRECHO_GARIMPO',
+    category: 'BRECHO',
+    placeTypes: ['clothing_store'],
   },
-  { key: 'FASHION_LOJAS', category: 'FASHION', placeTypes: ['clothing_store'] },
-
-  // EDUCATION
-  {
-    key: 'EDUCATION_BIBLIOTECA',
-    category: 'EDUCATION',
-    placeTypes: ['library'],
-  },
-  {
-    key: 'EDUCATION_CAMPUS',
-    category: 'EDUCATION',
-    placeTypes: ['university', 'school'],
-  },
-
-  // PETS
-  { key: 'PETS_PARQUE', category: 'PETS', placeTypes: ['dog_park'] },
-  { key: 'PETS_PETSHOP', category: 'PETS', placeTypes: ['pet_store'] },
-  { key: 'PETS_VET', category: 'PETS', placeTypes: ['veterinary_care'] },
 ] as const satisfies readonly Subcategory[]
 
 export type SubcategoryKey = (typeof SUBCATEGORIES)[number]['key']

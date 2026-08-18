@@ -39,10 +39,46 @@ describe('GET /categories', () => {
     )
   })
 
-  it('não oferece categorias descontinuadas (RELIGION)', async () => {
+  it('não oferece categorias descontinuadas pela curadoria jovem', async () => {
     const res = await app.inject({ method: 'GET', url: '/categories' })
     const values = res.json().data.map((c: { value: string }) => c.value)
-    expect(values).not.toContain('RELIGION')
+    for (const deprecated of [
+      'RELIGION',
+      'TECH',
+      'BUSINESS',
+      'EDUCATION',
+      'FAMILY',
+      'VOLUNTEERING',
+      'FASHION',
+      'HEALTH_WELLNESS',
+    ]) {
+      expect(values).not.toContain(deprecated)
+    }
+  })
+
+  it('oferece as categorias novas da curadoria (BRECHO, FESTIVAL)', async () => {
+    const res = await app.inject({ method: 'GET', url: '/categories' })
+    const byValue = new Map(
+      res
+        .json()
+        .data.map((c: { value: string; label: string }) => [c.value, c]),
+    )
+    expect(byValue.get('BRECHO')).toMatchObject({ label: 'Brechó' })
+    // Festival é evento, não venue: categoria sem subcategorias.
+    expect(byValue.get('FESTIVAL')).toMatchObject({
+      label: 'Festivais',
+      subcategories: [],
+    })
+  })
+
+  it('balada é subcategoria de vida noturna', async () => {
+    const res = await app.inject({ method: 'GET', url: '/categories' })
+    const nightlife = res
+      .json()
+      .data.find((c: { value: string }) => c.value === 'NIGHTLIFE')
+    expect(nightlife.subcategories).toEqual(
+      expect.arrayContaining([{ value: 'NIGHTLIFE_BALADA', label: 'Balada' }]),
+    )
   })
 
   it('expõe os gêneros musicais como dimensão à parte, com appliesTo', async () => {

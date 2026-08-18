@@ -484,7 +484,7 @@ describe('POST /spots/suggestions', () => {
     await makeUserCategoryPreference(user.id, 'PARTY')
     fakePlaces.override = (p) => [
       { ...baseCandidate(p, 'bar1'), types: ['bar'] },
-      { ...baseCandidate(p, 'loja1'), types: ['clothing_store', 'store'] },
+      { ...baseCandidate(p, 'loja1'), types: ['shoe_store', 'store'] },
     ]
 
     const res = await suggest(user.id)
@@ -528,7 +528,7 @@ describe('POST /spots/suggestions', () => {
     await makeUserCategoryPreference(user.id, 'PARTY')
     // Só vieram não-sociais: o filtro bypassa para não devolver lista vazia.
     fakePlaces.override = (p) => [
-      { ...baseCandidate(p, 'loja1'), types: ['clothing_store', 'store'] },
+      { ...baseCandidate(p, 'loja1'), types: ['shoe_store', 'store'] },
     ]
 
     const res = await suggest(user.id)

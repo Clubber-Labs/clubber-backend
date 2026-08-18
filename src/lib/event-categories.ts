@@ -36,6 +36,8 @@ export const EVENT_CATEGORIES = [
   'VOLUNTEERING',
   'PARTY',
   'OTHER',
+  'BRECHO',
+  'FESTIVAL',
 ] as const
 
 export type EventCategory = (typeof EVENT_CATEGORIES)[number]
@@ -46,13 +48,34 @@ export const eventCategorySchema = z.enum(EVENT_CATEGORIES)
 
 // Categorias DESCONTINUADAS: continuam válidas como dado legado, mas não são
 // oferecidas para nova seleção (some do /categories e da validação de input).
-const DEPRECATED_CATEGORIES = new Set<EventCategory>(['RELIGION'])
+// Curadoria jovem: o app é de rolê social — trabalho, palestra, estudo e
+// serviço/varejo utilitário ficam fora do seletor.
+const DEPRECATED_CATEGORIES = new Set<EventCategory>([
+  'RELIGION',
+  'TECH',
+  'BUSINESS',
+  'EDUCATION',
+  'FAMILY',
+  'VOLUNTEERING',
+  'FASHION',
+  'HEALTH_WELLNESS',
+])
+
+type DeprecatedCategory =
+  | 'RELIGION'
+  | 'TECH'
+  | 'BUSINESS'
+  | 'EDUCATION'
+  | 'FAMILY'
+  | 'VOLUNTEERING'
+  | 'FASHION'
+  | 'HEALTH_WELLNESS'
 
 // Categorias SELECIONÁVEIS: o subconjunto que o usuário pode escolher hoje. É a
 // fonte do GET /categories e da validação de input (criar evento, preferências).
 export const SELECTABLE_CATEGORIES = EVENT_CATEGORIES.filter(
   (c) => !DEPRECATED_CATEGORIES.has(c),
-) as Exclude<EventCategory, 'RELIGION'>[]
+) as Exclude<EventCategory, DeprecatedCategory>[]
 
 // Tipo estreito (exclui as descontinuadas). Faz o schema e quem o consome
 // inferirem o subconjunto, não o EventCategory inteiro (RELIGION fora também no tipo).
