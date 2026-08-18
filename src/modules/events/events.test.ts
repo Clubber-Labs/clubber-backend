@@ -1365,12 +1365,32 @@ describe('fuso horário do evento', () => {
       method: 'PUT',
       url: `/events/${event.id}`,
       headers: { authorization: `Bearer ${token(app, user.id)}` },
-      // Só a latitude no corpo: a longitude efetiva vem da linha.
       body: { latitude: 38.7223, longitude: -9.1393 },
     })
 
     expect(res.statusCode).toBe(200)
     expect(res.json().timezone).toBe('Europe/Lisbon')
+  })
+
+  it('coordenada parcial combina o corpo com a que está na linha', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id, {
+      latitude: -25.4284,
+      longitude: -49.2733,
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      // Só a longitude: a latitude efetiva vem da linha. O resultado só existe
+      // com as duas juntas — a latitude de Curitiba na longitude do Chile cai
+      // no norte chileno.
+      body: { longitude: -70.6483 },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().timezone).toBe('America/Santiago')
   })
 
   it('editar sem mexer na coordenada preserva o fuso', async () => {
