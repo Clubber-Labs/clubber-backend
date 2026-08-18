@@ -45,9 +45,13 @@ describe('resolveLocale', () => {
     expect(resolveLocale('en;q=0,es;q=0.5')).toBe('es')
   })
 
-  it('ignora wildcard e cai em DEFAULT_LOCALE quando nada casa', () => {
+  it('idioma concreto sem dicionário cai no inglês (fallback internacional)', () => {
+    expect(resolveLocale('fr-FR,fr;q=0.9')).toBe('en')
+    expect(resolveLocale('de-DE')).toBe('en')
+  })
+
+  it('sem sinal de idioma (wildcard) cai em DEFAULT_LOCALE', () => {
     expect(resolveLocale('*')).toBe(DEFAULT_LOCALE)
-    expect(resolveLocale('fr-FR,fr;q=0.9')).toBe(DEFAULT_LOCALE)
     expect(resolveLocale('*;q=1,en;q=0.5')).toBe('en')
   })
 
