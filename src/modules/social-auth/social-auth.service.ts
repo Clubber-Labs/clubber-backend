@@ -136,7 +136,7 @@ export async function socialLogin(
     // numa conta tradicional existente. Pra Facebook + email já cadastrado,
     // exigimos login tradicional primeiro (linkagem manual via perfil — TODO).
     if (profile.provider !== 'GOOGLE') {
-      throw new AppError(409, 'EMAIL_TAKEN')
+      throw new AppError(409, 'EMAIL_TAKEN', 'email')
     }
     await createSocialAccount({
       userId: linkable.id,

@@ -862,6 +862,12 @@ describe('anexo de áudio', () => {
       payload: body,
     })
     expect(res.statusCode).toBe(400)
+    // code fixo + field apontando o campo inválido: o cliente traduz pelo code
+    // e ainda sabe qual metadado rejeitar (sem mensagem livre do Zod).
+    expect(res.json()).toMatchObject({
+      code: 'INVALID_AUDIO_METADATA',
+      field: 'durationMs',
+    })
   })
 
   it('áudio sem durationMs → 400', async () => {

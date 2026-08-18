@@ -307,7 +307,7 @@ describe('POST /auth/social — segurança auto-link', () => {
     })
 
     expect(res.statusCode).toBe(409)
-    expect(res.json().code).toBe('EMAIL_TAKEN')
+    expect(res.json()).toMatchObject({ code: 'EMAIL_TAKEN', field: 'email' })
   })
 
   it('normaliza email do provider para lowercase no auto-link via Google', async () => {

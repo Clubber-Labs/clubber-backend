@@ -147,6 +147,13 @@ function multipartFieldValue(
   return typeof value === 'string' ? value : undefined
 }
 
+/** Campo do primeiro issue do Zod — vira o `field` do AppError, preservando
+ * qual metadado falhou sem expor a mensagem livre (não-traduzível) do schema. */
+function firstIssueField(error: { issues: { path: PropertyKey[] }[] }) {
+  const segment = error.issues[0]?.path[0]
+  return segment === undefined ? undefined : String(segment)
+}
+
 function parseAudioMeta(fields: Record<string, unknown>): AudioMessageMeta {
   const durationMs = multipartFieldValue(fields, 'durationMs')
   const waveformRaw = multipartFieldValue(fields, 'waveform')
@@ -160,9 +167,11 @@ function parseAudioMeta(fields: Record<string, unknown>): AudioMessageMeta {
   }
   const parsed = audioMessageMetaSchema.safeParse({ durationMs, waveform })
   if (!parsed.success) {
-    // Expõe a mensagem do primeiro campo inválido (PT, definidas no schema)
-    // em vez de um genérico — facilita o debug no cliente.
-    throw new AppError(400, 'INVALID_AUDIO_METADATA')
+    throw new AppError(
+      400,
+      'INVALID_AUDIO_METADATA',
+      firstIssueField(parsed.error),
+    )
   }
   return parsed.data
 }
@@ -212,7 +221,11 @@ export async function postVideoUploadSignature(
 function parseVideoMeta(fields: Record<string, string>): VideoMessageMeta {
   const parsed = videoMessageMetaSchema.safeParse(fields)
   if (!parsed.success) {
-    throw new AppError(400, 'INVALID_VIDEO_METADATA')
+    throw new AppError(
+      400,
+      'INVALID_VIDEO_METADATA',
+      firstIssueField(parsed.error),
+    )
   }
   return parsed.data
 }
