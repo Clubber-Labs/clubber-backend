@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { DEFAULT_LOCALE, type Locale } from './i18n/locale'
+import { t } from './i18n/translate'
 
 /**
  * Lista canônica de categorias de evento. Compartilhada entre a criação/edição
@@ -7,7 +9,9 @@ import { z } from 'zod'
  *
  * Os valores são identificadores estáveis em inglês/maiúsculas, seguindo a
  * convenção dos demais enums do schema (AttendanceType, ReportReason etc.).
- * O label exibido ao usuário é responsabilidade do client.
+ * O banco guarda só o identificador neutro; a tradução vive nos dicionários de
+ * lib/i18n/locales. Adicionar um idioma = adicionar um dicionário — sem
+ * migração de banco e sem deploy do app.
  */
 export const EVENT_CATEGORIES = [
   'MUSIC',
@@ -58,61 +62,6 @@ export const selectableCategorySchema = z.enum(
   SELECTABLE_CATEGORIES as [SelectableCategory, ...SelectableCategory[]],
 )
 
-/**
- * Locale padrão (lançamento no Brasil). Usado como fallback quando o
- * Accept-Language pedido não tem dicionário.
- */
-export const DEFAULT_LOCALE = 'pt-BR'
-
-/**
- * Rótulos exibíveis por locale. O banco guarda só o identificador neutro
- * (ex: 'MUSIC'); a tradução vive aqui. Adicionar um idioma = adicionar um
- * dicionário — sem migração de banco e sem deploy do app.
- */
-const CATEGORY_LABELS: Record<string, Record<EventCategory, string>> = {
-  'pt-BR': {
-    MUSIC: 'Música',
-    SPORTS: 'Esportes',
-    TECH: 'Tecnologia',
-    GASTRONOMY: 'Gastronomia',
-    CAFE: 'Café e doceria',
-    ART: 'Arte',
-    EDUCATION: 'Educação',
-    NIGHTLIFE: 'Vida noturna',
-    BUSINESS: 'Negócios',
-    HEALTH_WELLNESS: 'Saúde e bem-estar',
-    OUTDOORS: 'Ar livre',
-    GAMING: 'Games',
-    FILM_THEATER: 'Cinema e teatro',
-    COMEDY: 'Comédia',
-    FASHION: 'Moda',
-    MARKETS: 'Feiras e mercados',
-    RELIGION: 'Religião',
-    FAMILY: 'Família',
-    PETS: 'Pets',
-    VOLUNTEERING: 'Voluntariado',
-    PARTY: 'Festa',
-    OTHER: 'Outros',
-  },
-}
-
-/**
- * Resolve um locale suportado a partir de um header Accept-Language.
- * Aceita match exato ('pt-BR') ou por idioma base ('pt' → 'pt-BR').
- * Cai para DEFAULT_LOCALE quando não há dicionário compatível.
- */
-export function resolveLocale(acceptLanguage?: string): string {
-  if (!acceptLanguage) return DEFAULT_LOCALE
-  const primary = acceptLanguage.split(',')[0]?.trim()
-  if (!primary) return DEFAULT_LOCALE
-  if (CATEGORY_LABELS[primary]) return primary
-  const base = primary.split('-')[0]?.toLowerCase()
-  const found = Object.keys(CATEGORY_LABELS).find(
-    (l) => l.split('-')[0]?.toLowerCase() === base,
-  )
-  return found ?? DEFAULT_LOCALE
-}
-
 export type CategoryOption = { value: EventCategory; label: string }
 
 /**
@@ -121,9 +70,11 @@ export type CategoryOption = { value: EventCategory; label: string }
  * evento) e pela exibição nos cards.
  */
 export function listCategories(
-  locale: string = DEFAULT_LOCALE,
+  locale: Locale = DEFAULT_LOCALE,
 ): CategoryOption[] {
-  const labels = CATEGORY_LABELS[locale] ?? CATEGORY_LABELS[DEFAULT_LOCALE]
   // Só as selecionáveis: categorias descontinuadas (ex.: RELIGION) não aparecem.
-  return SELECTABLE_CATEGORIES.map((value) => ({ value, label: labels[value] }))
+  return SELECTABLE_CATEGORIES.map((value) => ({
+    value,
+    label: t(`categories.${value}`, locale),
+  }))
 }
