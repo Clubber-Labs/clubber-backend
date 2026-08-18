@@ -164,4 +164,26 @@ export const en: Dictionary = {
       VIDEO: '🎬 Video',
     },
   },
+  emails: {
+    passwordReset: {
+      subject: '{{code}} is your recovery code — Clubber',
+      documentTitle: 'Your recovery code — Clubber',
+      preheader: 'Your recovery code is {{code}} — good for {{duration}}.',
+      heading: "Let's get you back in",
+      greeting:
+        'Hey {{name}} — someone asked to reset the password for the account linked to this email. Use the code below in the app to set a new one.',
+      greetingText:
+        'Hi {{name}} — someone asked to reset the password for the account linked to this email.',
+      codeLabel: 'Your code',
+      minutes_one: '{{count}} minute',
+      minutes_other: '{{count}} minutes',
+      expiry:
+        'The code lasts {{duration}} and works only once. Type it on the recovery screen in the app — never share it with anyone.',
+      notYou:
+        "Wasn't you? Just ignore this email — the code expires on its own and your password stays the same.",
+      footerReason:
+        'You got this email because someone asked to recover this Clubber account.',
+      helpCenter: 'Help center',
+    },
+  },
 }

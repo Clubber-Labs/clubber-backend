@@ -1,6 +1,8 @@
 import { randomInt } from 'node:crypto'
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
+import { effectiveLocale } from '../../lib/i18n/user-locale'
 import { logger } from '../../lib/logger'
 import { getMailer } from '../../lib/mailer'
 import { revokeAllSessions } from '../auth/auth.service'
@@ -24,11 +26,10 @@ import type {
 
 const log = logger.child({ component: 'password-reset' })
 
-// Mensagem única para TODA falha de reset (e-mail desconhecido, código errado,
+// Código único para TODA falha de reset (e-mail desconhecido, código errado,
 // expirado ou travado): não revela qual parte falhou nem se o e-mail existe.
-const INVALID_RESET = {
-  statusCode: 400,
-  message: 'Código inválido ou expirado',
+function invalidReset() {
+  return new AppError(400, 'INVALID_VERIFICATION_CODE')
 }
 
 function generateCode(): string {
@@ -69,11 +70,14 @@ export async function requestPasswordReset({ email }: ForgotPasswordBody) {
       code,
       expiresInMinutes: env.PASSWORD_RESET_CODE_TTL_MINUTES,
     }
+    // E-mail não tem Accept-Language: o idioma vem da preferência do usuário,
+    // com o último aparelho visto como segunda opção.
+    const locale = effectiveLocale(user)
     await getMailer().sendMail({
       to: email,
-      subject: passwordResetSubject(code),
-      text: passwordResetText(params),
-      html: passwordResetHtml(params),
+      subject: passwordResetSubject(code, locale),
+      text: passwordResetText(params, locale),
+      html: passwordResetHtml(params, locale),
     })
   } catch (err) {
     log.error({ err, userId: user.id }, 'falha ao enviar e-mail de recuperação')
@@ -86,25 +90,25 @@ export async function resetPassword({
   newPassword,
 }: ResetPasswordBody) {
   const user = await findUserByEmailForReset(email)
-  if (!user || user.accountStatus === 'ANONYMIZED') throw INVALID_RESET
+  if (!user || user.accountStatus === 'ANONYMIZED') throw invalidReset()
 
   const record = await findActiveCodeByUser(user.id)
-  if (!record) throw INVALID_RESET
+  if (!record) throw invalidReset()
 
   // Trava por brute-force: checa o teto ANTES de comparar o código.
-  if (record.attempts >= env.PASSWORD_RESET_MAX_ATTEMPTS) throw INVALID_RESET
+  if (record.attempts >= env.PASSWORD_RESET_MAX_ATTEMPTS) throw invalidReset()
 
   const valid = await compare(code, record.codeHash)
   if (!valid) {
     await incrementAttempts(record.id)
-    throw INVALID_RESET
+    throw invalidReset()
   }
 
   const passwordHash = await hash(newPassword, 10)
   // Consome o código (guarda de uso único) e troca a senha atomicamente. Se outra
   // requisição já consumiu este código (corrida), retorna false → erro genérico.
   const ok = await consumeCodeAndSetPassword(record.id, user.id, passwordHash)
-  if (!ok) throw INVALID_RESET
+  if (!ok) throw invalidReset()
 
   // Trocar a senha encerra TODAS as sessões: se alguém entrou com a senha antiga,
   // o reset (tipicamente "esqueci a senha") o expulsa de todos os dispositivos.

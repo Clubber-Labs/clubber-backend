@@ -3,6 +3,9 @@
 // Base clara de propósito: o dark mode do Gmail transforma cores à força (sem
 // opt-out) e inverte e-mails escuros; um e-mail claro só é escurecido com graça.
 
+import type { Locale } from '../../lib/i18n/locale'
+import { t } from '../../lib/i18n/translate'
+
 const ASSETS_BASE_URL = 'https://assets.clubber.social/'
 
 type PasswordResetEmailParams = {
@@ -14,6 +17,11 @@ type PasswordResetEmailParams = {
   expiresInMinutes: number
 }
 
+/** "30 minutos" / "1 minuto" — flexionado pelo Intl.PluralRules do locale. */
+function duration(expiresInMinutes: number, locale: Locale) {
+  return t('emails.passwordReset.minutes', locale, { count: expiresInMinutes })
+}
+
 function escapeHtml(value: string) {
   return value
     .replace(/&/g, '&amp;')
@@ -22,41 +30,45 @@ function escapeHtml(value: string) {
     .replace(/"/g, '&quot;')
 }
 
-export function passwordResetSubject(code: string) {
-  return `${code} é o seu código de recuperação — Clubber`
+export function passwordResetSubject(code: string, locale: Locale) {
+  return t('emails.passwordReset.subject', locale, { code })
 }
 
-export function passwordResetText({
-  name,
-  code,
-  expiresInMinutes,
-}: PasswordResetEmailParams) {
+export function passwordResetText(
+  { name, code, expiresInMinutes }: PasswordResetEmailParams,
+  locale: Locale,
+) {
   return [
-    `Olá, ${name} — recebemos um pedido para redefinir a senha da conta ligada a este e-mail.`,
+    t('emails.passwordReset.greetingText', locale, { name }),
     '',
-    `Seu código: ${code}`,
+    `${t('emails.passwordReset.codeLabel', locale)}: ${code}`,
     '',
-    `O código vale por ${expiresInMinutes} minutos e só pode ser usado uma vez. Digite-o na tela de recuperação do app — nunca compartilhe com ninguém.`,
+    t('emails.passwordReset.expiry', locale, {
+      duration: duration(expiresInMinutes, locale),
+    }),
     '',
-    'Não foi você? Pode ignorar este e-mail — o código expira sozinho e sua senha continua a mesma.',
+    t('emails.passwordReset.notYou', locale),
     '',
     'Clubber · clubber.social',
   ].join('\n')
 }
 
-export function passwordResetHtml({
-  name,
-  code,
-  expiresInMinutes,
-}: PasswordResetEmailParams) {
+export function passwordResetHtml(
+  { name, code, expiresInMinutes }: PasswordResetEmailParams,
+  locale: Locale,
+) {
+  // O nome é o único dado de usuário aqui: escapado ANTES de entrar na copy,
+  // que carrega marcação nossa e por isso não pode ser escapada inteira.
+  const safeName = `<strong style="color:#18181B;">${escapeHtml(name)}</strong>`
+  const validity = duration(expiresInMinutes, locale)
   return `<!DOCTYPE html>
-<html lang="pt-BR" xmlns="http://www.w3.org/1999/xhtml">
+<html lang="${locale}" xmlns="http://www.w3.org/1999/xhtml">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>Seu código de recuperação — Clubber</title>
+<title>${t('emails.passwordReset.documentTitle', locale)}</title>
 <!--[if mso]>
 <noscript><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml></noscript>
 <![endif]-->
@@ -69,7 +81,7 @@ export function passwordResetHtml({
 </head>
 <body style="margin:0; padding:0; background-color:#F4F4F5; -webkit-text-size-adjust:100%;">
   <!-- preheader (invisível, aparece ao lado do assunto) -->
-  <span style="display:none; font-size:1px; color:#F4F4F5; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">Seu código de recuperação é ${code} — vale por ${expiresInMinutes} minutos.&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</span>
+  <span style="display:none; font-size:1px; color:#F4F4F5; line-height:1px; max-height:0; max-width:0; opacity:0; overflow:hidden;">${t('emails.passwordReset.preheader', locale, { code, duration: validity })}&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;&#847;&zwnj;&nbsp;</span>
 
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#F4F4F5;">
     <tr>
@@ -104,12 +116,12 @@ export function passwordResetHtml({
 
                 <tr>
                   <td class="px" style="padding:40px 48px 8px;">
-                    <h1 style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:24px; font-weight:bold; color:#18181B; mso-line-height-rule:exactly; line-height:32px;">Vamos recuperar sua conta</h1>
+                    <h1 style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:24px; font-weight:bold; color:#18181B; mso-line-height-rule:exactly; line-height:32px;">${t('emails.passwordReset.heading', locale)}</h1>
                   </td>
                 </tr>
                 <tr>
                   <td class="px" style="padding:12px 48px 0;">
-                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:15px; color:#52525B; mso-line-height-rule:exactly; line-height:24px;">Oi, <strong style="color:#18181B;">${escapeHtml(name)}</strong> — recebemos um pedido para redefinir a senha da conta ligada a este e-mail. Use o código abaixo no app para criar uma senha nova.</p>
+                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:15px; color:#52525B; mso-line-height-rule:exactly; line-height:24px;">${t('emails.passwordReset.greeting', locale, { name: safeName })}</p>
                   </td>
                 </tr>
 
@@ -119,7 +131,7 @@ export function passwordResetHtml({
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                       <tr>
                         <td align="center" bgcolor="#FAFAFA" style="border:1px solid #E4E4E7; border-radius:14px; padding:24px 16px 26px;">
-                          <p style="margin:0 0 12px; font-family:Arial, Helvetica, sans-serif; font-size:11px; font-weight:bold; letter-spacing:1.6px; text-transform:uppercase; color:#71717A; mso-line-height-rule:exactly; line-height:16px;">Seu código</p>
+                          <p style="margin:0 0 12px; font-family:Arial, Helvetica, sans-serif; font-size:11px; font-weight:bold; letter-spacing:1.6px; text-transform:uppercase; color:#71717A; mso-line-height-rule:exactly; line-height:16px;">${t('emails.passwordReset.codeLabel', locale)}</p>
                           <p style="margin:0; font-family:'Courier New', Courier, monospace; font-size:38px; font-weight:bold; letter-spacing:8px; color:#18181B; mso-line-height-rule:exactly; line-height:44px;">${code}</p>
                         </td>
                       </tr>
@@ -129,7 +141,7 @@ export function passwordResetHtml({
 
                 <tr>
                   <td class="px" style="padding:20px 48px 0;">
-                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#71717A; mso-line-height-rule:exactly; line-height:20px;">O código vale por <strong style="color:#52525B;">${expiresInMinutes} minutos</strong> e só pode ser usado uma vez. Digite-o na tela de recuperação do app — nunca compartilhe com ninguém.</p>
+                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#71717A; mso-line-height-rule:exactly; line-height:20px;">${t('emails.passwordReset.expiry', locale, { duration: `<strong style="color:#52525B;">${validity}</strong>` })}</p>
                   </td>
                 </tr>
 
@@ -144,7 +156,7 @@ export function passwordResetHtml({
 
                 <tr>
                   <td class="px" style="padding:20px 48px 40px;">
-                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#71717A; mso-line-height-rule:exactly; line-height:20px;">Não foi você? Pode ignorar este e-mail — o código expira sozinho e sua senha continua a mesma.</p>
+                    <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:13px; color:#71717A; mso-line-height-rule:exactly; line-height:20px;">${t('emails.passwordReset.notYou', locale)}</p>
                   </td>
                 </tr>
 
@@ -155,8 +167,8 @@ export function passwordResetHtml({
           <!-- rodapé -->
           <tr>
             <td align="center" style="padding:28px 24px 0;">
-              <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">Você recebeu este e-mail porque alguém pediu a recuperação desta conta no Clubber.</p>
-              <p style="margin:8px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">Clubber · Curitiba, PR, Brasil · <a href="https://clubber.social/ajuda" style="color:#52525B; text-decoration:underline;">Central de ajuda</a></p>
+              <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">${t('emails.passwordReset.footerReason', locale)}</p>
+              <p style="margin:8px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">Clubber · Curitiba, PR, Brasil · <a href="https://clubber.social/ajuda" style="color:#52525B; text-decoration:underline;">${t('emails.passwordReset.helpCenter', locale)}</a></p>
               <img src="${ASSETS_BASE_URL}sticker.png" width="36" height="36" alt="" style="display:inline-block; width:36px; height:36px; border:0; margin-top:20px;">
               <p style="margin:10px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:11px; color:#A1A1AA; mso-line-height-rule:exactly; line-height:16px;">clubber.social</p>
             </td>

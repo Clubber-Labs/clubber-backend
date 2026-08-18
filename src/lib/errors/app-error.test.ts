@@ -7,12 +7,19 @@ import { AppError } from './app-error'
  * Guard-rail do contrato de erro por código.
  *
  * Erro de negócio é `throw new AppError(status, code)` — o cliente traduz o
- * `code`; texto de exibição nunca nasce no servidor. O throw de objeto cru
- * (`throw { statusCode, message }`) reintroduziria mensagem hardcoded fora do
- * contrato, então este teste falha se ele reaparecer em src/.
+ * `code`; texto de exibição nunca nasce no servidor. Um objeto de erro cru
+ * reintroduziria mensagem hardcoded fora do contrato, então este teste falha se
+ * ele reaparecer em src/ — lançado inline ou montado numa const antes.
  */
 
-const FORBIDDEN = /throw\s+\{[^}]*statusCode/s
+const FORBIDDEN = [
+  /throw\s+\{[^}]*statusCode/s,
+  // Montar o objeto numa const e lançar depois escapa do padrão acima — foi
+  // como uma mensagem em PT sobreviveu à migração para AppError. O par
+  // (statusCode, message) num literal só existe para virar erro de negócio.
+  /\{[^{}]*\bstatusCode\s*:[^{}]*\bmessage\s*:[^{}]*\}/s,
+  /\{[^{}]*\bmessage\s*:[^{}]*\bstatusCode\s*:[^{}]*\}/s,
+]
 
 const SELF = join('src', 'lib', 'errors', 'app-error.test.ts')
 const ROOT = process.cwd()
@@ -42,7 +49,7 @@ describe('contrato de erro — nenhum throw de objeto cru', () => {
     expect(files.length).toBeGreaterThan(0)
   })
 
-  it('não usa throw { statusCode, ... } fora do AppError', () => {
+  it('não monta objeto de erro com statusCode/message fora do AppError', () => {
     const offenders: string[] = []
 
     for (const file of files) {
@@ -60,7 +67,7 @@ describe('contrato de erro — nenhum throw de objeto cru', () => {
           )
         })
         .join('\n')
-      if (FORBIDDEN.test(withoutLineComments)) {
+      if (FORBIDDEN.some((pattern) => pattern.test(withoutLineComments))) {
         offenders.push(relative(ROOT, file))
       }
     }
