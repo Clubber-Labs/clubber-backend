@@ -177,6 +177,84 @@ describe('POST /auth/login', () => {
   })
 })
 
+describe('POST /auth/login — contexto do aparelho (idioma/fuso)', () => {
+  it('grava a tag do Accept-Language como deviceLocale', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      headers: { 'accept-language': 'en-US,en;q=0.9' },
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { deviceLocale: true },
+    })
+    expect(stored?.deviceLocale).toBe('en-US')
+  })
+
+  it('grava o timezone IANA quando enviado no body', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: {
+        email: user.email,
+        password: 'senha123',
+        timezone: 'America/New_York',
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { timezone: true },
+    })
+    expect(stored?.timezone).toBe('America/New_York')
+  })
+
+  it('sem Accept-Language não sobrescreve o deviceLocale já visto', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { deviceLocale: 'es' },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { deviceLocale: true },
+    })
+    expect(stored?.deviceLocale).toBe('es')
+  })
+
+  it('rejeita timezone que não é IANA válido (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: {
+        email: user.email,
+        password: 'senha123',
+        timezone: 'Marte/Cratera',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+})
+
 describe('POST /auth/login — reativação de conta', () => {
   it('reativa conta DEACTIVATED ao logar', async () => {
     const user = await makeUser({

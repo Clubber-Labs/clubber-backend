@@ -14,9 +14,12 @@ function appendVaryAcceptLanguage(reply: FastifyReply) {
   reply.header('vary', value ? `${value}, Accept-Language` : 'Accept-Language')
 }
 
-// Negocia o idioma da request e o expõe em request.locale. A escolha explícita
-// do usuário (user.localePreference) entra na precedência quando o campo
-// existir no schema (fase 2 do plano de i18n).
+// Negocia o idioma da request e o expõe em request.locale — SÓ pelo header, por
+// decisão: o app espelha a escolha explícita do usuário no próprio
+// Accept-Language (interceptor), então consultar user.localePreference aqui
+// custaria uma query por request para chegar ao mesmo resultado. A preferência
+// persistida existe para os canais SEM request — push/e-mail — via
+// effectiveLocale (lib/i18n/user-locale).
 async function localePluginFn(app: FastifyInstance) {
   app.decorateRequest('locale', DEFAULT_LOCALE)
 

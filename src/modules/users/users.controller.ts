@@ -87,6 +87,7 @@ export async function postUser(request: FastifyRequest, reply: FastifyReply) {
   const user = await registerUser(
     request.body as CreateUserBody,
     extractRequestMeta(request),
+    request.headers['accept-language'],
   )
   const { token, refreshToken } = await issueSession(reply, user.id, {
     userAgent: request.headers['user-agent'] ?? null,

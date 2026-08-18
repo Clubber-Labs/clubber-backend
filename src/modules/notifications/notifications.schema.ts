@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { timezoneSchema } from '../../lib/i18n/timezone'
 
 export const listNotificationsQuerySchema = z.object({
   limit: z.coerce.number().min(1).max(50).optional().default(20),
@@ -15,6 +16,8 @@ export const registerDeviceSchema = z.object({
   // service; aqui só garante uma string não vazia.
   token: z.string().min(1),
   platform: z.string().max(20).optional(),
+  // IANA do aparelho — registro de device é um dos pontos onde o app o conhece.
+  timezone: timezoneSchema.optional(),
 })
 
 export type RegisterDeviceBody = z.infer<typeof registerDeviceSchema>

@@ -1032,6 +1032,102 @@ describe('preferredSubcategories no perfil', () => {
   })
 })
 
+describe('localePreference e fuso no perfil', () => {
+  it('POST /users captura idioma do aparelho e persiste o timezone do body', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      headers: { 'accept-language': 'en-US,en;q=0.9' },
+      payload: {
+        name: 'Joana',
+        lastname: 'Almeida',
+        username: 'joanaalmeida',
+        phone: '11988887777',
+        email: 'joana@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2001-05-05T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'NIGHTLIFE'],
+        timezone: 'Europe/Lisbon',
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    // Cadastro é o PRIMEIRO ponto onde o app conhece o device: sem essa captura,
+    // quem nunca refaz login ficaria nos defaults até o próximo /auth/login.
+    // A resposta também precisa refletir o valor capturado (não o default),
+    // por isso ambos entram no mesmo prisma.user.create.
+    expect(res.json().user).toMatchObject({
+      deviceLocale: 'en-US',
+      timezone: 'Europe/Lisbon',
+    })
+    const stored = await testPrisma.user.findUnique({
+      where: { id: res.json().user.id },
+      select: { deviceLocale: true, timezone: true },
+    })
+    expect(stored?.deviceLocale).toBe('en-US')
+    expect(stored?.timezone).toBe('Europe/Lisbon')
+  })
+
+  it('PUT /users/:id salva localePreference; GET /users/me devolve idioma e fuso', async () => {
+    const user = await makeUser()
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: 'en' },
+    })
+    expect(put.statusCode).toBe(200)
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(me.statusCode).toBe(200)
+    expect(me.json()).toMatchObject({
+      localePreference: 'en',
+      deviceLocale: 'pt-BR',
+      timezone: 'America/Sao_Paulo',
+    })
+  })
+
+  it('localePreference null volta a seguir o aparelho', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { localePreference: 'en' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: null },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { localePreference: true },
+    })
+    expect(stored?.localePreference).toBeNull()
+  })
+
+  it('rejeita localePreference fora dos locales suportados (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: 'de' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+})
+
 describe('GET /users/search', () => {
   it('retorna 401 sem autenticação', async () => {
     const res = await app.inject({

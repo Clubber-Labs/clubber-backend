@@ -392,6 +392,42 @@ describe('device tokens', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('registro captura idioma e fuso do aparelho', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/devices',
+      headers: {
+        authorization: `Bearer ${token(user.id)}`,
+        'accept-language': 'es-AR,es;q=0.9',
+      },
+      body: {
+        token: VALID_EXPO_TOKEN,
+        platform: 'ios',
+        timezone: 'America/Argentina/Buenos_Aires',
+      },
+    })
+    expect(res.statusCode).toBe(201)
+
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { deviceLocale: true, timezone: true },
+    })
+    expect(stored?.deviceLocale).toBe('es-AR')
+    expect(stored?.timezone).toBe('America/Argentina/Buenos_Aires')
+  })
+
+  it('rejeita timezone inválido no registro (400)', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/devices',
+      headers: { authorization: `Bearer ${token(user.id)}` },
+      body: { token: VALID_EXPO_TOKEN, timezone: 'Lua/Tranquilidade' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('re-registro do mesmo token migra o dono e reativa', async () => {
     const [first, second] = await Promise.all([makeUser(), makeUser()])
     await app.inject({

@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { captureDeviceContext } from '../users/users.service'
 import type { LoginBody, MfaCodeBody, RefreshBody } from './auth.schema'
 import {
   disableMfa,
@@ -18,7 +19,8 @@ function sessionMeta(request: FastifyRequest): SessionMeta {
 }
 
 export async function login(request: FastifyRequest, reply: FastifyReply) {
-  const result = await validateLogin(request.body as LoginBody)
+  const body = request.body as LoginBody
+  const result = await validateLogin(body)
   if (result.status === 'mfa_required') {
     // Senha OK, mas a conta tem MFA: o cliente reapresenta o form pedindo o código.
     return reply.send({ mfaRequired: true })
@@ -36,6 +38,11 @@ export async function login(request: FastifyRequest, reply: FastifyReply) {
     reply,
     result.user.id,
     sessionMeta(request),
+  )
+  await captureDeviceContext(
+    result.user.id,
+    request.headers['accept-language'],
+    body.timezone,
   )
   request.log.info({ userId: result.user.id }, 'User logged in')
   return reply.send({ token, refreshToken })
