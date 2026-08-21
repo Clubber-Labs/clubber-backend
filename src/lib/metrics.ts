@@ -84,6 +84,17 @@ export const socialFilterEmptyTotal = new Counter({
   registers: [registry],
 })
 
+// Falhas da fila de notificações. O enqueue é best-effort de propósito (não
+// pode quebrar a ação principal), então o erro é engolido com um warn — foi
+// assim que o enqueue quebrado por jobId ficou invisível por meses. Este
+// contador é o alarme: valor subindo = notificação sendo perdida agora.
+export const notificationQueueFailuresTotal = new Counter({
+  name: 'notification_queue_failures_total',
+  help: 'Falhas da fila de notificações por estágio (enqueue|process) e tipo de job',
+  labelNames: ['stage', 'kind'],
+  registers: [registry],
+})
+
 // Quantos candidatos foram descartados por conteúdo adulto (nome de casa de
 // swing/liberal/strip etc.). Filtro HARD de content-safety — acompanha o volume.
 export const adultVenueFilteredTotal = new Counter({
