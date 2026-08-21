@@ -186,6 +186,29 @@ describe('runEventCreatedFanout', () => {
     })
   })
 
+  it('sem consent de push: cria o in-app e entrega foreground, sem enviar push', async () => {
+    const author = await makeUser()
+    const user = await makeNearbyUser(true, uniqueToken())
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { pushNotifications: false },
+    })
+    const event = await makeNearbyEvent(author.id)
+
+    const { notified } = await runEventCreatedFanout(event.id)
+
+    expect(notified).toBe(1)
+    expect(
+      await testPrisma.notification.findFirst({
+        where: { userId: user.id, type: 'EVENT_NEARBY', eventId: event.id },
+      }),
+    ).not.toBeNull()
+    expect(realtime.publishNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: user.id }),
+    )
+    expect(fakePush.sent).toHaveLength(0)
+  })
+
   it('é idempotente: re-run não duplica notificação nem re-empurra', async () => {
     const author = await makeUser()
     await makeNearbyUser()
