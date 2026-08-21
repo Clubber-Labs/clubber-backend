@@ -29,9 +29,10 @@ type DigestRow = { userId: string; eventId: string }
  * promovidos na região ainda resultam em 1 push por pessoa por período.
  *
  * Elegibilidade (espelha a query invertida de proximidade): conta ACTIVE,
- * consentimento push + locationPrecise não revogado, localização fresca,
- * ativo recentemente (lastSeenAt). Cooldown: nenhuma notificação de promoção
- * nos últimos PROMOTION_DIGEST_COOLDOWN_DAYS.
+ * consentimento de localização (locationPrecise, não revogado — push NÃO é
+ * critério: o in-app é para todos e o push é filtrado na entrega), localização
+ * fresca, ativo recentemente (lastSeenAt). Cooldown: nenhuma notificação de
+ * promoção nos últimos PROMOTION_DIGEST_COOLDOWN_DAYS.
  *
  * Relevância (LATERAL top-1 por usuário): casa categoria preferida primeiro,
  * depois o mais próximo, depois o de maior engajamento.
@@ -128,7 +129,6 @@ export async function runPromotedDigest(
           AND u.location IS NOT NULL
           AND u."locationUpdatedAt" > ${locationCutoff}
           AND u."lastSeenAt" > ${activeCutoff}
-          AND c."pushNotifications" = true
           AND c."locationPrecise" = true
           AND c."revokedAt" IS NULL
           AND NOT EXISTS (

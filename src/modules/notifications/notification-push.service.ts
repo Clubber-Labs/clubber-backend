@@ -26,9 +26,10 @@ export type UserPushContent = { userId: string; content: PushContent }
  * Envia push com conteúdo POR USUÁRIO (ex.: fan-out, onde o data carrega o
  * notificationId de cada destinatário), num único envio chunkado ao Expo, e
  * persiste os tickets (PENDING) para a reconciliação de receipts. NÃO checa
- * consentimento — o caller garante (proximidade filtra no SQL; social checa
- * antes de enfileirar). Erro imediato no ticket com DeviceNotRegistered já
- * invalida o token; os demais erros (entrega) só aparecem no receipt.
+ * consentimento — o caller garante (deliverNotifications filtra nos fan-outs;
+ * social checa antes de enfileirar; chat filtra no SQL). Erro imediato no
+ * ticket com DeviceNotRegistered já invalida o token; os demais erros
+ * (entrega) só aparecem no receipt.
  */
 export async function sendPushBatch(
   items: UserPushContent[],

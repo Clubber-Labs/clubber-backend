@@ -64,7 +64,8 @@ export type ProximityScan = {
  * (users_location_idx) e corta a tabela; o refino por linha
  * (`ST_Distance <= notifyRadiusKm*1000 + meia-diagonal`) roda só sobre os
  * candidatos — padrão "filtro na camada certa" do CLAUDE.md. Demais predicados:
- * freshness (TTL), consentimento (push + locationPrecise, não revogado),
+ * freshness (TTL), consentimento de localização (locationPrecise, não revogado
+ * — push NÃO é critério: o in-app é para todos e o push é filtrado na entrega),
  * preferência de 2 níveis (o usuário prefere AO MENOS UMA categoria OU
  * subcategoria do evento — ver preferenceMatch), conta ativa, não-autor e sem
  * bloqueio entre as partes (espelha a exclusão de bloqueio do chat.repository).
@@ -89,7 +90,6 @@ export async function findUsersToNotifyNearEvent(
       AND u."accountStatus" = 'ACTIVE'
       AND u.id <> ${target.authorId}
       AND c."revokedAt" IS NULL
-      AND c."pushNotifications" = true
       AND c."locationPrecise" = true
       AND ${preferenceMatch(target)}
       AND NOT EXISTS (
@@ -111,7 +111,7 @@ export type SpotProximityTarget = ProximityTarget & {
 
 /**
  * Versão de spot da query invertida: igual ao evento (proximidade + preferência
- * de 2 níveis + consentimento + bloqueio), MAIS o filtro de visibilidade — spot
+ * de 2 níveis + consentimento de localização + bloqueio), MAIS o filtro de visibilidade — spot
  * FRIENDS só alcança quem segue mutuamente o criador. `authorId` = criador.
  */
 export async function findUsersToNotifyNearSpot(
@@ -156,7 +156,6 @@ export async function findUsersToNotifyNearSpot(
       AND u."accountStatus" = 'ACTIVE'
       AND u.id <> ${target.authorId}
       AND c."revokedAt" IS NULL
-      AND c."pushNotifications" = true
       AND c."locationPrecise" = true
       ${preference}
       AND NOT EXISTS (

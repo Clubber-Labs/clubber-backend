@@ -219,6 +219,26 @@ export async function findRecipientLocaleFields(userIds: string[]) {
 }
 
 /**
+ * Subconjunto de `userIds` com consentimento de push vigente (pushNotifications
+ * e não revogado). A entrega usa para separar o push do foreground/in-app, que
+ * não exigem consentimento.
+ */
+export async function filterPushConsentedUserIds(
+  userIds: string[],
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const rows = await prisma.userConsent.findMany({
+    where: {
+      userId: { in: [...new Set(userIds)] },
+      pushNotifications: true,
+      revokedAt: null,
+    },
+    select: { userId: true },
+  })
+  return new Set(rows.map((r) => r.userId))
+}
+
+/**
  * Limpa as notificações de um relacionamento de follow quando ele é desfeito
  * (unfollow / rejeição / remoção de seguidor). Remove a notificação que virou
  * obsoleta E libera o dedupeKey, de modo que um refollow volte a notificar.
