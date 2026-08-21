@@ -2,7 +2,10 @@ import type { Notification } from '@prisma/client'
 import { DEFAULT_LOCALE, type Locale } from '../../lib/i18n/locale'
 import { effectiveLocale } from '../../lib/i18n/user-locale'
 import { realtime } from '../../lib/realtime'
-import { findRecipientLocaleFields } from './notification.repository'
+import {
+  filterPushConsentedUserIds,
+  findRecipientLocaleFields,
+} from './notification.repository'
 import {
   type NotificationActor,
   renderNotificationContent,
@@ -41,6 +44,10 @@ export async function groupRecipientsByLocale(
  * seu destinatário. Caminho único dos fan-outs — antes cada um repetia o par
  * publish/sendPushBatch, e agora nenhum pode esquecer de traduzir.
  *
+ * Foreground vai para TODOS (in-app não exige consentimento); o push só para
+ * quem tem consentimento vigente — filtrado aqui, o ponto único, para nenhum
+ * fan-out esquecer.
+ *
  * Renderiza uma vez por (conteúdo, idioma) em vez de por destinatário: a
  * dedupeKey já É a identidade do conteúdo (tipo + alvos), então serve de chave
  * de cache num fan-out de milhares sem colar o texto de um spot no outro.
@@ -75,14 +82,19 @@ export async function deliverNotifications(
       }),
     ),
   )
+  const pushConsented = await filterPushConsentedUserIds(
+    notifications.map((n) => n.userId),
+  )
   await sendPushBatch(
-    payloads.map(({ n, payload }) => ({
-      userId: n.userId,
-      content: {
-        title: payload.title,
-        body: payload.body,
-        data: buildPushData(n),
-      },
-    })),
+    payloads
+      .filter(({ n }) => pushConsented.has(n.userId))
+      .map(({ n, payload }) => ({
+        userId: n.userId,
+        content: {
+          title: payload.title,
+          body: payload.body,
+          data: buildPushData(n),
+        },
+      })),
   )
 }

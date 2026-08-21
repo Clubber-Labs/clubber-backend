@@ -68,8 +68,8 @@ export async function runEventCreatedFanout(
           })),
         )
 
-        // Foreground + push (a query invertida já garantiu consentimento), cada
-        // um no idioma do seu destinatário.
+        // Foreground para todos; push filtrado por consentimento na entrega,
+        // cada um no idioma do seu destinatário.
         const created = await findNotificationsForEvent(
           newUserIds,
           eventId,
