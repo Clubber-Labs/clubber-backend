@@ -296,7 +296,7 @@ describe('findUsersToNotifyNearEvent', () => {
     expect(ids).not.toContain(unrelated.id)
   })
 
-  it('exclui sem categoria, sem consentimentos, velho, sem localização, bloqueado e o autor', async () => {
+  it('exclui sem categoria, sem consentimento de localização, velho, sem localização, bloqueado e o autor', async () => {
     // O autor é totalmente elegível (perto + categoria + consent) — mas nunca
     // recebe a notificação da própria criação.
     const author = await makeNotifiableUser()
@@ -316,7 +316,9 @@ describe('findUsersToNotifyNearEvent', () => {
     const ids = await scan(author.id)
     expect(ids).not.toContain(author.id)
     expect(ids).not.toContain(noCategory.id)
-    expect(ids).not.toContain(noPush.id)
+    // Sem push ainda é selecionado: o in-app é para todos e o push é filtrado
+    // na entrega (deliverNotifications).
+    expect(ids).toContain(noPush.id)
     expect(ids).not.toContain(noLocConsent.id)
     expect(ids).not.toContain(stale.id)
     expect(ids).not.toContain(noLocation.id)
