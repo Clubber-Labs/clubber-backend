@@ -15,6 +15,15 @@ import {
 
 const QUEUE_NAME = 'notifications'
 
+/**
+ * jobId determinístico com separador seguro: o BullMQ (>=5.78) rejeita ':' em
+ * jobId customizado ("Custom Id cannot contain :") e o enqueue best-effort
+ * engoliria o erro — o job simplesmente nunca entraria na fila.
+ */
+export function deterministicJobId(...parts: string[]): string {
+  return parts.join('_')
+}
+
 type NotificationJob =
   | { kind: 'event.created'; eventId: string }
   | { kind: 'spot.published'; spotId: string }
@@ -51,7 +60,7 @@ export async function enqueueEventCreated(eventId: string): Promise<void> {
         // jobId determinístico colapsa enqueues duplicados do mesmo evento
         // (válido p/ jobs WAITING/DELAYED; se já estiver ACTIVE, o segundo
         // roda — a idempotência do fan-out garante que nada duplica).
-        jobId: `event.created:${eventId}`,
+        jobId: deterministicJobId('event.created', eventId),
         removeOnComplete: true,
         removeOnFail: 200,
       },
@@ -70,7 +79,7 @@ export async function enqueueSpotPublished(spotId: string): Promise<void> {
       'spot.published',
       { kind: 'spot.published', spotId },
       {
-        jobId: `spot.published:${spotId}`,
+        jobId: deterministicJobId('spot.published', spotId),
         removeOnComplete: true,
         removeOnFail: 200,
       },
@@ -92,7 +101,7 @@ export async function enqueueSpotJoined(
       'spot.joined',
       { kind: 'spot.joined', spotId, joinerId },
       {
-        jobId: `spot.joined:${spotId}:${joinerId}`,
+        jobId: deterministicJobId('spot.joined', spotId, joinerId),
         removeOnComplete: true,
         removeOnFail: 200,
       },
@@ -139,7 +148,7 @@ export async function enqueueChatMessagePush(messageId: string): Promise<void> {
       'chat.message.push',
       { kind: 'chat.message.push', messageId },
       {
-        jobId: `chat.message.push:${messageId}`,
+        jobId: deterministicJobId('chat.message.push', messageId),
         delay: CHAT_MESSAGE_PUSH_DELAY_MS,
         removeOnComplete: true,
         removeOnFail: 200,
