@@ -1,6 +1,7 @@
 import type { Job, Queue, Worker } from 'bullmq'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
+import { notificationQueueFailuresTotal } from '../../lib/metrics'
 import { createQueue, createWorker } from '../../lib/queue'
 import {
   CHAT_MESSAGE_PUSH_DELAY_MS,
@@ -30,6 +31,25 @@ type NotificationJob =
   | { kind: 'spot.joined'; spotId: string; joinerId: string }
   | { kind: 'notification.push'; userId: string; content: PushContent }
   | { kind: 'chat.message.push'; messageId: string }
+
+/**
+ * Falha de fila é best-effort (nunca quebra a ação principal), mas não pode ser
+ * SÓ um warn: o contador é o alarme, o log é o contexto. `stage` separa perder
+ * o job antes da fila (enqueue) de falhar processando (process).
+ */
+export function recordQueueFailure(
+  stage: 'enqueue' | 'process',
+  kind: NotificationJob['kind'] | 'unknown',
+  err: unknown,
+  context: Record<string, unknown> = {},
+): void {
+  notificationQueueFailuresTotal.inc({ stage, kind })
+  const msg =
+    stage === 'enqueue'
+      ? `falha ao enfileirar ${kind}`
+      : 'notification job falhou'
+  logger.warn({ err, ...context }, msg)
+}
 
 let queue: Queue<NotificationJob> | null = null
 let queueResolved = false
@@ -66,7 +86,7 @@ export async function enqueueEventCreated(eventId: string): Promise<void> {
       },
     )
   } catch (err) {
-    logger.warn({ err, eventId }, 'falha ao enfileirar event.created')
+    recordQueueFailure('enqueue', 'event.created', err, { eventId })
   }
 }
 
@@ -85,7 +105,7 @@ export async function enqueueSpotPublished(spotId: string): Promise<void> {
       },
     )
   } catch (err) {
-    logger.warn({ err, spotId }, 'falha ao enfileirar spot.published')
+    recordQueueFailure('enqueue', 'spot.published', err, { spotId })
   }
 }
 
@@ -107,7 +127,7 @@ export async function enqueueSpotJoined(
       },
     )
   } catch (err) {
-    logger.warn({ err, spotId, joinerId }, 'falha ao enfileirar spot.joined')
+    recordQueueFailure('enqueue', 'spot.joined', err, { spotId, joinerId })
   }
 }
 
@@ -130,7 +150,7 @@ export async function enqueuePush(
       },
     )
   } catch (err) {
-    logger.warn({ err, userId }, 'falha ao enfileirar notification.push')
+    recordQueueFailure('enqueue', 'notification.push', err, { userId })
   }
 }
 
@@ -157,7 +177,7 @@ export async function enqueueChatMessagePush(messageId: string): Promise<void> {
       },
     )
   } catch (err) {
-    logger.warn({ err, messageId }, 'falha ao enfileirar chat.message.push')
+    recordQueueFailure('enqueue', 'chat.message.push', err, { messageId })
   }
 }
 
@@ -184,10 +204,10 @@ export function startNotificationsWorker(): void {
   )
   if (worker) {
     worker.on('failed', (job, err) => {
-      logger.warn(
-        { err, jobId: job?.id, kind: job?.data?.kind },
-        'notification job falhou',
-      )
+      recordQueueFailure('process', job?.data?.kind ?? 'unknown', err, {
+        jobId: job?.id,
+        kind: job?.data?.kind,
+      })
     })
     logger.info('notifications worker iniciado')
   }
