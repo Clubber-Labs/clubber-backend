@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { Prisma } from '@prisma/client'
+import type { Prisma, SocialProvider } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
 import { buildSignupConsentData } from '../modules/consent/consent.repository'
@@ -123,7 +123,7 @@ export async function makeUser(
 
 export async function makeSocialAccount(
   userId: string,
-  provider: 'GOOGLE' | 'FACEBOOK' = 'GOOGLE',
+  provider: SocialProvider = 'GOOGLE',
   overrides: { providerUserId?: string; email?: string | null } = {},
 ) {
   const id = uid()

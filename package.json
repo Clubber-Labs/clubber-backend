@@ -60,6 +60,7 @@
     "fastify-type-provider-zod": "^6.1.0",
     "google-auth-library": "^10.6.2",
     "ioredis": "^5.10.1",
+    "jose": "^6.2.9",
     "otpauth": "^9.5.1",
     "pino": "10.3.1",
     "pino-loki": "^3.0.0",

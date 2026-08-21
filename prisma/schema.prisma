@@ -415,7 +415,8 @@ model Block {
 
 enum SocialProvider {
   GOOGLE
-  FACEBOOK
+  FACEBOOK // legado: sem rota desde 2026-08, mantido pelas contas antigas
+  APPLE
 }
 
 model SocialAccount {
