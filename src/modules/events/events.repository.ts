@@ -372,6 +372,10 @@ export async function findEventAccess(id: string) {
       authorId: true,
       date: true,
       endDate: true,
+      // Coordenada atual: mover o evento recalcula o fuso, e a edição pode
+      // mandar só uma das duas (a outra vem daqui).
+      latitude: true,
+      longitude: true,
       // Estado atual de categorias/subcategorias: o editEvent valida a coerência
       // das tags contra as categorias EFETIVAS (payload + armazenado).
       categories: true,
@@ -821,7 +825,7 @@ export async function searchEvents(
 }
 
 export async function createEvent(
-  data: CreateEventBody & { authorId: string },
+  data: CreateEventBody & { authorId: string; timezone: string },
 ) {
   return prisma.event.create({
     data: {
@@ -832,7 +836,10 @@ export async function createEvent(
   })
 }
 
-export async function updateEvent(id: string, data: UpdateEventBody) {
+export async function updateEvent(
+  id: string,
+  data: UpdateEventBody & { timezone?: string },
+) {
   return prisma.event.update({ where: { id }, data })
 }
 

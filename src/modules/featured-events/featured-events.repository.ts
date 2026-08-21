@@ -1,5 +1,7 @@
 import type { Prisma } from '@prisma/client'
+import { DateTime } from 'luxon'
 import { AppError } from '../../lib/errors/app-error'
+import { DEFAULT_TIMEZONE } from '../../lib/i18n/timezone'
 import { prisma } from '../../lib/prisma'
 
 type TxClient = Prisma.TransactionClient
@@ -36,9 +38,18 @@ export async function findOverlappingActiveFeature(
   })
 }
 
-/** 1º dia do mês (UTC) — chave da quota mensal de promoções. */
-export function promotionPeriodFor(now: Date = new Date()): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+/**
+ * 1º dia do mês NO FUSO DO USUÁRIO — chave da quota mensal de promoções. Em
+ * UTC, quem está em São Paulo trocava de mês às 21h do dia anterior: as
+ * promoções das últimas 3h do mês caíam no balde seguinte.
+ */
+export function promotionPeriodFor(
+  now: Date = new Date(),
+  timeZone: string = DEFAULT_TIMEZONE,
+): Date {
+  return DateTime.fromJSDate(now, { zone: timeZone })
+    .startOf('month')
+    .toJSDate()
 }
 
 // Consome 1 da quota mensal de promoções, atomicamente, DENTRO da transação
@@ -51,7 +62,11 @@ export async function consumePromotionQuotaTx(
   limit: number,
   now: Date = new Date(),
 ) {
-  const period = promotionPeriodFor(now)
+  const user = await tx.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  })
+  const period = promotionPeriodFor(now, user?.timezone)
   const usage = await tx.eventPromotionUsage.upsert({
     where: { userId_period: { userId, period } },
     create: { userId, period, count: 1 },

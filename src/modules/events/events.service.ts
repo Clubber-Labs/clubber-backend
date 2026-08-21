@@ -1,5 +1,6 @@
 import { cache } from '../../lib/cache'
 import { AppError } from '../../lib/errors/app-error'
+import { timezoneForLocation } from '../../lib/i18n/timezone'
 import { interestMatchesCategories } from '../../lib/subcategories'
 import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
@@ -349,7 +350,11 @@ export async function addEvent(data: CreateEventBody, authorId: string) {
     return createRecurringEvent(eventData, recurrence, authorId)
   }
 
-  const event = await createEvent({ ...eventData, authorId })
+  const event = await createEvent({
+    ...eventData,
+    authorId,
+    timezone: timezoneForLocation(eventData.latitude, eventData.longitude),
+  })
   if (eventData.isPublic === true) {
     await invalidateEventCaches()
     // Fan-out de proximidade (best-effort, pós-commit): só eventos públicos.
@@ -387,7 +392,20 @@ export async function editEvent(
     }
   }
 
-  const updated = await updateEvent(id, data)
+  // Mudou de lugar, muda de fuso: sem isto o evento carregado para outra cidade
+  // continuaria formatando a hora no fuso antigo.
+  const moved = data.latitude !== undefined || data.longitude !== undefined
+  const timezone = moved
+    ? timezoneForLocation(
+        data.latitude ?? event.latitude,
+        data.longitude ?? event.longitude,
+      )
+    : undefined
+
+  const updated = await updateEvent(id, {
+    ...data,
+    ...(timezone && { timezone }),
+  })
   if (event.isPublic || data.isPublic === true) {
     await invalidateEventCaches()
   }

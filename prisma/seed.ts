@@ -11,6 +11,7 @@ import {
   UserRole,
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { timezoneForLocation } from '../src/lib/i18n/timezone'
 
 const prisma = new PrismaClient()
 
@@ -542,11 +543,13 @@ async function main() {
         CATEGORIES.filter((c) => c !== primary),
         faker.number.int({ min: 0, max: 2 }),
       )
+      const coords = curitibaCoords()
       return {
         title: pick(EVENT_TITLES[primary]),
         description: pick(EVENT_DESCRIPTIONS),
         date: faker.date.soon({ days: 30 }),
-        ...curitibaCoords(),
+        ...coords,
+        timezone: timezoneForLocation(coords.latitude, coords.longitude),
         categories: [primary, ...extras],
         isPublic: !(i % 5 === 0 && j === 0), // ~20% privados
         authorId: author.id,
@@ -575,6 +578,7 @@ async function main() {
     description: 'Pelada semanal da galera',
     latitude: -25.43,
     longitude: -49.27,
+    timezone: timezoneForLocation(-25.43, -49.27),
     address: 'Quadra do bairro',
     categories: ['SPORTS'] as EventCategory[],
     isPublic: true,
@@ -601,6 +605,7 @@ async function main() {
         endDate: new Date(date.getTime() + futebaTemplate.durationMs),
         latitude: futebaTemplate.latitude,
         longitude: futebaTemplate.longitude,
+        timezone: futebaTemplate.timezone,
         address: futebaTemplate.address,
         categories: futebaTemplate.categories,
         isPublic: futebaTemplate.isPublic,
