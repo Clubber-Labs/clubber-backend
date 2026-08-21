@@ -11,16 +11,16 @@ import {
 
 vi.mock('./social-auth.providers', () => ({
   verifyGoogleToken: vi.fn(),
-  verifyFacebookToken: vi.fn(),
+  verifyAppleToken: vi.fn(),
 }))
 
 import { buildApp } from '../../test/app'
 import { makeSocialAccount, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
-import { verifyFacebookToken, verifyGoogleToken } from './social-auth.providers'
+import { verifyAppleToken, verifyGoogleToken } from './social-auth.providers'
 
 const mockedGoogle = vi.mocked(verifyGoogleToken)
-const mockedFacebook = vi.mocked(verifyFacebookToken)
+const mockedApple = vi.mocked(verifyAppleToken)
 
 let app: FastifyInstance
 
@@ -36,7 +36,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   mockedGoogle.mockReset()
-  mockedFacebook.mockReset()
+  mockedApple.mockReset()
 })
 
 const googleProfile = (
@@ -61,18 +61,20 @@ const googleProfile = (
       : overrides.pictureUrl,
 })
 
-const facebookProfile = (
+const appleProfile = (
   overrides: Partial<{
     providerUserId: string
     email: string | null
+    firstName: string | null
+    lastName: string | null
   }> = {},
 ) => ({
-  provider: 'FACEBOOK' as const,
-  providerUserId: overrides.providerUserId ?? 'fb_user_456',
-  email: overrides.email === undefined ? 'fb@exemplo.com' : overrides.email,
+  provider: 'APPLE' as const,
+  providerUserId: overrides.providerUserId ?? 'apple_user_456',
+  email: overrides.email === undefined ? 'apple@exemplo.com' : overrides.email,
   emailVerified: overrides.email !== null,
-  firstName: 'Maria',
-  lastName: 'Souza',
+  firstName: overrides.firstName === undefined ? 'Maria' : overrides.firstName,
+  lastName: overrides.lastName === undefined ? 'Souza' : overrides.lastName,
   pictureUrl: null,
 })
 
@@ -128,26 +130,94 @@ describe('POST /auth/social — signup', () => {
     expect(acceptances).toBe(2)
   })
 
-  it('cria usuário novo via Facebook', async () => {
-    mockedFacebook.mockResolvedValueOnce(
-      facebookProfile({ email: 'novofb@exemplo.com' }),
+  it('cria usuário novo via Apple', async () => {
+    mockedApple.mockResolvedValueOnce(
+      appleProfile({ email: 'novoapple@exemplo.com' }),
     )
 
     const res = await app.inject({
       method: 'POST',
       url: '/auth/social',
-      body: { provider: 'facebook', token: 'fake-facebook-token' },
+      body: { provider: 'apple', token: 'fake-apple-token' },
     })
 
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect(body.user.email).toBe('novofb@exemplo.com')
+    expect(body.user.email).toBe('novoapple@exemplo.com')
     expect(body.profileIncomplete).toBe(true)
 
     const social = await testPrisma.socialAccount.findFirst({
-      where: { providerUserId: 'fb_user_456' },
+      where: { providerUserId: 'apple_user_456' },
     })
-    expect(social).toMatchObject({ provider: 'FACEBOOK', userId: body.user.id })
+    expect(social).toMatchObject({ provider: 'APPLE', userId: body.user.id })
+  })
+
+  it('aplica o fullName do body na criação da conta via Apple', async () => {
+    mockedApple.mockResolvedValueOnce(
+      appleProfile({
+        email: 'nomeapple@exemplo.com',
+        firstName: 'Ana',
+        lastName: 'Luz',
+      }),
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: {
+        provider: 'apple',
+        token: 'fake-apple-token',
+        fullName: { givenName: 'Ana', familyName: 'Luz' },
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(mockedApple).toHaveBeenCalledWith('fake-apple-token', {
+      givenName: 'Ana',
+      familyName: 'Luz',
+    })
+    expect(res.json().user).toMatchObject({ name: 'Ana', lastname: 'Luz' })
+  })
+
+  it('login repetido sem fullName não sobrescreve o nome', async () => {
+    // Gotcha da Apple: o fullName só vem no primeiro consentimento. Os logins
+    // seguintes chegam sem ele e não podem apagar o nome salvo na criação.
+    mockedApple.mockResolvedValueOnce(
+      appleProfile({
+        email: 'repetido@exemplo.com',
+        providerUserId: 'apple_repeat',
+        firstName: 'Ana',
+        lastName: 'Luz',
+      }),
+    )
+    const first = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: {
+        provider: 'apple',
+        token: 'fake-apple-token',
+        fullName: { givenName: 'Ana', familyName: 'Luz' },
+      },
+    })
+    expect(first.statusCode).toBe(200)
+
+    mockedApple.mockResolvedValueOnce(
+      appleProfile({
+        email: 'repetido@exemplo.com',
+        providerUserId: 'apple_repeat',
+        firstName: null,
+        lastName: null,
+      }),
+    )
+    const second = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'apple', token: 'fake-apple-token' },
+    })
+
+    expect(second.statusCode).toBe(200)
+    expect(second.json().user.id).toBe(first.json().user.id)
+    expect(second.json().user).toMatchObject({ name: 'Ana', lastname: 'Luz' })
   })
 })
 
@@ -255,13 +325,15 @@ describe('POST /auth/social — erros', () => {
     expect(res.json().code).toBe('SOCIAL_EMAIL_UNVERIFIED')
   })
 
-  it('retorna 400 quando o Facebook não devolve email', async () => {
-    mockedFacebook.mockResolvedValueOnce(facebookProfile({ email: null }))
+  it('retorna 400 quando a Apple não devolve email', async () => {
+    // Não acontece na prática (a Apple sempre emite email, próprio ou private
+    // relay), mas o service exige — o caso protege o invariante.
+    mockedApple.mockResolvedValueOnce(appleProfile({ email: null }))
 
     const res = await app.inject({
       method: 'POST',
       url: '/auth/social',
-      body: { provider: 'facebook', token: 'fake-token-long' },
+      body: { provider: 'apple', token: 'fake-token-long' },
     })
 
     expect(res.statusCode).toBe(400)
@@ -278,6 +350,16 @@ describe('POST /auth/social — erros', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('retorna 400 de validação para o provider aposentado facebook', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/social',
+      body: { provider: 'facebook', token: 'fake-token-long' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
   it('retorna 400 quando o token é vazio', async () => {
     const res = await app.inject({
       method: 'POST',
@@ -289,25 +371,30 @@ describe('POST /auth/social — erros', () => {
   })
 })
 
-describe('POST /auth/social — segurança auto-link', () => {
-  it('bloqueia auto-link via Facebook quando email já existe localmente', async () => {
-    await makeUser({ email: 'existente@exemplo.com' })
+describe('POST /auth/social — auto-link', () => {
+  it('linka conta Apple a usuário existente quando o email bate, normalizando o case', async () => {
+    const existing = await makeUser({ email: 'autolinkapple@exemplo.com' })
 
-    mockedFacebook.mockResolvedValueOnce(
-      facebookProfile({
-        email: 'existente@exemplo.com',
-        providerUserId: 'fb_no_link',
+    mockedApple.mockResolvedValueOnce(
+      appleProfile({
+        email: 'AutoLinkApple@Exemplo.COM',
+        providerUserId: 'apple_link_1',
       }),
     )
 
     const res = await app.inject({
       method: 'POST',
       url: '/auth/social',
-      body: { provider: 'facebook', token: 'fake-token-long' },
+      body: { provider: 'apple', token: 'fake-token-long' },
     })
 
-    expect(res.statusCode).toBe(409)
-    expect(res.json()).toMatchObject({ code: 'EMAIL_TAKEN', field: 'email' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().user.id).toBe(existing.id)
+
+    const social = await testPrisma.socialAccount.findFirst({
+      where: { userId: existing.id, provider: 'APPLE' },
+    })
+    expect(social?.providerUserId).toBe('apple_link_1')
   })
 
   it('normaliza email do provider para lowercase no auto-link via Google', async () => {

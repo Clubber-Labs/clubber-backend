@@ -9,7 +9,7 @@ import {
   findUserIdByUsername,
   reactivateOnLogin,
 } from '../users/users.repository'
-import { verifyFacebookToken, verifyGoogleToken } from './social-auth.providers'
+import { verifyAppleToken, verifyGoogleToken } from './social-auth.providers'
 import {
   createSocialAccount,
   createUserWithSocialAccount,
@@ -37,9 +37,10 @@ function isUsernameUniqueViolation(err: unknown): boolean {
 async function verifyTokenByProvider(
   provider: SocialLoginBody['provider'],
   token: string,
+  fullName?: SocialLoginBody['fullName'],
 ): Promise<VerifiedSocialProfile> {
   if (provider === 'google') return verifyGoogleToken(token)
-  return verifyFacebookToken(token)
+  return verifyAppleToken(token, fullName)
 }
 
 function sanitizeUsernameBase(email: string) {
@@ -104,7 +105,11 @@ export async function socialLogin(
   body: SocialLoginBody,
   meta: { ipAddress: string | null; userAgent: string | null },
 ) {
-  const profile = await verifyTokenByProvider(body.provider, body.token)
+  const profile = await verifyTokenByProvider(
+    body.provider,
+    body.token,
+    body.fullName,
+  )
 
   if (!profile.email) {
     throw new AppError(400, 'SOCIAL_EMAIL_PERMISSION_REQUIRED')
@@ -129,25 +134,23 @@ export async function socialLogin(
 
   const linkable = await findUserByEmail(profile.email)
   if (linkable) {
-    // Auto-link só pra Google: o ID token assina explicitamente email_verified,
-    // dando garantia criptográfica de propriedade do email. O Facebook só
-    // sinaliza isso indiretamente (Graph API omite email não-confirmado),
-    // o que é heurística, não asserção auditada — fraco demais pra ganchar
-    // numa conta tradicional existente. Pra Facebook + email já cadastrado,
-    // exigimos login tradicional primeiro (linkagem manual via perfil — TODO).
-    if (profile.provider !== 'GOOGLE') {
-      throw new AppError(409, 'EMAIL_TAKEN', 'email')
-    }
+    // Auto-link permitido porque Google e Apple assinam email_verified no
+    // próprio ID token — garantia criptográfica de propriedade do email. Um
+    // futuro provider que só sinalize verificação por heurística (como o
+    // Facebook fazia via Graph API) deve voltar a bloquear aqui com 409.
     await createSocialAccount({
       userId: linkable.id,
       provider: profile.provider,
       providerUserId: profile.providerUserId,
       email: profile.email,
     })
-    // Auto-link via Google em conta na janela de carência também reativa.
+    // Auto-link em conta na janela de carência também reativa.
     await reactivateOnLogin(linkable.id)
     return loadUserAndDecorate(linkable.id)
   }
+
+  // Email de private relay da Apple é único por app: nunca colide com conta
+  // existente e cai naturalmente na criação abaixo.
 
   const userBase = {
     name: profile.firstName?.trim() || 'Usuário',
