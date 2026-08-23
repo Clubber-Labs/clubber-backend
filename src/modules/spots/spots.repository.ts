@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client'
+import { AppError } from '../../lib/errors/app-error'
 import { type EventStatus, SOON_THRESHOLD_MS } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import type { CreateSpotBody } from './spots.schema'
@@ -54,10 +55,9 @@ export async function createSpotWithConversation(
       where: { creatorId, canceledAt: null, endsAt: { gt: new Date() } },
     })
     if (active >= maxActive) {
-      throw {
-        statusCode: 409,
-        message: `Limite de ${maxActive} spots ativos atingido`,
-      }
+      throw new AppError(409, 'ACTIVE_SPOT_LIMIT', undefined, {
+        max: maxActive,
+      })
     }
     const conversation = await tx.conversation.create({
       data: {

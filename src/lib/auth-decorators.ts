@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import { AppError } from './errors/app-error'
 import { isBlocked } from './moderation-denylist'
 
 /**
@@ -15,10 +16,7 @@ type JwtPayload = { sub: string; mfaEnrollment?: boolean }
 // não virar um token de acesso amplo de curta duração.
 function rejectEnrollmentToken(payload: JwtPayload) {
   if (payload.mfaEnrollment) {
-    throw {
-      statusCode: 401,
-      message: 'Token de matrícula de MFA não autoriza esta rota',
-    }
+    throw new AppError(401, 'MFA_ENROLLMENT_SCOPE')
   }
 }
 
@@ -32,7 +30,7 @@ export function registerAuthDecorators(app: FastifyInstance) {
       // verifica — a denylist barra a sessão existente na hora (401 → o mobile
       // desloga via interceptor).
       if (await isBlocked(payload.sub)) {
-        throw { statusCode: 401, message: 'Sessão inválida' }
+        throw new AppError(401, 'SESSION_INVALID')
       }
       request.user = payload
     },
@@ -46,7 +44,7 @@ export function registerAuthDecorators(app: FastifyInstance) {
         // Token de matrícula não confere identidade aqui: trata como anônimo.
         if (!payload.mfaEnrollment) {
           if (await isBlocked(payload.sub)) {
-            throw { statusCode: 401, message: 'Sessão inválida' }
+            throw new AppError(401, 'SESSION_INVALID')
           }
           request.user = payload
         }

@@ -1,4 +1,6 @@
 import { cache } from '../../lib/cache'
+import { AppError } from '../../lib/errors/app-error'
+import { timezoneForLocation } from '../../lib/i18n/timezone'
 import type { CreateEventBody } from '../events/events.schema'
 import { enqueueEventCreated } from '../notifications/notification-queue'
 import { buildOccurrenceDates } from './recurrence'
@@ -25,13 +27,13 @@ export async function createRecurringEvent(
 ) {
   const author = await findAuthorPremium(authorId)
   if (!author?.isPremium) {
-    throw {
-      statusCode: 403,
-      message: 'Eventos recorrentes são exclusivos para usuários Premium',
-    }
+    throw new AppError(403, 'PREMIUM_REQUIRED')
   }
 
   const now = new Date()
+  // As ocorrências avançam no fuso do LOCAL: uma série "toda sexta às 22h"
+  // continua às 22h depois da virada do horário de verão.
+  const timezone = timezoneForLocation(data.latitude, data.longitude)
   const dates = buildOccurrenceDates({
     start: data.date,
     frequency: recurrence.frequency,
@@ -39,6 +41,7 @@ export async function createRecurringEvent(
     now,
     until: recurrence.until ?? null,
     count: recurrence.count ?? null,
+    timeZone: timezone,
   })
 
   // Preserva a duração (endDate - date) em cada ocorrência; sem endDate, fica
@@ -54,6 +57,7 @@ export async function createRecurringEvent(
   const content: OccurrenceContent = {
     title: data.title,
     description: data.description ?? null,
+    timezone,
     latitude: data.latitude,
     longitude: data.longitude,
     address: data.address ?? null,
@@ -73,6 +77,7 @@ export async function createRecurringEvent(
       until: recurrence.until ?? null,
       count: recurrence.count ?? null,
       authorId,
+      timezone,
     },
     content,
     durationMs,
@@ -91,17 +96,14 @@ export async function createRecurringEvent(
 
 export async function cancelSeries(seriesId: string, requesterId: string) {
   const series = await findSeriesById(seriesId)
-  if (!series) throw { statusCode: 404, message: 'Série não encontrada' }
+  if (!series) throw new AppError(404, 'SERIES_NOT_FOUND')
 
   if (series.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas o autor da série pode cancelá-la',
-    }
+    throw new AppError(403, 'NOT_SERIES_AUTHOR')
   }
 
   if (series.canceledAt !== null) {
-    throw { statusCode: 409, message: 'Série já cancelada' }
+    throw new AppError(409, 'SERIES_ALREADY_CANCELED')
   }
 
   await cancelSeriesRepo(seriesId)

@@ -14,6 +14,7 @@ import { buildApp } from '../../test/app'
 import { makeBlock, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { anonymizeUserTx } from '../users/users.repository'
+import { createNotificationIfNew } from './notification.repository'
 import { reconcileNotificationRetention } from './notification-retention.reconciler'
 import { buildPushData } from './notification-shape'
 import { dispatchSocial } from './notifications.service'
@@ -31,8 +32,7 @@ async function makeNotification(
   userId: string,
   overrides: {
     type?: 'EVENT_NEARBY' | 'EVENT_COMMENT' | 'FOLLOW_ACCEPTED' | 'NEW_FOLLOWER'
-    title?: string
-    body?: string
+    params?: { eventTitle?: string }
     dedupeKey?: string
     createdAt?: Date
     readAt?: Date | null
@@ -43,8 +43,7 @@ async function makeNotification(
     data: {
       userId,
       type: overrides.type ?? 'EVENT_COMMENT',
-      title: overrides.title ?? 'Título',
-      body: overrides.body ?? 'Corpo',
+      ...(overrides.params !== undefined && { params: overrides.params }),
       dedupeKey: overrides.dedupeKey ?? `key-${++dedupeCounter}`,
       actorId: overrides.actorId,
       ...(overrides.createdAt && { createdAt: overrides.createdAt }),
@@ -82,8 +81,7 @@ describe('dispatchSocial', () => {
       recipientId: recipient.id,
       actorId: actor.id,
       type: 'EVENT_COMMENT',
-      title: 'Novo comentário',
-      body: 'Fulano comentou no seu evento',
+      params: undefined,
       eventId: 'evt-1',
       commentId: 'cmt-1',
     })
@@ -111,8 +109,7 @@ describe('dispatchSocial', () => {
       recipientId: user.id,
       actorId: user.id,
       type: 'EVENT_REACTION',
-      title: 'x',
-      body: 'y',
+      params: undefined,
     })
 
     const count = await testPrisma.notification.count({
@@ -130,8 +127,7 @@ describe('dispatchSocial', () => {
       recipientId: recipient.id,
       actorId: actor.id,
       type: 'EVENT_COMMENT',
-      title: 'x',
-      body: 'y',
+      params: undefined,
     })
 
     const count = await testPrisma.notification.count({
@@ -147,8 +143,7 @@ describe('dispatchSocial', () => {
       recipientId: recipient.id,
       actorId: actor.id,
       type: 'EVENT_COMMENT' as const,
-      title: 'Novo comentário',
-      body: 'corpo',
+      params: undefined,
       eventId: 'evt-1',
       commentId: 'cmt-1',
     }
@@ -175,8 +170,6 @@ describe('buildPushData', () => {
         eventId: 'evt-1',
         postId: 'post-1',
         commentId: 'cmt-1',
-        title: 't',
-        body: 'b',
         data: { actor: { id: 'actor-1', name: 'Fulano' } },
         dedupeKey: `key-push-${Date.now()}`,
       },
@@ -203,8 +196,7 @@ describe('buildPushData', () => {
         userId: user.id,
         type: 'EVENT_NEARBY',
         eventId: 'evt-2',
-        title: 't',
-        body: 'b',
+        params: { eventTitle: 'Evento' },
         dedupeKey: `key-push2-${Date.now()}`,
       },
     })
@@ -230,14 +222,22 @@ describe('GET /notifications', () => {
 
   it('lista as notificações do usuário, mais recentes primeiro', async () => {
     const user = await makeUser()
+    // O texto vem do params (título do evento) — título/corpo não são coluna.
     await makeNotification(user.id, {
-      title: 'antiga',
+      type: 'EVENT_NEARBY',
+      params: { eventTitle: 'antiga' },
       createdAt: new Date(Date.now() - 10_000),
     })
-    await makeNotification(user.id, { title: 'nova' })
+    await makeNotification(user.id, {
+      type: 'EVENT_NEARBY',
+      params: { eventTitle: 'nova' },
+    })
     // Notificação de outro usuário não deve aparecer.
     const other = await makeUser()
-    await makeNotification(other.id, { title: 'alheia' })
+    await makeNotification(other.id, {
+      type: 'EVENT_NEARBY',
+      params: { eventTitle: 'alheia' },
+    })
 
     const res = await app.inject({
       method: 'GET',
@@ -248,15 +248,14 @@ describe('GET /notifications', () => {
     expect(res.statusCode).toBe(200)
     const body = res.json()
     expect(body.data).toHaveLength(2)
-    expect(body.data[0].title).toBe('nova')
-    expect(body.data[1].title).toBe('antiga')
+    expect(body.data[0].body).toBe('nova')
+    expect(body.data[1].body).toBe('antiga')
   })
 
   it('pagina por cursor estável', async () => {
     const user = await makeUser()
     for (let i = 0; i < 3; i++) {
       await makeNotification(user.id, {
-        title: `n${i}`,
         createdAt: new Date(Date.now() - i * 1000),
       })
     }
@@ -392,6 +391,42 @@ describe('device tokens', () => {
     expect(res.statusCode).toBe(400)
   })
 
+  it('registro captura idioma e fuso do aparelho', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/devices',
+      headers: {
+        authorization: `Bearer ${token(user.id)}`,
+        'accept-language': 'es-AR,es;q=0.9',
+      },
+      body: {
+        token: VALID_EXPO_TOKEN,
+        platform: 'ios',
+        timezone: 'America/Argentina/Buenos_Aires',
+      },
+    })
+    expect(res.statusCode).toBe(201)
+
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { deviceLocale: true, timezone: true },
+    })
+    expect(stored?.deviceLocale).toBe('es-AR')
+    expect(stored?.timezone).toBe('America/Argentina/Buenos_Aires')
+  })
+
+  it('rejeita timezone inválido no registro (400)', async () => {
+    const user = await makeUser()
+    const res = await app.inject({
+      method: 'POST',
+      url: '/devices',
+      headers: { authorization: `Bearer ${token(user.id)}` },
+      body: { token: VALID_EXPO_TOKEN, timezone: 'Lua/Tranquilidade' },
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
   it('re-registro do mesmo token migra o dono e reativa', async () => {
     const [first, second] = await Promise.all([makeUser(), makeUser()])
     await app.inject({
@@ -456,14 +491,87 @@ describe('LGPD — anonimização', () => {
   })
 })
 
+describe('conteúdo por chave (independente de idioma)', () => {
+  it('renderiza a lista no idioma do Accept-Language', async () => {
+    const user = await makeUser()
+    await makeNotification(user.id, {
+      type: 'EVENT_NEARBY',
+      params: { eventTitle: 'Baile da Vila' },
+    })
+
+    const pt = await app.inject({
+      method: 'GET',
+      url: '/notifications',
+      headers: { authorization: `Bearer ${token(user.id)}` },
+    })
+    expect(pt.json().data[0]).toMatchObject({
+      title: 'Tem evento perto de você',
+      body: 'Baile da Vila',
+    })
+
+    const en = await app.inject({
+      method: 'GET',
+      url: '/notifications',
+      headers: {
+        authorization: `Bearer ${token(user.id)}`,
+        'accept-language': 'en-US,en;q=0.9',
+      },
+    })
+    // Mesma linha do banco, outro idioma: o texto não está materializado.
+    expect(en.json().data[0]).toMatchObject({
+      title: 'Event near you',
+      body: 'Baile da Vila',
+    })
+  })
+
+  it('mostra o nome ATUAL do autor em notificação antiga', async () => {
+    const [user, actor] = await Promise.all([makeUser(), makeUser()])
+    await makeNotification(user.id, {
+      type: 'NEW_FOLLOWER',
+      actorId: actor.id,
+    })
+    await testPrisma.user.update({
+      where: { id: actor.id },
+      data: { name: 'Renomeada', lastname: 'Silva' },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/notifications',
+      headers: { authorization: `Bearer ${token(user.id)}` },
+    })
+    // Derivado da FK, não congelado: quem troca de nome aparece com o de hoje.
+    expect(res.json().data[0].body).toBe('Renomeada Silva começou a te seguir')
+  })
+
+  it('recusa gravar a notificação sem o snapshot que a copy exige', async () => {
+    const user = await makeUser()
+
+    await expect(
+      createNotificationIfNew({
+        userId: user.id,
+        type: 'SPOT_NEARBY',
+        spotId: 'spot-1',
+        // Sem spotTitle o corpo sairia como "{{spotTitle}}" para sempre.
+        params: {} as never,
+        dedupeKey: `sem-params-${user.id}`,
+      }),
+    ).rejects.toThrow()
+
+    const count = await testPrisma.notification.count({
+      where: { userId: user.id },
+    })
+    expect(count).toBe(0)
+  })
+})
+
 describe('retenção', () => {
   it('expurga notificações além do prazo e mantém as recentes', async () => {
     const user = await makeUser()
     const old = await makeNotification(user.id, {
-      title: 'velha',
       createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000),
     })
-    const recent = await makeNotification(user.id, { title: 'recente' })
+    const recent = await makeNotification(user.id)
 
     const { deleted } = await reconcileNotificationRetention(180)
     expect(deleted).toBeGreaterThanOrEqual(1)

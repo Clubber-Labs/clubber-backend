@@ -6,8 +6,9 @@ import { findChatPushRecipientUserIds } from './chat-push.repository'
 import { findUsersToNotifyNearEvent } from './proximity.repository'
 
 /**
- * Regressão da separação consentimento × preferência de produto: os JOINs de
- * push filtram por locationPrecise/pushNotifications em user_consents, e as três
+ * Regressão da separação consentimento × preferência de produto: a query
+ * invertida filtra por locationPrecise/revokedAt em user_consents (push NÃO é
+ * critério — in-app é para todos; o push é filtrado na entrega), e as três
  * preferências que foram para o User não podem influenciar quem é seleção.
  */
 const GEOHASH = '6gkzwg'
@@ -62,8 +63,8 @@ afterAll(async () => {
   await testPrisma.$disconnect()
 })
 
-describe('filtro de push por consentimento', () => {
-  it('seleciona por user_consents e ignora as preferências que foram para o User', async () => {
+describe('elegibilidade de proximidade por consentimento', () => {
+  it('seleciona sem exigir consent de push e ignora as preferências do User', async () => {
     const author = await makeUser()
 
     const consented = await makeNearbyUser()
@@ -80,7 +81,8 @@ describe('filtro de push por consentimento', () => {
 
     expect(ids).toContain(consented.id)
     expect(ids).toContain(optedOutOfPreferences.id)
-    expect(ids).not.toContain(noPush.id)
+    // Sem push ainda recebe o in-app de proximidade; o push é cortado na entrega.
+    expect(ids).toContain(noPush.id)
     expect(ids).not.toContain(noLocation.id)
   })
 

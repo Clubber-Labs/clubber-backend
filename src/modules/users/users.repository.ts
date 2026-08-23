@@ -61,6 +61,11 @@ const userPrivateProfileSelect = {
   socialFeed: true,
   socialVisibility: true,
   analytics: true,
+  // Idioma/fuso do usuário — o app lê o estado atual no /users/me. Select
+  // privado: não vaza em perfis de terceiros.
+  localePreference: true,
+  deviceLocale: true,
+  timezone: true,
 } as const
 
 // Campos do estado de conta usados internamente pelas transições de ciclo de
@@ -170,7 +175,10 @@ export async function findUserByEmail(email: string) {
 }
 
 export async function createUser(
-  data: Omit<CreateUserBody, 'password'> & { password: string | null },
+  data: Omit<CreateUserBody, 'password'> & {
+    password: string | null
+    deviceLocale?: string
+  },
   meta: SignupMeta,
 ) {
   const { preferredCategories, preferredSubcategories, ...userData } = data
@@ -205,6 +213,24 @@ export async function updateUser(id: string, data: Prisma.UserUpdateInput) {
     data,
     select: userPrivateProfileSelect,
   })
+}
+
+/**
+ * Contexto do aparelho (idioma/fuso), capturado em login e registro de device
+ * (no cadastro os valores entram no próprio create). updateMany condicional:
+ * roda em todo login, então só escreve quando algum valor de fato mudou
+ * (poupa write na tabela quente).
+ */
+export async function updateUserDeviceContext(
+  id: string,
+  data: { deviceLocale?: string; timezone?: string },
+) {
+  const changed: Prisma.UserWhereInput[] = []
+  if (data.deviceLocale)
+    changed.push({ deviceLocale: { not: data.deviceLocale } })
+  if (data.timezone) changed.push({ timezone: { not: data.timezone } })
+  if (changed.length === 0) return
+  await prisma.user.updateMany({ where: { id, OR: changed }, data })
 }
 
 /**

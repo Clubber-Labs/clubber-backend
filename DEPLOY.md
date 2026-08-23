@@ -75,7 +75,6 @@ quebra a funcionalidade correspondente na primeira chamada.
 | `GOOGLE_PLACES_API_KEY` | Uso de `POST /spots/suggestions` | Sem ela, o endpoint responde 503 (degradação graciosa documentada no `.env.example`). |
 | `ANTHROPIC_API_KEY` | Copy/ranking de sugestões de spot via IA | Sem ela, cai num template determinístico — degradação graciosa, não é hard-fail. |
 | `GOOGLE_CLIENT_ID` | Login social via Google | Sem ela, login com Google falha nas chamadas que dependem do client id. |
-| `FACEBOOK_APP_ID`, `FACEBOOK_APP_SECRET` | Login social via Facebook | Idem, para o provider Facebook. |
 | `EXPO_ACCESS_TOKEN` | `NOTIFICATIONS_ENABLED=true` **e** "Enhanced Security for Push Notifications" ligado no painel Expo/EAS | Sem "Enhanced Security" ligado, não é necessário. Com ela ligada e sem o token, os envios de push passam a falhar (ver `RELEASE_CHECKLIST.md`). |
 
 ### 1.4. Opcionais com default (comportamento padrão documentado)
@@ -93,6 +92,7 @@ específica de ajuste.
 | `JWT_EXPIRES_IN` | `15m` | Validade do access token. |
 | `REFRESH_TOKEN_EXPIRES_IN` | `90d` | Validade do refresh token. |
 | `REFRESH_TOKEN_REUSE_GRACE_MS` | `30000` | Janela de carência para reuso benigno de refresh token rotacionado. |
+| `APPLE_BUNDLE_ID` | `com.netobonato.clubber` | Audience da verificação do identityToken do "Sign in with Apple" (bundle id do app iOS). O default já é o bundle id real; sem secret — a verificação usa o JWKS público da Apple. Só definir para apontar outro app. |
 | `TRUSTED_PROXIES` | `` (vazio) | CSV de IPs/CIDRs de proxies confiáveis (LB/CDN na frente). Recomendado configurar em produção para o rate-limit enxergar o IP real do cliente via `X-Forwarded-For`. |
 | `RATE_LIMIT_ENABLED` | `true` | Master switch do rate-limit. |
 | `RATE_LIMIT_MAX_FACTOR` | `1` | Multiplicador dos limites de todas as rotas. |

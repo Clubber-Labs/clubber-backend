@@ -1,7 +1,19 @@
 import type { Notification, NotificationType } from '@prisma/client'
+import type { Locale } from '../../lib/i18n/locale'
+import {
+  type NotificationActor,
+  renderNotificationContent,
+} from './notification-content'
 
-/** Formato da notificação entregue ao cliente (sem userId/dedupeKey internos). */
-export function shapeNotification(n: Notification) {
+/**
+ * Formato entregue ao cliente (sem userId/dedupeKey internos), a partir de um
+ * conteúdo já renderizado — o fan-out reaproveita a mesma renderização entre
+ * destinatários do mesmo idioma sem que o id/createdAt de um vaze para o outro.
+ */
+export function shapeNotificationWith(
+  n: Notification,
+  content: { title: string; body: string },
+) {
   return {
     id: n.id,
     type: n.type,
@@ -10,12 +22,25 @@ export function shapeNotification(n: Notification) {
     postId: n.postId,
     commentId: n.commentId,
     spotId: n.spotId,
-    title: n.title,
-    body: n.body,
+    title: content.title,
+    body: content.body,
     data: n.data,
     readAt: n.readAt,
     createdAt: n.createdAt,
   }
+}
+
+/**
+ * Continua saindo com title/body prontos — o que mudou foi a origem:
+ * renderizados agora, no idioma do leitor, em vez de lidos de colunas
+ * materializadas em PT.
+ */
+export function shapeNotification(
+  n: Notification,
+  actor: NotificationActor | null,
+  locale: Locale,
+) {
+  return shapeNotificationWith(n, renderNotificationContent(n, actor, locale))
 }
 
 /**

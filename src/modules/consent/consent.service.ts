@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
 import { clearUserLocation } from '../users/users.repository'
 import {
@@ -64,8 +65,7 @@ async function clearLocationOnRevoke(userId: string) {
 export async function getConsent(userId: string) {
   const record = await findConsentByUserId(userId)
   // #12: delega 404 para o service via throw — controller não usa reply.status()
-  if (!record)
-    throw { statusCode: 404, message: 'Consentimento não encontrado.' }
+  if (!record) throw new AppError(404, 'CONSENT_NOT_FOUND')
   return record
 }
 
@@ -77,7 +77,7 @@ export async function updateConsent(
   const existing = await findConsentByUserId(userId)
   if (!existing) {
     // Todo usuário nasce com registro no cadastro: chegar aqui é bug, não fluxo.
-    throw { statusCode: 404, message: 'Consentimento não encontrado.' }
+    throw new AppError(404, 'CONSENT_NOT_FOUND')
   }
 
   // Revogou localização precisa → limpa a localização (antes do early-return de
@@ -112,7 +112,7 @@ export async function updateConsent(
 export async function revokeAllConsents(userId: string, meta: RequestMeta) {
   const existing = await findConsentByUserId(userId)
   if (!existing) {
-    throw { statusCode: 404, message: 'Consentimento não encontrado.' }
+    throw new AppError(404, 'CONSENT_NOT_FOUND')
   }
 
   // As preferências moram no User, mas a revogação do Art. 18 é uma só: desligar
@@ -154,10 +154,7 @@ export async function exportConsentData(userId: string, meta: RequestMeta) {
 
   // #1: retorna 404 se o usuário nunca deu consentimento; não cria log EXPORTED fantasma
   if (!consent) {
-    throw {
-      statusCode: 404,
-      message: 'Nenhum dado de consentimento encontrado para exportação.',
-    }
+    throw new AppError(404, 'CONSENT_EXPORT_EMPTY')
   }
 
   await createExportAuditLog({

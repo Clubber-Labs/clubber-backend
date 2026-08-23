@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { deleteUploaded, uploadPostImage } from '../../lib/uploads'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
@@ -38,21 +39,17 @@ export async function addPostImage(
 ) {
   const post = await findPostById(postId)
   if (!post || post.eventId !== eventId) {
-    throw { statusCode: 404, message: 'Post não encontrado' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
   if (post.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Sem permissão para editar este post',
-    }
+    throw new AppError(403, 'NOT_POST_AUTHOR')
   }
 
   const current = await countPostImages(postId)
   if (current >= MAX_POST_IMAGES) {
-    throw {
-      statusCode: 409,
-      message: `Limite de ${MAX_POST_IMAGES} imagens por publicação atingido`,
-    }
+    throw new AppError(409, 'POST_IMAGE_LIMIT', undefined, {
+      max: MAX_POST_IMAGES,
+    })
   }
 
   const uploaded = await uploadPostImage(buffer, postId)
@@ -91,13 +88,13 @@ export async function removePost(
 ) {
   const post = await findPostById(postId)
   if (!post) {
-    throw { statusCode: 404, message: 'Post não encontrado' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
   if (post.eventId !== eventId) {
-    throw { statusCode: 404, message: 'Post não encontrado neste evento' }
+    throw new AppError(404, 'POST_NOT_FOUND')
   }
   if (post.authorId !== requesterId) {
-    throw { statusCode: 403, message: 'Sem permissão para deletar este post' }
+    throw new AppError(403, 'NOT_POST_AUTHOR')
   }
   // Limpa os blobs antes de apagar a linha (o cascade remove só as linhas
   // PostImage, não os assets no provider).

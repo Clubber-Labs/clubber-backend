@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { AppError } from '../../lib/errors/app-error'
 import { assertImageMimetype } from '../../lib/uploads'
 import type {
   CreatePostBody,
@@ -60,7 +61,7 @@ export async function uploadPostImageHandler(
   const { eventId, postId } = request.params as PostParam
   const data = await request.file()
   if (!data) {
-    throw { statusCode: 400, message: 'Nenhuma imagem foi enviada' }
+    throw new AppError(400, 'IMAGE_REQUIRED')
   }
   assertImageMimetype(data.mimetype)
 

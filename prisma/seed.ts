@@ -11,6 +11,7 @@ import {
   UserRole,
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import { timezoneForLocation } from '../src/lib/i18n/timezone'
 
 const prisma = new PrismaClient()
 
@@ -30,9 +31,9 @@ const CATEGORIES = [
   'SPORTS',
   'ART',
   'GASTRONOMY',
-  'TECH',
+  'CAFE',
   'NIGHTLIFE',
-  'EDUCATION',
+  'OUTDOORS',
 ] as const
 
 const ATTENDANCE_TYPES = [AttendanceType.CONFIRMED, AttendanceType.INTERESTED]
@@ -46,8 +47,8 @@ const CATEGORY_WEIGHTS: Record<(typeof CATEGORIES)[number], number> = {
   GASTRONOMY: 1,
   SPORTS: 1,
   ART: 1,
-  TECH: 1,
-  EDUCATION: 1,
+  CAFE: 1,
+  OUTDOORS: 1,
 }
 const WEIGHTED_CATEGORIES = CATEGORIES.flatMap((c) =>
   Array.from({ length: CATEGORY_WEIGHTS[c] }, () => c),
@@ -94,12 +95,12 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
     'Festival de Inverno — Fondue & Vinho',
     'Rota da Cerveja Artesanal',
   ],
-  TECH: [
-    'Meetup de Devs Curitiba',
-    'Hackathon de IA',
-    'Talk: Carreira em Tecnologia',
-    'Workshop de React Native',
-    'Café com Código',
+  CAFE: [
+    'Café da Tarde no Centro Histórico',
+    'Tour de Cafeterias da Vila',
+    'Tarde de Doceria e Prosa',
+    'Rolê do Sorvete Artesanal',
+    'Brunch de Domingo',
   ],
   NIGHTLIFE: [
     'Show de DJ no Rooftop',
@@ -108,12 +109,12 @@ const EVENT_TITLES: Record<(typeof CATEGORIES)[number], string[]> = {
     'Pagode da Vila',
     'Festa Open Bar com Banda ao Vivo',
   ],
-  EDUCATION: [
-    'Palestra sobre Finanças Pessoais',
-    'Roda de Conversa sobre Carreira',
-    'Workshop de Oratória',
-    'Clube do Livro',
-    'Talk Show com Convidado Especial',
+  OUTDOORS: [
+    'Piquenique no Parque Barigui',
+    'Pôr do Sol no Mirante',
+    'Trilha Leve de Sábado',
+    'Rolê de Bike pela Ciclovia',
+    'Acampamento de Fim de Semana',
   ],
 }
 
@@ -201,7 +202,7 @@ const SPOTS = [
     categories: ['NIGHTLIFE', 'GASTRONOMY'],
   },
   { title: 'Pelada no Parque Barigui', categories: ['SPORTS', 'OUTDOORS'] },
-  { title: 'Café & code na Vila', categories: ['TECH', 'GASTRONOMY'] },
+  { title: 'Café da tarde na Vila', categories: ['CAFE', 'GASTRONOMY'] },
   {
     title: 'Som ao vivo no bar da esquina',
     categories: ['MUSIC', 'NIGHTLIFE'],
@@ -332,44 +333,6 @@ const CONSENT_FIELDS = [
   'marketing',
   'surveys',
 ] as const
-
-// Copy das notificações sociais — espelha notification-content.ts (mantido inline
-// pra o seed seguir autossuficiente, como os demais textos acima).
-function notificationCopy(
-  type: string,
-  who: string,
-): { title: string; body: string } {
-  switch (type) {
-    case 'FOLLOW_REQUEST':
-      return { title: 'Nova solicitação', body: `${who} quer te seguir` }
-    case 'NEW_FOLLOWER':
-      return { title: 'Novo seguidor', body: `${who} começou a te seguir` }
-    case 'FOLLOW_ACCEPTED':
-      return {
-        title: 'Solicitação aceita',
-        body: `${who} aceitou seu pedido para seguir`,
-      }
-    case 'EVENT_INVITE':
-      return {
-        title: 'Convite para evento',
-        body: `${who} te convidou para um evento`,
-      }
-    case 'EVENT_COMMENT':
-      return { title: 'Novo comentário', body: `${who} comentou no seu evento` }
-    case 'POST_COMMENT':
-      return { title: 'Novo comentário', body: `${who} comentou no seu post` }
-    case 'EVENT_REACTION':
-      return { title: 'Nova curtida', body: `${who} curtiu seu evento` }
-    case 'POST_REACTION':
-      return { title: 'Nova curtida', body: `${who} curtiu seu post` }
-    case 'COMMENT_REACTION':
-      return { title: 'Nova curtida', body: `${who} curtiu seu comentário` }
-    case 'EVENT_ATTENDANCE':
-      return { title: 'Nova presença', body: `${who} vai ao seu evento` }
-    default:
-      return { title: 'Novidade', body: `${who} interagiu com você` }
-  }
-}
 
 async function main() {
   console.log('🌱 Limpando banco...')
@@ -580,11 +543,13 @@ async function main() {
         CATEGORIES.filter((c) => c !== primary),
         faker.number.int({ min: 0, max: 2 }),
       )
+      const coords = curitibaCoords()
       return {
         title: pick(EVENT_TITLES[primary]),
         description: pick(EVENT_DESCRIPTIONS),
         date: faker.date.soon({ days: 30 }),
-        ...curitibaCoords(),
+        ...coords,
+        timezone: timezoneForLocation(coords.latitude, coords.longitude),
         categories: [primary, ...extras],
         isPublic: !(i % 5 === 0 && j === 0), // ~20% privados
         authorId: author.id,
@@ -613,6 +578,7 @@ async function main() {
     description: 'Pelada semanal da galera',
     latitude: -25.43,
     longitude: -49.27,
+    timezone: timezoneForLocation(-25.43, -49.27),
     address: 'Quadra do bairro',
     categories: ['SPORTS'] as EventCategory[],
     isPublic: true,
@@ -639,6 +605,7 @@ async function main() {
         endDate: new Date(date.getTime() + futebaTemplate.durationMs),
         latitude: futebaTemplate.latitude,
         longitude: futebaTemplate.longitude,
+        timezone: futebaTemplate.timezone,
         address: futebaTemplate.address,
         categories: futebaTemplate.categories,
         isPublic: futebaTemplate.isPublic,
@@ -1404,7 +1371,6 @@ async function main() {
     for (const type of NOTIF_TYPES) {
       // Ator: qualquer outro usuário. Proximidade/renovação não têm ator.
       const actor = pick(randomUsers.filter((u) => u.id !== recipient.id))
-      const who = [actor.name, actor.lastname].filter(Boolean).join(' ')
       const actorData = {
         id: actor.id,
         name: actor.name,
@@ -1418,8 +1384,8 @@ async function main() {
       let postId: string | null = null
       let commentId: string | null = null
       let spotId: string | null = null
-      let title: string
-      let body: string
+      // Texto não é gravado: sai de (tipo + params) no idioma de quem lê.
+      let params: Prisma.InputJsonValue | undefined
       // Sociais carregam data.actor (avatar + nome); proximidade/spot espelham
       // o payload de produção (só ids do alvo).
       let data: Prisma.InputJsonValue = { actor: actorData }
@@ -1428,7 +1394,6 @@ async function main() {
         case 'EVENT_INVITE': {
           // Convite pra evento de outra pessoa — qualquer evento do pool.
           eventId = pick(events).id
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'EVENT_COMMENT':
@@ -1436,29 +1401,25 @@ async function main() {
         case 'EVENT_ATTENDANCE': {
           eventId =
             ownOrAny(events, (e) => e.authorId === recipient.id)?.id ?? null
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'POST_COMMENT':
         case 'POST_REACTION': {
           postId =
             ownOrAny(posts, (p) => p.authorId === recipient.id)?.id ?? null
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'COMMENT_REACTION': {
           commentId =
             ownOrAny(allComments, (c) => c.authorId === recipient.id)?.id ??
             null
-          ;({ title, body } = notificationCopy(type, who))
           break
         }
         case 'EVENT_NEARBY': {
           const ev = pick(events)
           eventId = ev.id
           actorId = null
-          title = 'Tem evento perto de você'
-          body = ev.title
+          params = { eventTitle: ev.title }
           data = { eventId: ev.id }
           break
         }
@@ -1466,8 +1427,7 @@ async function main() {
           const sp = pick(allSpots)
           spotId = sp.id
           actorId = null
-          title = 'Tem rolê perto de você'
-          body = sp.title
+          params = { spotTitle: sp.title }
           data = { spotId: sp.id }
           break
         }
@@ -1476,8 +1436,7 @@ async function main() {
             ownOrAny(allSpots, (s) => s.creatorId === recipient.id) ??
             pick(allSpots)
           spotId = sp.id
-          title = 'Novo membro no rolê'
-          body = `${who} entrou em "${sp.title}"`
+          params = { spotTitle: sp.title }
           data = { spotId: sp.id, actorId: actor.id }
           break
         }
@@ -1487,15 +1446,13 @@ async function main() {
             pick(allSpots)
           spotId = sp.id
           actorId = null
-          title = 'Seu rolê está acabando'
-          body = `"${sp.title}" expira em breve — renove por mais 24h`
+          params = { spotTitle: sp.title }
           data = { spotId: sp.id }
           break
         }
-        default: {
+        default:
           // Sociais sem alvo: NEW_FOLLOWER, FOLLOW_REQUEST, FOLLOW_ACCEPTED.
-          ;({ title, body } = notificationCopy(type, who))
-        }
+          break
       }
 
       // Escalona nas últimas ~72h; lidas têm readAt DEPOIS do createdAt (e nunca
@@ -1522,8 +1479,7 @@ async function main() {
         postId,
         commentId,
         spotId,
-        title,
-        body,
+        params,
         data,
         // notifSeq garante unicidade global do (userId, dedupeKey).
         dedupeKey: `${type}:${actorId ?? 'sys'}:${target}:${notifSeq++}`,

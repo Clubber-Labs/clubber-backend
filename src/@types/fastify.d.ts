@@ -1,5 +1,6 @@
 import '@fastify/jwt'
-import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { FastifyReply } from 'fastify'
+import type { Locale } from '../lib/i18n/locale'
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
@@ -11,6 +12,11 @@ declare module '@fastify/jwt' {
 }
 
 declare module 'fastify' {
+  interface FastifyRequest {
+    /** Locale negociado pelo plugin de locale (Accept-Language → DEFAULT_LOCALE). */
+    locale: Locale
+  }
+
   interface FastifyInstance {
     authenticate(request: FastifyRequest, reply: FastifyReply): Promise<void>
     authenticateOptional(

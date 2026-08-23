@@ -34,9 +34,20 @@ import {
   likeEvent,
   likePost,
 } from '../reactions/reactions.service'
+import { renderNotificationContent } from './notification-content'
 
 function notifFor(userId: string, type: NotificationType) {
   return testPrisma.notification.findFirst({ where: { userId, type } })
+}
+
+type StoredNotification = Awaited<ReturnType<typeof notifFor>>
+
+function rendered(
+  n: StoredNotification,
+  actor: { name: string; lastname: string },
+) {
+  if (!n) throw new Error('notificação não encontrada')
+  return renderNotificationContent(n, actor, 'pt-BR')
 }
 
 beforeEach(() => {
@@ -61,7 +72,8 @@ describe('gatilhos de follow', () => {
     const n = await notifFor(target.id, 'NEW_FOLLOWER')
     expect(n).not.toBeNull()
     expect(n?.actorId).toBe(follower.id)
-    expect(n?.body).toContain(follower.name)
+    // O corpo não é mais coluna: nasce na leitura, com o nome ATUAL do autor.
+    expect(rendered(n, follower).body).toContain(follower.name)
   })
 
   it('seguir perfil privado notifica FOLLOW_REQUEST', async () => {
@@ -126,7 +138,7 @@ describe('gatilhos de comentário', () => {
     const n = await notifFor(author.id, 'EVENT_COMMENT')
     expect(n).not.toBeNull()
     expect(n?.eventId).toBe(event.id)
-    expect(n?.body).toContain(commenter.name)
+    expect(rendered(n, commenter).body).toContain(commenter.name)
   })
 
   it('comentar no próprio evento NÃO notifica (self-guard)', async () => {

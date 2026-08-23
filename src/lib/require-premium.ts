@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { AppError } from './errors/app-error'
 import { prisma } from './prisma'
 
 /**
@@ -17,7 +18,7 @@ export async function requirePremium(
 ) {
   const userId = request.user?.sub
   if (!userId) {
-    throw { statusCode: 401, message: 'Autenticação necessária' }
+    throw new AppError(401, 'AUTH_REQUIRED')
   }
 
   const user = await prisma.user.findUnique({
@@ -26,9 +27,6 @@ export async function requirePremium(
   })
 
   if (!user?.isPremium) {
-    throw {
-      statusCode: 403,
-      message: 'Funcionalidade exclusiva para usuários Premium',
-    }
+    throw new AppError(403, 'PREMIUM_REQUIRED')
   }
 }

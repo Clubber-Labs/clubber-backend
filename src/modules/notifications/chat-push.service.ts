@@ -1,9 +1,12 @@
 import { hydrateMessage } from '../chat/chat.crypto'
+import type { Locale } from '../../lib/i18n/locale'
+import { t } from '../../lib/i18n/translate'
 import {
   findChatPushRecipientUserIds,
   findMessageForPush,
 } from './chat-push.repository'
 import { displayName } from './notification-content'
+import { groupRecipientsByLocale } from './notification-delivery'
 import { type PushContent, sendPushToUsers } from './notification-push.service'
 
 /**
@@ -15,12 +18,6 @@ export const CHAT_MESSAGE_PUSH_DELAY_MS = 5_000
 
 const MAX_BODY_LENGTH = 120
 
-const ATTACHMENT_PLACEHOLDER: Record<string, string> = {
-  IMAGE: '📷 Foto',
-  AUDIO: '🎤 Mensagem de voz',
-  VIDEO: '🎬 Vídeo',
-}
-
 function truncate(text: string) {
   if (text.length <= MAX_BODY_LENGTH) return text
   return `${text.slice(0, MAX_BODY_LENGTH)}…`
@@ -30,19 +27,28 @@ type PushableMessage = NonNullable<
   Awaited<ReturnType<typeof findMessageForPush>>
 >
 
-function preview(message: PushableMessage) {
+function preview(message: PushableMessage, locale: Locale) {
   const text = message.content?.trim()
   if (text) return truncate(text)
   const kind = message.attachments[0]?.kind
-  return (kind && ATTACHMENT_PLACEHOLDER[kind]) ?? 'Nova mensagem'
+  return kind
+    ? t(`chatPush.attachment.${kind}`, locale)
+    : t('chatPush.emptyPreview', locale)
 }
 
-function buildContent(message: PushableMessage): PushContent {
+function buildContent(message: PushableMessage, locale: Locale): PushContent {
   const sender = displayName(message.sender)
   const isGroup = message.conversation.type === 'GROUP'
   return {
-    title: isGroup ? (message.conversation.title ?? 'Grupo') : sender,
-    body: isGroup ? `${sender}: ${preview(message)}` : preview(message),
+    title: isGroup
+      ? (message.conversation.title ?? t('chatPush.groupFallbackTitle', locale))
+      : sender,
+    body: isGroup
+      ? t('chatPush.groupBody', locale, {
+          sender,
+          preview: preview(message, locale),
+        })
+      : preview(message, locale),
     // Contrato de deep-link do app: abrir a conversa no tap.
     data: {
       type: 'chat.message',
@@ -73,5 +79,14 @@ export async function runChatMessagePush(
     message.createdAt,
   )
   if (recipients.length === 0) return { sent: 0 }
-  return sendPushToUsers(recipients, buildContent(message))
+
+  // Uma copy por idioma presente na conversa: sem linha de Notification para
+  // renderizar depois, o texto do push é montado aqui, para cada grupo.
+  const byLocale = await groupRecipientsByLocale(recipients)
+  let sent = 0
+  for (const [locale, userIds] of byLocale) {
+    const result = await sendPushToUsers(userIds, buildContent(message, locale))
+    sent += result.sent
+  }
+  return { sent }
 }
