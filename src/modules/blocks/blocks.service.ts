@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import {
   createBlock,
   deleteBlock,
@@ -8,14 +9,14 @@ import {
 
 export async function blockUser(blockerId: string, targetId: string) {
   if (blockerId === targetId) {
-    throw { statusCode: 400, message: 'Você não pode bloquear a si mesmo' }
+    throw new AppError(400, 'SELF_BLOCK')
   }
   if (!(await userExists(targetId))) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+    throw new AppError(404, 'USER_NOT_FOUND')
   }
   const existing = await findBlock(blockerId, targetId)
   if (existing) {
-    throw { statusCode: 409, message: 'Usuário já está bloqueado' }
+    throw new AppError(409, 'ALREADY_BLOCKED')
   }
   return createBlock(blockerId, targetId)
 }
@@ -23,7 +24,7 @@ export async function blockUser(blockerId: string, targetId: string) {
 export async function unblockUser(blockerId: string, targetId: string) {
   const removed = await deleteBlock(blockerId, targetId)
   if (removed === 0) {
-    throw { statusCode: 404, message: 'Bloqueio não encontrado' }
+    throw new AppError(404, 'BLOCK_NOT_FOUND')
   }
 }
 

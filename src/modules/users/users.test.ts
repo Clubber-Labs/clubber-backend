@@ -410,7 +410,7 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este telefone já está cadastrado em outra conta.',
+      code: 'PHONE_TAKEN',
       field: 'phone',
     })
     // Garante que NÃO vaza path/SQL/stack
@@ -431,7 +431,7 @@ describe('PUT /users/:id — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este nome de usuário já está em uso.',
+      code: 'USERNAME_TAKEN',
       field: 'username',
     })
   })
@@ -479,7 +479,7 @@ describe('GET /users/username-available', () => {
     })
 
     expect(res.statusCode).toBe(400)
-    expect(res.json().message).toBe('Dados inválidos.')
+    expect(res.json().code).toBe('VALIDATION_ERROR')
   })
 
   it('retorna 400 quando o username não é informado', async () => {
@@ -543,7 +543,7 @@ describe('POST /users — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este e-mail já está cadastrado em outra conta.',
+      code: 'EMAIL_TAKEN',
       field: 'email',
     })
   })
@@ -615,7 +615,7 @@ describe('POST /users — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este telefone já está cadastrado em outra conta.',
+      code: 'PHONE_TAKEN',
       field: 'phone',
     })
   })
@@ -662,7 +662,7 @@ describe('POST /users — conflitos de unique constraint', () => {
 
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({
-      message: 'Este nome de usuário já está em uso.',
+      code: 'USERNAME_TAKEN',
       field: 'username',
     })
   })
@@ -772,20 +772,20 @@ describe('preferredCategories no perfil', () => {
         email: 'maria@exemplo.com',
         password: 'senha12345',
         birthdate: '2000-01-01T00:00:00.000Z',
-        preferredCategories: ['MUSIC', 'TECH'],
+        preferredCategories: ['MUSIC', 'GASTRONOMY'],
       },
     })
 
     expect(res.statusCode).toBe(201)
     const { user, token: jwt } = res.json()
     expect(user.preferredCategories).toEqual(
-      expect.arrayContaining(['MUSIC', 'TECH']),
+      expect.arrayContaining(['MUSIC', 'GASTRONOMY']),
     )
 
     const rows = await testPrisma.userCategoryPreference.findMany({
       where: { userId: user.id },
     })
-    expect(rows.map((r) => r.category).sort()).toEqual(['MUSIC', 'TECH'])
+    expect(rows.map((r) => r.category).sort()).toEqual(['GASTRONOMY', 'MUSIC'])
 
     const me = await app.inject({
       method: 'GET',
@@ -793,7 +793,7 @@ describe('preferredCategories no perfil', () => {
       headers: { authorization: `Bearer ${jwt}` },
     })
     expect(me.json().preferredCategories).toEqual(
-      expect.arrayContaining(['MUSIC', 'TECH']),
+      expect.arrayContaining(['MUSIC', 'GASTRONOMY']),
     )
   })
 
@@ -868,18 +868,18 @@ describe('preferredCategories no perfil', () => {
       method: 'PUT',
       url: `/users/${user.id}`,
       headers: { authorization: `Bearer ${token(app, user.id)}` },
-      payload: { preferredCategories: ['ART', 'TECH'] },
+      payload: { preferredCategories: ['ART', 'GASTRONOMY'] },
     })
 
     expect(res.statusCode).toBe(200)
     expect(res.json().preferredCategories).toEqual(
-      expect.arrayContaining(['ART', 'TECH']),
+      expect.arrayContaining(['ART', 'GASTRONOMY']),
     )
 
     const rows = await testPrisma.userCategoryPreference.findMany({
       where: { userId: user.id },
     })
-    expect(rows.map((r) => r.category).sort()).toEqual(['ART', 'TECH'])
+    expect(rows.map((r) => r.category).sort()).toEqual(['ART', 'GASTRONOMY'])
   })
 
   it('PUT /users/:id rejeita menos de 2 categorias (perfil nunca vazio)', async () => {
@@ -1029,6 +1029,102 @@ describe('preferredSubcategories no perfil', () => {
       where: { userId: user.id },
     })
     expect(count).toBe(0)
+  })
+})
+
+describe('localePreference e fuso no perfil', () => {
+  it('POST /users captura idioma do aparelho e persiste o timezone do body', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      headers: { 'accept-language': 'en-US,en;q=0.9' },
+      payload: {
+        name: 'Joana',
+        lastname: 'Almeida',
+        username: 'joanaalmeida',
+        phone: '11988887777',
+        email: 'joana@exemplo.com',
+        password: 'senha12345',
+        birthdate: '2001-05-05T00:00:00.000Z',
+        preferredCategories: ['MUSIC', 'NIGHTLIFE'],
+        timezone: 'Europe/Lisbon',
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    // Cadastro é o PRIMEIRO ponto onde o app conhece o device: sem essa captura,
+    // quem nunca refaz login ficaria nos defaults até o próximo /auth/login.
+    // A resposta também precisa refletir o valor capturado (não o default),
+    // por isso ambos entram no mesmo prisma.user.create.
+    expect(res.json().user).toMatchObject({
+      deviceLocale: 'en-US',
+      timezone: 'Europe/Lisbon',
+    })
+    const stored = await testPrisma.user.findUnique({
+      where: { id: res.json().user.id },
+      select: { deviceLocale: true, timezone: true },
+    })
+    expect(stored?.deviceLocale).toBe('en-US')
+    expect(stored?.timezone).toBe('Europe/Lisbon')
+  })
+
+  it('PUT /users/:id salva localePreference; GET /users/me devolve idioma e fuso', async () => {
+    const user = await makeUser()
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: 'en' },
+    })
+    expect(put.statusCode).toBe(200)
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(me.statusCode).toBe(200)
+    expect(me.json()).toMatchObject({
+      localePreference: 'en',
+      deviceLocale: 'pt-BR',
+      timezone: 'America/Sao_Paulo',
+    })
+  })
+
+  it('localePreference null volta a seguir o aparelho', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { localePreference: 'en' },
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: null },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { localePreference: true },
+    })
+    expect(stored?.localePreference).toBeNull()
+  })
+
+  it('rejeita localePreference fora dos locales suportados (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { localePreference: 'de' },
+    })
+
+    expect(res.statusCode).toBe(400)
   })
 })
 

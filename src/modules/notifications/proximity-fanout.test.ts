@@ -36,7 +36,12 @@ afterAll(async () => {
   await testPrisma.$disconnect()
 })
 
-async function makeNearbyUser(withToken = true) {
+let tokenSeq = 0
+function uniqueToken() {
+  return `ExponentPushToken[${String(++tokenSeq).padStart(22, 'b')}]`
+}
+
+async function makeNearbyUser(withToken = true, token = TOKEN) {
   const user = await makeUser()
   await testPrisma.user.update({
     where: { id: user.id },
@@ -55,7 +60,7 @@ async function makeNearbyUser(withToken = true) {
   })
   if (withToken) {
     await testPrisma.deviceToken.create({
-      data: { userId: user.id, token: TOKEN },
+      data: { userId: user.id, token },
     })
   }
   return user
@@ -181,6 +186,29 @@ describe('runEventCreatedFanout', () => {
     })
   })
 
+  it('sem consent de push: cria o in-app e entrega foreground, sem enviar push', async () => {
+    const author = await makeUser()
+    const user = await makeNearbyUser(true, uniqueToken())
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { pushNotifications: false },
+    })
+    const event = await makeNearbyEvent(author.id)
+
+    const { notified } = await runEventCreatedFanout(event.id)
+
+    expect(notified).toBe(1)
+    expect(
+      await testPrisma.notification.findFirst({
+        where: { userId: user.id, type: 'EVENT_NEARBY', eventId: event.id },
+      }),
+    ).not.toBeNull()
+    expect(realtime.publishNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ recipientId: user.id }),
+    )
+    expect(fakePush.sent).toHaveLength(0)
+  })
+
   it('é idempotente: re-run não duplica notificação nem re-empurra', async () => {
     const author = await makeUser()
     await makeNearbyUser()
@@ -220,5 +248,39 @@ describe('runEventCreatedFanout', () => {
     expect(
       await testPrisma.notification.count({ where: { type: 'EVENT_NEARBY' } }),
     ).toBe(0)
+  })
+
+  it('entrega cada push no idioma do seu destinatário no mesmo lote', async () => {
+    const author = await makeUser()
+    // O primeiro fica nos defaults (pt-BR) — é o grupo de controle do lote.
+    const [, gringo, latino] = await Promise.all([
+      makeNearbyUser(true, uniqueToken()),
+      makeNearbyUser(true, uniqueToken()),
+      makeNearbyUser(true, uniqueToken()),
+    ])
+    await testPrisma.user.update({
+      where: { id: gringo.id },
+      data: { deviceLocale: 'en-US' },
+    })
+    // Escolha explícita ganha do aparelho (effectiveLocale).
+    await testPrisma.user.update({
+      where: { id: latino.id },
+      data: { localePreference: 'es', deviceLocale: 'en-US' },
+    })
+    const event = await makeNearbyEvent(author.id, { title: 'Baile da Vila' })
+
+    const { notified } = await runEventCreatedFanout(event.id)
+
+    expect(notified).toBe(3)
+    const titles = fakePush.sent.map((m) => m.title).sort()
+    expect(titles).toEqual(
+      [
+        'Tem evento perto de você',
+        'Event near you',
+        'Hay un evento cerca',
+      ].sort(),
+    )
+    // O corpo é o título do evento (snapshot), igual nos três idiomas.
+    expect(fakePush.sent.every((m) => m.body === 'Baile da Vila')).toBe(true)
   })
 })

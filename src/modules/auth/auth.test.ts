@@ -109,7 +109,7 @@ describe('POST /auth/login', () => {
     })
 
     expect(res.statusCode).toBe(401)
-    expect(res.json().message).toBe('Invalid credentials')
+    expect(res.json().code).toBe('INVALID_CREDENTIALS')
   })
 
   it('retorna 400 quando nenhum identificador é enviado', async () => {
@@ -174,6 +174,84 @@ describe('POST /auth/login', () => {
     })
 
     expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('POST /auth/login — contexto do aparelho (idioma/fuso)', () => {
+  it('grava a tag do Accept-Language como deviceLocale', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      headers: { 'accept-language': 'en-US,en;q=0.9' },
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { deviceLocale: true },
+    })
+    expect(stored?.deviceLocale).toBe('en-US')
+  })
+
+  it('grava o timezone IANA quando enviado no body', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: {
+        email: user.email,
+        password: 'senha123',
+        timezone: 'America/New_York',
+      },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { timezone: true },
+    })
+    expect(stored?.timezone).toBe('America/New_York')
+  })
+
+  it('sem Accept-Language não sobrescreve o deviceLocale já visto', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { deviceLocale: 'es' },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: user.email, password: 'senha123' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const stored = await testPrisma.user.findUnique({
+      where: { id: user.id },
+      select: { deviceLocale: true },
+    })
+    expect(stored?.deviceLocale).toBe('es')
+  })
+
+  it('rejeita timezone que não é IANA válido (400)', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/auth/login',
+      body: {
+        email: user.email,
+        password: 'senha123',
+        timezone: 'Marte/Cratera',
+      },
+    })
+
+    expect(res.statusCode).toBe(400)
   })
 })
 
@@ -254,7 +332,7 @@ describe('POST /auth/login — moderação (suspensão/banimento)', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json().message).toMatch(/banida/i)
+    expect(res.json().code).toBe('ACCOUNT_BANNED')
   })
 
   it('nega login de conta SUSPENDED dentro da vigência com 403', async () => {
@@ -272,7 +350,7 @@ describe('POST /auth/login — moderação (suspensão/banimento)', () => {
     })
 
     expect(res.statusCode).toBe(403)
-    expect(res.json().message).toMatch(/suspensa/i)
+    expect(res.json().code).toBe('ACCOUNT_SUSPENDED')
 
     // Suspensão vigente NÃO é curada: o estado no banco continua SUSPENDED.
     const reloaded = await testPrisma.user.findUnique({

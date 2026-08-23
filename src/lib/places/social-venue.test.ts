@@ -26,17 +26,20 @@ describe('isSocialVenue', () => {
     ).toBe(true)
   })
 
-  it('rejeita academia, salão, varejo de roupa, escola e serviços', () => {
+  it('rejeita academia, salão, escola e serviços', () => {
     expect(isSocialVenue(['gym', 'point_of_interest', 'establishment'])).toBe(
       false,
     )
     expect(isSocialVenue(['beauty_salon', 'point_of_interest'])).toBe(false)
-    expect(
-      isSocialVenue(['clothing_store', 'store', 'point_of_interest']),
-    ).toBe(false)
     expect(isSocialVenue(['university', 'point_of_interest'])).toBe(false)
     expect(isSocialVenue(['veterinary_care'])).toBe(false)
     expect(isSocialVenue(['pet_store', 'store'])).toBe(false)
+  })
+
+  it('aceita loja de roupa: brechó/garimpo é rolê (BRECHO é categoria social)', () => {
+    expect(
+      isSocialVenue(['clothing_store', 'store', 'point_of_interest']),
+    ).toBe(true)
   })
 
   it('rejeita venue só com tipos genéricos (sem âncora social)', () => {

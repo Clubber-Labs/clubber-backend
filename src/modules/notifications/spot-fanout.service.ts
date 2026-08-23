@@ -1,7 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
-import { realtime } from '../../lib/realtime'
 import { findActiveParticipantUserIds } from '../chat/chat.repository'
 import { findSpotForFanout } from '../spots/spots.repository'
 import {
@@ -10,37 +9,10 @@ import {
   findExistingUserIdsByDedupeKey,
   findNotificationsByDedupeKey,
 } from './notification.repository'
-import { sendPushBatch } from './notification-push.service'
-import {
-  buildPushData,
-  notificationDedupeKey,
-  shapeNotification,
-} from './notification-shape'
+import { deliverNotifications } from './notification-delivery'
+import { notificationDedupeKey } from './notification-shape'
 import { findUsersToNotifyNearSpot } from './proximity.repository'
 import { consumeDiscoveryBudgetBatch } from './spot-fanout.repository'
-
-type CreatedNotification = Awaited<
-  ReturnType<typeof findNotificationsByDedupeKey>
->[number]
-
-/** Entrega foreground (realtime) + push, best-effort, em paralelo. */
-async function deliver(notifications: CreatedNotification[]): Promise<void> {
-  await Promise.all(
-    notifications.map((n) =>
-      realtime.publishNotification({
-        type: 'notification',
-        recipientId: n.userId,
-        notification: shapeNotification(n),
-      }),
-    ),
-  )
-  await sendPushBatch(
-    notifications.map((n) => ({
-      userId: n.userId,
-      content: { title: n.title, body: n.body, data: buildPushData(n) },
-    })),
-  )
-}
 
 const DISCOVERY_DAILY_CAP = 5
 
@@ -54,7 +26,7 @@ type SpotForFanout = NonNullable<Awaited<ReturnType<typeof findSpotForFanout>>>
 async function fanOutNearby(
   spot: SpotForFanout,
   dedupeKey: string,
-  content: { title: string; body: string; data: Prisma.InputJsonObject },
+  data: Prisma.InputJsonObject,
   discovery: boolean,
 ): Promise<number> {
   const target = {
@@ -99,14 +71,13 @@ async function fanOutNearby(
           userId,
           type: 'SPOT_NEARBY' as const,
           spotId: spot.id,
-          title: content.title,
-          body: content.body,
-          data: content.data,
+          params: { spotTitle: spot.title },
+          data,
           dedupeKey,
         })),
       )
       const created = await findNotificationsByDedupeKey(recipients, dedupeKey)
-      await deliver(created)
+      await deliverNotifications(created)
       notified += created.length
     }
 
@@ -134,22 +105,13 @@ export async function runSpotPublishedFanout(
 
     const dedupeKey = notificationDedupeKey({ type: 'SPOT_NEARBY', spotId })
 
-    let notified = await fanOutNearby(
-      spot,
-      dedupeKey,
-      { title: 'Tem rolê perto de você', body: spot.title, data: { spotId } },
-      false,
-    )
+    let notified = await fanOutNearby(spot, dedupeKey, { spotId }, false)
 
     if (spot.creator.isPremium) {
       notified += await fanOutNearby(
         spot,
         dedupeKey,
-        {
-          title: 'Tem rolê perto de você',
-          body: spot.title,
-          data: { spotId, discovery: true },
-        },
+        { spotId, discovery: true },
         true,
       )
     }
@@ -181,18 +143,11 @@ export async function runSpotJoinedFanout(
     if (recipients.length === 0) return { notified: 0 }
 
     const actor = await findActorSummary(joinerId)
-    const actorName = actor?.name ?? 'Alguém'
     const dedupeKey = notificationDedupeKey({
       type: 'SPOT_JOIN',
       spotId,
       actorId: joinerId,
     })
-    const content = {
-      // Neutro: serve para o criador E para os membros (o rolê não é "deles").
-      title: 'Novo membro no rolê',
-      body: `${actorName} entrou em "${spot.title}"`,
-      data: { spotId, actorId: joinerId },
-    }
 
     const existing = await findExistingUserIdsByDedupeKey(recipients, dedupeKey)
     const newUserIds = recipients.filter((id) => !existing.has(id))
@@ -204,14 +159,13 @@ export async function runSpotJoinedFanout(
         type: 'SPOT_JOIN' as const,
         actorId: joinerId,
         spotId,
-        title: content.title,
-        body: content.body,
-        data: content.data,
+        params: { spotTitle: spot.title },
+        data: { spotId, actorId: joinerId },
         dedupeKey,
       })),
     )
     const created = await findNotificationsByDedupeKey(newUserIds, dedupeKey)
-    await deliver(created)
+    await deliverNotifications(created, actor)
     return { notified: created.length }
   } catch (err) {
     logger.warn({ err, spotId, joinerId }, 'fan-out de spot (join) falhou')

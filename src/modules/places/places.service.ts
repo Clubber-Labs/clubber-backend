@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { getPlacesClient } from '../../lib/places'
 import type { PlacesAutocompleteQuery } from './places.schema'
 
@@ -14,6 +15,6 @@ export async function autocompletePlaces(query: PlacesAutocompleteQuery) {
 
 export async function getPlaceDetails(placeId: string, sessionToken?: string) {
   const details = await getPlacesClient().getDetails(placeId, sessionToken)
-  if (!details) throw { statusCode: 404, message: 'Local não encontrado' }
+  if (!details) throw new AppError(404, 'PLACE_NOT_FOUND')
   return details
 }

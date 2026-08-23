@@ -41,6 +41,7 @@ import { reportsRoutes } from '../modules/reports/reports.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { spotsRoutes } from '../modules/spots/spots.routes'
 import { usersRoutes } from '../modules/users/users.routes'
+import { localePlugin } from '../plugins/locale'
 import { metricsPlugin } from '../plugins/metrics'
 import { requestIdPlugin } from '../plugins/request-id'
 
@@ -57,6 +58,7 @@ export function buildApp() {
   app.setSerializerCompiler(serializerCompiler)
   app.setErrorHandler(errorHandler)
   app.register(requestIdPlugin)
+  app.register(localePlugin)
   app.register(metricsPlugin)
 
   if (env.RATE_LIMIT_ENABLED) {

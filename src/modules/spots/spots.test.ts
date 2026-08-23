@@ -167,7 +167,7 @@ describe('POST /spots', () => {
       url: '/spots',
       headers: auth(user.id),
       body: spotBody({
-        categories: ['PARTY', 'MUSIC', 'SPORTS', 'TECH', 'ART', 'GAMING'],
+        categories: ['PARTY', 'MUSIC', 'SPORTS', 'CAFE', 'ART', 'GAMING'],
       }),
     })
     expect(res.statusCode).toBe(400)
@@ -598,7 +598,7 @@ describe('ciclo de renovação: lembrete de expiração → renovar → re-arme'
         where: { userId: creator.id, type: 'SPOT_RENEWAL', spotId: spot.id },
       })
       expect(notif).not.toBeNull()
-      expect(notif?.body).toContain(spot.title)
+      expect(notif?.params).toMatchObject({ spotTitle: spot.title })
       // O lembrete foi marcado (não re-notifica a mesma janela).
       const armed = await testPrisma.spot.findUnique({ where: { id: spot.id } })
       expect(armed?.renewalNotifiedAt).not.toBeNull()

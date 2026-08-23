@@ -1,5 +1,8 @@
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
+import { preferredLanguage } from '../../lib/i18n/locale'
+import { logger } from '../../lib/logger'
 import * as moderationDenylist from '../../lib/moderation-denylist'
 import { deleteUploaded, uploadAvatar } from '../../lib/uploads'
 import {
@@ -32,6 +35,7 @@ import {
   setUserSuspended,
   setUserUnsuspended,
   updateUser,
+  updateUserDeviceContext,
   updateUserWithPreferences,
 } from './users.repository'
 import type {
@@ -108,7 +112,7 @@ export async function searchUsers(
 
 export async function getUserById(id: string, viewerId?: string) {
   const user = await findUserById(id)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND')
 
   const { _count, ...rest } = user
 
@@ -135,7 +139,7 @@ export async function getMe(userId: string) {
   // DEACTIVATED/PENDING_DELETION ainda responde: o app mostra o aviso de
   // exclusão agendada / opção de reativar.
   if (!user || user.accountStatus === 'ANONYMIZED') {
-    throw { statusCode: 401, message: 'Sessão inválida' }
+    throw new AppError(401, 'SESSION_INVALID')
   }
   // password sai aqui (nunca serializado); vira o booleano hasPassword para o
   // cliente decidir se exige reconfirmação de senha na exclusão.
@@ -169,43 +173,38 @@ export async function checkUsernameAvailability(username: string) {
 export async function registerUser(
   data: CreateUserBody,
   meta: { ipAddress: string | null; userAgent: string | null },
+  acceptLanguage?: string,
 ) {
   const emailExists = await findUserIdByEmail(data.email)
   const usernameExists = await findUserIdByUsername(data.username)
 
   if (emailExists) {
-    throw {
-      statusCode: 409,
-      message: 'Este e-mail já está cadastrado em outra conta.',
-      field: 'email',
-    }
+    throw new AppError(409, 'EMAIL_TAKEN', 'email')
   }
   if (usernameExists) {
-    throw {
-      statusCode: 409,
-      message: 'Este nome de usuário já está em uso.',
-      field: 'username',
-    }
+    throw new AppError(409, 'USERNAME_TAKEN', 'username')
   }
 
   const passwordHash = await hash(data.password, 10)
 
-  const user = await createUser({ ...data, password: passwordHash }, meta)
+  // Idioma do aparelho entra no próprio create (como o timezone): um write só,
+  // e a resposta do cadastro já sai com o valor capturado, não com o default.
+  const deviceLocale = preferredLanguage(acceptLanguage)
+  const user = await createUser(
+    { ...data, password: passwordHash, ...(deviceLocale && { deviceLocale }) },
+    meta,
+  )
   return withPreferredCategories(user)
 }
 
 export async function editUser(id: string, data: UpdateUserBody) {
   const target = await findUserById(id)
-  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!target) throw new AppError(404, 'USER_NOT_FOUND')
 
   if (data.username) {
     const existingId = await findUserIdByUsername(data.username)
     if (existingId && existingId !== id) {
-      throw {
-        statusCode: 409,
-        message: 'Este nome de usuário já está em uso.',
-        field: 'username',
-      }
+      throw new AppError(409, 'USERNAME_TAKEN', 'username')
     }
   }
 
@@ -221,13 +220,38 @@ export async function editUser(id: string, data: UpdateUserBody) {
 }
 
 /**
+ * Captura idioma (Accept-Language) e fuso do aparelho nos pontos onde o app
+ * fala com o servidor conhecendo o device (login, registro de push). Guarda a
+ * tag CRUA de maior prioridade — a resolução contra os dicionários acontece na
+ * leitura (effectiveLocale). Best-effort: telemetria de aparelho nunca derruba
+ * o fluxo principal.
+ */
+export async function captureDeviceContext(
+  userId: string,
+  acceptLanguage: string | undefined,
+  timezone: string | undefined,
+) {
+  const deviceLocale = preferredLanguage(acceptLanguage)
+  const data: { deviceLocale?: string; timezone?: string } = {
+    ...(deviceLocale && { deviceLocale }),
+    ...(timezone && { timezone }),
+  }
+  if (!data.deviceLocale && !data.timezone) return
+  try {
+    await updateUserDeviceContext(userId, data)
+  } catch (err) {
+    logger.warn({ err, userId }, 'contexto do aparelho não atualizado')
+  }
+}
+
+/**
  * Desativa a conta (estado temporário, reversível no login). Converte ACTIVE
  * ou PENDING_DELETION em DEACTIVATED (cancelando exclusão agendada). Idempotente.
  */
 export async function deactivateAccount(userId: string) {
   const state = await findAccountState(userId)
   if (!state || state.accountStatus === 'ANONYMIZED') {
-    throw { statusCode: 401, message: 'Sessão inválida' }
+    throw new AppError(401, 'SESSION_INVALID')
   }
   if (state.accountStatus === 'DEACTIVATED') {
     return {
@@ -252,20 +276,17 @@ export async function scheduleAccountDeletion(
 ) {
   const state = await findAccountState(userId)
   if (!state || state.accountStatus === 'ANONYMIZED') {
-    throw { statusCode: 401, message: 'Sessão inválida' }
+    throw new AppError(401, 'SESSION_INVALID')
   }
 
   // Reautenticação para ação destrutiva (só se a conta tem senha).
   if (state.password) {
     if (!password) {
-      throw {
-        statusCode: 400,
-        message: 'Senha é obrigatória para excluir a conta',
-      }
+      throw new AppError(400, 'PASSWORD_REQUIRED')
     }
     const valid = await compare(password, state.password)
     if (!valid) {
-      throw { statusCode: 401, message: 'Senha incorreta' }
+      throw new AppError(401, 'INVALID_PASSWORD')
     }
   }
 
@@ -291,14 +312,10 @@ export async function scheduleAccountDeletion(
 export async function reactivateAccount(userId: string) {
   const state = await findAccountState(userId)
   if (!state) {
-    throw { statusCode: 401, message: 'Sessão inválida' }
+    throw new AppError(401, 'SESSION_INVALID')
   }
   if (state.accountStatus === 'ANONYMIZED') {
-    throw {
-      statusCode: 409,
-      message:
-        'Esta conta foi excluída permanentemente e não pode ser reativada',
-    }
+    throw new AppError(409, 'ACCOUNT_ANONYMIZED')
   }
   if (state.accountStatus === 'ACTIVE') {
     return {
@@ -362,7 +379,7 @@ export async function changeUserAvatar(
 ) {
   const current = await findUserAvatarKey(userId)
   if (!current) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+    throw new AppError(404, 'USER_NOT_FOUND')
   }
 
   const uploaded = await uploadAvatar(buffer, userId)
@@ -392,24 +409,17 @@ function assertModeratable(
   requesterId: string,
   nextAction: 'SUSPEND' | 'BAN',
 ) {
-  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!target) throw new AppError(404, 'USER_NOT_FOUND')
   if (target.id === requesterId) {
-    throw { statusCode: 400, message: 'Não é possível moderar a própria conta' }
+    throw new AppError(400, 'SELF_MODERATION')
   }
   if (target.role === 'ADMIN') {
-    throw {
-      statusCode: 403,
-      message: 'Não é possível moderar um administrador',
-    }
+    throw new AppError(403, 'CANNOT_MODERATE_ADMIN')
   }
   // Banimento é permanente: suspender (temporário) por cima rebaixaria a punição
   // e o reconciler reativaria a conta ao vencer. Exige remover o ban antes.
   if (nextAction === 'SUSPEND' && target.accountStatus === 'BANNED') {
-    throw {
-      statusCode: 409,
-      message:
-        'Usuário já está banido permanentemente — remova o banimento antes de suspender',
-    }
+    throw new AppError(409, 'USER_ALREADY_BANNED')
   }
 }
 
@@ -442,7 +452,7 @@ export async function banUser(
 /** Levanta suspensão/ban. Idempotente: conta já ACTIVE só garante o unblock. */
 export async function unsuspendUser(userId: string) {
   const target = await findModerationState(userId)
-  if (!target) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!target) throw new AppError(404, 'USER_NOT_FOUND')
   if (
     target.accountStatus !== 'SUSPENDED' &&
     target.accountStatus !== 'BANNED'

@@ -1,5 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type SocialProvider } from '@prisma/client'
+import { AppError } from '../../lib/errors/app-error'
 import { unblock } from '../../lib/moderation-denylist'
 import {
   clearExpiredSuspension,
@@ -8,7 +9,7 @@ import {
   findUserIdByUsername,
   reactivateOnLogin,
 } from '../users/users.repository'
-import { verifyFacebookToken, verifyGoogleToken } from './social-auth.providers'
+import { verifyAppleToken, verifyGoogleToken } from './social-auth.providers'
 import {
   createSocialAccount,
   createUserWithSocialAccount,
@@ -36,9 +37,10 @@ function isUsernameUniqueViolation(err: unknown): boolean {
 async function verifyTokenByProvider(
   provider: SocialLoginBody['provider'],
   token: string,
+  fullName?: SocialLoginBody['fullName'],
 ): Promise<VerifiedSocialProfile> {
   if (provider === 'google') return verifyGoogleToken(token)
-  return verifyFacebookToken(token)
+  return verifyAppleToken(token, fullName)
 }
 
 function sanitizeUsernameBase(email: string) {
@@ -63,28 +65,24 @@ async function generateUniqueUsername(email: string) {
 async function loadUserAndDecorate(userId: string) {
   const user = await findOwnUserById(userId)
   if (!user) {
-    throw {
-      statusCode: 500,
-      message: 'Usuário não encontrado após autenticação social',
-    }
+    throw new AppError(500, 'SOCIAL_USER_MISSING')
   }
   // Defesa em profundidade (simétrico ao getMe): conta anonimizada não loga.
   // Inatingível na prática — a anonimização apaga as social accounts e troca o
   // email por placeholder, então nem `existing` nem `linkable` resolvem aqui.
   if (user.accountStatus === 'ANONYMIZED') {
-    throw { statusCode: 401, message: 'Sessão inválida' }
+    throw new AppError(401, 'SESSION_INVALID')
   }
   // Moderação: conta punida não loga (sessão existente é barrada na denylist do
   // authenticate). suspendedUntil vem no próprio select privado (sem 2ª query).
   if (user.accountStatus === 'BANNED') {
-    throw { statusCode: 403, message: 'Esta conta foi banida permanentemente.' }
+    throw new AppError(403, 'ACCOUNT_BANNED')
   }
   if (user.accountStatus === 'SUSPENDED') {
     if (user.suspendedUntil && user.suspendedUntil > new Date()) {
-      throw {
-        statusCode: 403,
-        message: `Esta conta está suspensa até ${user.suspendedUntil.toISOString()}.`,
-      }
+      throw new AppError(403, 'ACCOUNT_SUSPENDED', undefined, {
+        until: user.suspendedUntil.toISOString(),
+      })
     }
     const res = await clearExpiredSuspension(user.id, new Date())
     if (res.count > 0) await unblock(user.id)
@@ -107,13 +105,17 @@ export async function socialLogin(
   body: SocialLoginBody,
   meta: { ipAddress: string | null; userAgent: string | null },
 ) {
-  const profile = await verifyTokenByProvider(body.provider, body.token)
+  const profile = await verifyTokenByProvider(
+    body.provider,
+    body.token,
+    body.fullName,
+  )
 
   if (!profile.email) {
-    throw { statusCode: 400, message: 'Permissão de email é obrigatória' }
+    throw new AppError(400, 'SOCIAL_EMAIL_PERMISSION_REQUIRED')
   }
   if (!profile.emailVerified) {
-    throw { statusCode: 400, message: 'Email não verificado pelo provider' }
+    throw new AppError(400, 'SOCIAL_EMAIL_UNVERIFIED')
   }
 
   // Normaliza pra case-insensitive: Postgres unique é binário, mas provedores
@@ -132,29 +134,23 @@ export async function socialLogin(
 
   const linkable = await findUserByEmail(profile.email)
   if (linkable) {
-    // Auto-link só pra Google: o ID token assina explicitamente email_verified,
-    // dando garantia criptográfica de propriedade do email. O Facebook só
-    // sinaliza isso indiretamente (Graph API omite email não-confirmado),
-    // o que é heurística, não asserção auditada — fraco demais pra ganchar
-    // numa conta tradicional existente. Pra Facebook + email já cadastrado,
-    // exigimos login tradicional primeiro (linkagem manual via perfil — TODO).
-    if (profile.provider !== 'GOOGLE') {
-      throw {
-        statusCode: 409,
-        message:
-          'Esse email já tem uma conta. Faça login com sua senha primeiro.',
-      }
-    }
+    // Auto-link permitido porque Google e Apple assinam email_verified no
+    // próprio ID token — garantia criptográfica de propriedade do email. Um
+    // futuro provider que só sinalize verificação por heurística (como o
+    // Facebook fazia via Graph API) deve voltar a bloquear aqui com 409.
     await createSocialAccount({
       userId: linkable.id,
       provider: profile.provider,
       providerUserId: profile.providerUserId,
       email: profile.email,
     })
-    // Auto-link via Google em conta na janela de carência também reativa.
+    // Auto-link em conta na janela de carência também reativa.
     await reactivateOnLogin(linkable.id)
     return loadUserAndDecorate(linkable.id)
   }
+
+  // Email de private relay da Apple é único por app: nunca colide com conta
+  // existente e cai naturalmente na criação abaixo.
 
   const userBase = {
     name: profile.firstName?.trim() || 'Usuário',
@@ -185,8 +181,5 @@ export async function socialLogin(
     }
   }
 
-  throw {
-    statusCode: 500,
-    message: 'Não foi possível gerar username único após múltiplas tentativas',
-  }
+  throw new AppError(500, 'USERNAME_GENERATION_FAILED')
 }

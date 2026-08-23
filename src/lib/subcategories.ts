@@ -1,11 +1,12 @@
 import { z } from 'zod'
 import {
   type CategoryOption,
-  DEFAULT_LOCALE,
   type EventCategory,
   listCategories,
 } from './event-categories'
-import { GENRE_KEYS, GENRES, listGenres } from './genres'
+import { GENRE_KEYS, GENRES } from './genres'
+import { DEFAULT_LOCALE, type Locale } from './i18n/locale'
+import { t } from './i18n/translate'
 
 /**
  * Taxonomia de SUBCATEGORIAS — segundo nível abaixo de EventCategory, para
@@ -14,7 +15,8 @@ import { GENRE_KEYS, GENRES, listGenres } from './genres'
  *
  * É CONFIG-DRIVEN (não enum): adicionar/ajustar subcategoria = editar este array
  * + um rótulo, sem migration. As chaves são identificadores estáveis e neutros,
- * namespaced pelo pai; o rótulo exibível vive em SUBCATEGORY_LABELS.
+ * namespaced pelo pai; o rótulo exibível vive nos dicionários de lib/i18n/locales
+ * (a estrutura fica aqui, a copy lá — chave sem rótulo não compila).
  *
  * PARTIÇÃO: cada tipo do Google Places aparece em UMA única subcategoria (logo,
  * numa única categoria). Mantém determinístico quem é "venue social" para a
@@ -24,13 +26,23 @@ import { GENRE_KEYS, GENRES, listGenres } from './genres'
 export type Subcategory = {
   key: string
   category: EventCategory
-  /** Tipos do Google Places (New) que esta subcategoria representa. */
-  placeTypes: string[]
+  /**
+   * Tipos do Google Places (New) que esta subcategoria representa. Vazio =
+   * interesse SEM venue (ex.: jogos de tabuleiro, RPG): enriquece perfil,
+   * match e o sinal da IA, mas não estreita a busca de lugares — igual gênero.
+   */
+  placeTypes: readonly string[]
 }
 
-export const SUBCATEGORIES: Subcategory[] = [
-  // PARTY / NIGHTLIFE / MUSIC — a vida noturna repartida
-  { key: 'PARTY_BALADA', category: 'PARTY', placeTypes: ['night_club'] },
+// `as const` estreita as chaves para literais (SubcategoryKey), amarrando cada
+// subcategoria ao seu rótulo nos dicionários de i18n em tempo de compilação.
+export const SUBCATEGORIES = [
+  // NIGHTLIFE / PARTY / MUSIC — a vida noturna repartida
+  {
+    key: 'NIGHTLIFE_BALADA',
+    category: 'NIGHTLIFE',
+    placeTypes: ['night_club'],
+  },
   { key: 'PARTY_DANCA', category: 'PARTY', placeTypes: ['dance_hall'] },
   { key: 'NIGHTLIFE_BAR', category: 'NIGHTLIFE', placeTypes: ['bar'] },
   { key: 'NIGHTLIFE_PUB', category: 'NIGHTLIFE', placeTypes: ['pub'] },
@@ -67,16 +79,6 @@ export const SUBCATEGORIES: Subcategory[] = [
     key: 'GASTRONOMY_BRUNCH',
     category: 'GASTRONOMY',
     placeTypes: ['brunch_restaurant'],
-  },
-  {
-    key: 'GASTRONOMY_FAST_FOOD',
-    category: 'GASTRONOMY',
-    placeTypes: ['fast_food_restaurant', 'meal_takeaway'],
-  },
-  {
-    key: 'GASTRONOMY_ALTA',
-    category: 'GASTRONOMY',
-    placeTypes: ['fine_dining_restaurant'],
   },
 
   // CAFE
@@ -115,33 +117,7 @@ export const SUBCATEGORIES: Subcategory[] = [
   },
   { key: 'SPORTS_NATACAO', category: 'SPORTS', placeTypes: ['swimming_pool'] },
   { key: 'SPORTS_GOLFE', category: 'SPORTS', placeTypes: ['golf_course'] },
-  {
-    key: 'SPORTS_RADICAIS',
-    category: 'SPORTS',
-    placeTypes: ['skateboard_park', 'ski_resort'],
-  },
-  {
-    key: 'SPORTS_PATINACAO',
-    category: 'SPORTS',
-    placeTypes: ['ice_skating_rink'],
-  },
-
-  // HEALTH_WELLNESS
-  {
-    key: 'HEALTH_WELLNESS_SPA',
-    category: 'HEALTH_WELLNESS',
-    placeTypes: ['spa', 'sauna', 'massage'],
-  },
-  {
-    key: 'HEALTH_WELLNESS_YOGA',
-    category: 'HEALTH_WELLNESS',
-    placeTypes: ['yoga_studio', 'wellness_center'],
-  },
-  {
-    key: 'HEALTH_WELLNESS_BELEZA',
-    category: 'HEALTH_WELLNESS',
-    placeTypes: ['beauty_salon'],
-  },
+  { key: 'SPORTS_SKATE', category: 'SPORTS', placeTypes: ['skateboard_park'] },
 
   // ART
   { key: 'ART_MUSEU', category: 'ART', placeTypes: ['museum'] },
@@ -151,12 +127,6 @@ export const SUBCATEGORIES: Subcategory[] = [
     placeTypes: ['art_gallery', 'art_studio'],
   },
   { key: 'ART_CULTURAL', category: 'ART', placeTypes: ['cultural_center'] },
-  {
-    key: 'ART_MONUMENTO',
-    category: 'ART',
-    placeTypes: ['monument', 'sculpture'],
-  },
-  { key: 'ART_PLANETARIO', category: 'ART', placeTypes: ['planetarium'] },
 
   // FILM_THEATER
   {
@@ -170,32 +140,16 @@ export const SUBCATEGORIES: Subcategory[] = [
     placeTypes: ['performing_arts_theater', 'auditorium'],
   },
 
-  // GAMING
+  // GAMING — jogos de rolê: fliperama, e-sports e mesa (tabuleiro/RPG não têm
+  // tipo no Places — interesse sem venue)
   {
     key: 'GAMING_FLIPERAMA',
     category: 'GAMING',
     placeTypes: ['video_arcade', 'amusement_center'],
   },
-  { key: 'GAMING_BOLICHE', category: 'GAMING', placeTypes: ['bowling_alley'] },
-  { key: 'GAMING_CASSINO', category: 'GAMING', placeTypes: ['casino'] },
-  { key: 'GAMING_LAN', category: 'GAMING', placeTypes: ['internet_cafe'] },
-
-  // FAMILY
-  {
-    key: 'FAMILY_DIVERSOES',
-    category: 'FAMILY',
-    placeTypes: ['amusement_park', 'water_park'],
-  },
-  {
-    key: 'FAMILY_ZOO',
-    category: 'FAMILY',
-    placeTypes: ['zoo', 'aquarium', 'wildlife_park', 'wildlife_refuge'],
-  },
-  {
-    key: 'FAMILY_PLAY',
-    category: 'FAMILY',
-    placeTypes: ['playground', 'childrens_camp'],
-  },
+  { key: 'GAMING_ESPORTS', category: 'GAMING', placeTypes: ['internet_cafe'] },
+  { key: 'GAMING_TABULEIRO', category: 'GAMING', placeTypes: [] },
+  { key: 'GAMING_RPG', category: 'GAMING', placeTypes: [] },
 
   // OUTDOORS
   {
@@ -210,12 +164,6 @@ export const SUBCATEGORIES: Subcategory[] = [
   },
   { key: 'OUTDOORS_PRAIA', category: 'OUTDOORS', placeTypes: ['beach'] },
   {
-    key: 'OUTDOORS_JARDIM',
-    category: 'OUTDOORS',
-    placeTypes: ['garden', 'botanical_garden'],
-  },
-  { key: 'OUTDOORS_MARINA', category: 'OUTDOORS', placeTypes: ['marina'] },
-  {
     key: 'OUTDOORS_TURISMO',
     category: 'OUTDOORS',
     placeTypes: [
@@ -226,95 +174,19 @@ export const SUBCATEGORIES: Subcategory[] = [
     ],
   },
 
-  // FASHION
+  // BRECHO — Places não tem tipo "thrift": clothing_store é o sinal aproximado;
+  // o garimpo fino fica com a busca semântica dos spots
   {
-    key: 'FASHION_SHOPPING',
-    category: 'FASHION',
-    placeTypes: ['shopping_mall', 'department_store'],
+    key: 'BRECHO_GARIMPO',
+    category: 'BRECHO',
+    placeTypes: ['clothing_store'],
   },
-  { key: 'FASHION_LOJAS', category: 'FASHION', placeTypes: ['clothing_store'] },
+] as const satisfies readonly Subcategory[]
 
-  // EDUCATION
-  {
-    key: 'EDUCATION_BIBLIOTECA',
-    category: 'EDUCATION',
-    placeTypes: ['library'],
-  },
-  {
-    key: 'EDUCATION_CAMPUS',
-    category: 'EDUCATION',
-    placeTypes: ['university', 'school'],
-  },
+export type SubcategoryKey = (typeof SUBCATEGORIES)[number]['key']
 
-  // PETS
-  { key: 'PETS_PARQUE', category: 'PETS', placeTypes: ['dog_park'] },
-  { key: 'PETS_PETSHOP', category: 'PETS', placeTypes: ['pet_store'] },
-  { key: 'PETS_VET', category: 'PETS', placeTypes: ['veterinary_care'] },
-]
-
-/** Rótulos exibíveis por locale (mesmo padrão de CATEGORY_LABELS). */
-const SUBCATEGORY_LABELS: Record<string, Record<string, string>> = {
-  'pt-BR': {
-    PARTY_BALADA: 'Balada',
-    PARTY_DANCA: 'Dança',
-    NIGHTLIFE_BAR: 'Bar',
-    NIGHTLIFE_PUB: 'Pub',
-    NIGHTLIFE_VINHO: 'Bar de vinhos',
-    MUSIC_SHOW: 'Casa de show',
-    MUSIC_KARAOKE: 'Karaokê',
-    GASTRONOMY_RESTAURANTE: 'Restaurante',
-    GASTRONOMY_PIZZA: 'Pizzaria',
-    GASTRONOMY_JAPONESA: 'Japonesa',
-    GASTRONOMY_CHURRASCO: 'Churrasco',
-    GASTRONOMY_BRUNCH: 'Brunch',
-    GASTRONOMY_FAST_FOOD: 'Fast-food',
-    GASTRONOMY_ALTA: 'Alta gastronomia',
-    CAFE_CAFETERIA: 'Cafeteria',
-    CAFE_PADARIA: 'Padaria',
-    CAFE_DOCERIA: 'Doceria',
-    CAFE_SORVETERIA: 'Sorveteria',
-    CAFE_CHA: 'Casa de chá',
-    CAFE_SUCOS: 'Sucos',
-    MARKETS_FEIRA: 'Feira e mercado',
-    MARKETS_PRACA: 'Praça de alimentação',
-    SPORTS_ACADEMIA: 'Academia',
-    SPORTS_QUADRA: 'Quadra e estádio',
-    SPORTS_NATACAO: 'Natação',
-    SPORTS_GOLFE: 'Golfe',
-    SPORTS_RADICAIS: 'Esportes radicais',
-    SPORTS_PATINACAO: 'Patinação',
-    HEALTH_WELLNESS_SPA: 'Spa e massagem',
-    HEALTH_WELLNESS_YOGA: 'Yoga e bem-estar',
-    HEALTH_WELLNESS_BELEZA: 'Beleza',
-    ART_MUSEU: 'Museu',
-    ART_GALERIA: 'Galeria e ateliê',
-    ART_CULTURAL: 'Centro cultural',
-    ART_MONUMENTO: 'Monumento',
-    ART_PLANETARIO: 'Planetário',
-    FILM_CINEMA: 'Cinema',
-    FILM_TEATRO: 'Teatro',
-    GAMING_FLIPERAMA: 'Fliperama',
-    GAMING_BOLICHE: 'Boliche',
-    GAMING_CASSINO: 'Cassino',
-    GAMING_LAN: 'Lan house',
-    FAMILY_DIVERSOES: 'Parque de diversões',
-    FAMILY_ZOO: 'Zoológico e aquário',
-    FAMILY_PLAY: 'Playground',
-    OUTDOORS_PARQUE: 'Parque',
-    OUTDOORS_TRILHA: 'Trilha e camping',
-    OUTDOORS_PRAIA: 'Praia',
-    OUTDOORS_JARDIM: 'Jardim',
-    OUTDOORS_MARINA: 'Marina',
-    OUTDOORS_TURISMO: 'Ponto turístico',
-    FASHION_SHOPPING: 'Shopping',
-    FASHION_LOJAS: 'Lojas e boutiques',
-    EDUCATION_BIBLIOTECA: 'Biblioteca',
-    EDUCATION_CAMPUS: 'Universidade',
-    PETS_PARQUE: 'Parque para cães',
-    PETS_PETSHOP: 'Pet shop',
-    PETS_VET: 'Veterinário',
-  },
-}
+/** Item de SUBCATEGORIES com a chave literal (para as chaves de tradução). */
+type SubcategoryDef = (typeof SUBCATEGORIES)[number]
 
 export const SUBCATEGORY_KEYS = SUBCATEGORIES.map((s) => s.key)
 
@@ -331,7 +203,7 @@ export const interestSchema = z.enum(INTEREST_KEYS as [string, ...string[]])
 
 /** Subcategorias agrupadas pelo pai (categoria com nenhuma subcategoria → []). */
 export const subcategoriesByCategory = SUBCATEGORIES.reduce<
-  Partial<Record<EventCategory, Subcategory[]>>
+  Partial<Record<EventCategory, SubcategoryDef[]>>
 >((acc, s) => {
   const list = acc[s.category] ?? []
   list.push(s)
@@ -339,8 +211,12 @@ export const subcategoriesByCategory = SUBCATEGORIES.reduce<
   return acc
 }, {})
 
-const SUBCATEGORY_BY_KEY = new Map(SUBCATEGORIES.map((s) => [s.key, s]))
-const GENRE_BY_KEY = new Map(GENRES.map((g) => [g.key, g]))
+const SUBCATEGORY_BY_KEY = new Map<string, SubcategoryDef>(
+  SUBCATEGORIES.map((s) => [s.key, s]),
+)
+const GENRE_BY_KEY = new Map<string, (typeof GENRES)[number]>(
+  GENRES.map((g) => [g.key, g]),
+)
 
 /** Categoria pai de uma chave de subcategoria (undefined se desconhecida). */
 export function parentCategoryOf(key: string): EventCategory | undefined {
@@ -377,15 +253,13 @@ export type CategoryWithSubcategories = CategoryOption & {
  * pedido. Fonte única do GET /categories de duas camadas.
  */
 export function listCategoriesWithSubcategories(
-  locale: string = DEFAULT_LOCALE,
+  locale: Locale = DEFAULT_LOCALE,
 ): CategoryWithSubcategories[] {
-  const labels =
-    SUBCATEGORY_LABELS[locale] ?? SUBCATEGORY_LABELS[DEFAULT_LOCALE]
   return listCategories(locale).map((cat) => ({
     ...cat,
     subcategories: (subcategoriesByCategory[cat.value] ?? []).map((s) => ({
       value: s.key,
-      label: labels[s.key] ?? s.key,
+      label: t(`subcategories.${s.key}`, locale),
     })),
   }))
 }
@@ -396,10 +270,13 @@ export function listCategoriesWithSubcategories(
  */
 export function interestLabels(
   keys: string[],
-  locale: string = DEFAULT_LOCALE,
+  locale: Locale = DEFAULT_LOCALE,
 ): string[] {
-  const subLabels =
-    SUBCATEGORY_LABELS[locale] ?? SUBCATEGORY_LABELS[DEFAULT_LOCALE]
-  const genres = new Map(listGenres(locale).map((g) => [g.value, g.label]))
-  return keys.map((k) => subLabels[k] ?? genres.get(k) ?? k)
+  return keys.map((k) => {
+    const sub = SUBCATEGORY_BY_KEY.get(k)
+    if (sub) return t(`subcategories.${sub.key}`, locale)
+    const genre = GENRE_BY_KEY.get(k)
+    if (genre) return t(`genres.${genre.key}`, locale)
+    return k
+  })
 }

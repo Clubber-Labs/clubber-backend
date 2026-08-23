@@ -1,3 +1,4 @@
+import { AppError } from '../errors/app-error'
 import { haversineMeters } from '../geo/distance'
 import { placesSearchTotal } from '../metrics'
 import type {
@@ -152,17 +153,16 @@ export class GooglePlacesService implements IPlacesClient {
       body: JSON.stringify(body),
     })
     if (!res.ok) {
-      throw {
-        statusCode: 502,
-        message: `Busca de locais falhou (Places ${res.status})`,
-      }
+      throw new AppError(502, 'PLACES_REQUEST_FAILED', undefined, {
+        status: res.status,
+      })
     }
 
     let data: { suggestions?: GoogleSuggestion[] }
     try {
       data = (await res.json()) as { suggestions?: GoogleSuggestion[] }
     } catch {
-      throw { statusCode: 502, message: 'Resposta inválida do Places' }
+      throw new AppError(502, 'PLACES_INVALID_RESPONSE')
     }
     return (data.suggestions ?? []).flatMap((s) => {
       // queryPrediction (sugestão de busca, sem lugar) não serve para escolher
@@ -201,20 +201,19 @@ export class GooglePlacesService implements IPlacesClient {
     )
     if (res.status === 404) return null
     if (!res.ok) {
-      throw {
-        statusCode: 502,
-        message: `Busca de locais falhou (Places ${res.status})`,
-      }
+      throw new AppError(502, 'PLACES_REQUEST_FAILED', undefined, {
+        status: res.status,
+      })
     }
 
     let data: GooglePlaceDetails
     try {
       data = (await res.json()) as GooglePlaceDetails
     } catch {
-      throw { statusCode: 502, message: 'Resposta inválida do Places' }
+      throw new AppError(502, 'PLACES_INVALID_RESPONSE')
     }
     if (!data.location) {
-      throw { statusCode: 502, message: 'Resposta inválida do Places' }
+      throw new AppError(502, 'PLACES_INVALID_RESPONSE')
     }
     return {
       placeId: data.id,
@@ -233,10 +232,7 @@ export class GooglePlacesService implements IPlacesClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     } catch {
-      throw {
-        statusCode: 503,
-        message: 'Busca de locais indisponível no momento',
-      }
+      throw new AppError(503, 'PLACES_UNAVAILABLE')
     }
   }
 
@@ -263,24 +259,20 @@ export class GooglePlacesService implements IPlacesClient {
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     } catch {
-      throw {
-        statusCode: 503,
-        message: 'Busca de locais indisponível no momento',
-      }
+      throw new AppError(503, 'PLACES_UNAVAILABLE')
     }
 
     if (!res.ok) {
-      throw {
-        statusCode: 502,
-        message: `Busca de locais falhou (Places ${res.status})`,
-      }
+      throw new AppError(502, 'PLACES_REQUEST_FAILED', undefined, {
+        status: res.status,
+      })
     }
 
     let data: { places?: GooglePlace[] }
     try {
       data = (await res.json()) as { places?: GooglePlace[] }
     } catch {
-      throw { statusCode: 502, message: 'Resposta inválida do Places' }
+      throw new AppError(502, 'PLACES_INVALID_RESPONSE')
     }
     return (data.places ?? []).map((p) => ({
       placeId: p.id,

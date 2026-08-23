@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { timezoneSchema } from '../../lib/i18n/timezone'
 
 export const loginBodySchema = z
   .object({
@@ -14,6 +15,8 @@ export const loginBodySchema = z
     // Código do app autenticador (6 dígitos) ou um código de recuperação.
     // Opcional: só exigido quando a conta tem MFA ativo.
     mfaCode: z.string().min(6).max(20).optional(),
+    // IANA do aparelho — login é um dos pontos onde o app conhece o device.
+    timezone: timezoneSchema.optional(),
   })
   .refine((body) => Boolean(body.identifier ?? body.email), {
     message: 'Informe seu e-mail ou nome de usuário',

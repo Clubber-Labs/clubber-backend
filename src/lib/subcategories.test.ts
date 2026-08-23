@@ -28,9 +28,16 @@ describe('taxonomia de subcategorias — invariantes', () => {
     }
   })
 
-  it('toda subcategoria tem pelo menos um tipo do Places', () => {
+  it('subcategoria de venue tem tipo do Places; interesse-sem-venue é exceção nomeada', () => {
+    // placeTypes vazio é permitido só para interesses que não têm tipo no
+    // Places (tabuleiro/RPG) — a lista explícita evita esvaziar venue por acidente.
+    const NO_VENUE_KEYS = new Set(['GAMING_TABULEIRO', 'GAMING_RPG'])
     for (const s of SUBCATEGORIES) {
-      expect(s.placeTypes.length).toBeGreaterThan(0)
+      if (NO_VENUE_KEYS.has(s.key)) {
+        expect(s.placeTypes).toHaveLength(0)
+      } else {
+        expect(s.placeTypes.length).toBeGreaterThan(0)
+      }
     }
   })
 
@@ -66,7 +73,8 @@ describe('listCategoriesWithSubcategories', () => {
 
   it('categorias órfãs aparecem com lista de subcategorias vazia', () => {
     const data = listCategoriesWithSubcategories()
-    expect(data.find((c) => c.value === 'TECH')?.subcategories).toEqual([])
-    expect(subcategoriesByCategory.TECH ?? []).toEqual([])
+    expect(data.find((c) => c.value === 'COMEDY')?.subcategories).toEqual([])
+    expect(data.find((c) => c.value === 'FESTIVAL')?.subcategories).toEqual([])
+    expect(subcategoriesByCategory.COMEDY ?? []).toEqual([])
   })
 })

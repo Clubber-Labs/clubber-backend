@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { AppError } from '../errors/app-error'
 import type { IMailerService, SendMailInput } from './mailer.interface'
 
 /**
@@ -24,7 +25,7 @@ export class ResendMailerService implements IMailerService {
       text,
     })
     if (error) {
-      throw { statusCode: 502, message: 'Falha ao enviar email' }
+      throw new AppError(502, 'EMAIL_SEND_FAILED')
     }
   }
 }

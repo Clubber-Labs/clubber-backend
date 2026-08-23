@@ -62,7 +62,7 @@ const baseSchema = z.object({
     .int()
     .nonnegative()
     .default(30_000),
-  // CSV de origens permitidas no CORS (ex.: 'https://app.clubber.app,https://admin...').
+  // CSV de origens permitidas no CORS (ex.: 'https://app.clubber.social,https://admin...').
   // Em produção é OBRIGATÓRIO definir (sem ele o boot falha) — não refletimos
   // qualquer Origin com credentials em prod. Em dev/test, vazio = reflete a
   // Origin da requisição (comportamento permissivo, conveniente localmente).
@@ -108,7 +108,7 @@ const baseSchema = z.object({
   // conteúdo — seguro em dev/test sem credencial. `resend` envia de verdade.
   EMAIL_DRIVER: z.enum(['log', 'resend']).default('log'),
   RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default('Clubber <no-reply@clubber.app>'),
+  EMAIL_FROM: z.string().default('Clubber <no-reply@clubber.social>'),
   // Recuperação de senha: validade do código OTP e teto de tentativas por código
   // (anti brute-force no espaço de 6 dígitos).
   PASSWORD_RESET_CODE_TTL_MINUTES: z.coerce
@@ -139,8 +139,9 @@ const baseSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
-  FACEBOOK_APP_ID: z.string().optional(),
-  FACEBOOK_APP_SECRET: z.string().optional(),
+  // Audience do identityToken do "Sign in with Apple" (bundle id do app iOS).
+  // Sem secret: a verificação usa o JWKS público da Apple.
+  APPLE_BUNDLE_ID: z.string().default('com.netobonato.clubber'),
   FEATURED_RECONCILE_INTERVAL_MS: z.coerce
     .number()
     .int()
@@ -609,8 +610,7 @@ export const env = {
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
   GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
   ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY,
-  FACEBOOK_APP_ID: parsed.FACEBOOK_APP_ID,
-  FACEBOOK_APP_SECRET: parsed.FACEBOOK_APP_SECRET,
+  APPLE_BUNDLE_ID: parsed.APPLE_BUNDLE_ID,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,

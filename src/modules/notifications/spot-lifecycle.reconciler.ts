@@ -1,6 +1,5 @@
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
-import { realtime } from '../../lib/realtime'
 import {
   deleteCleanableSpot,
   findCleanableSpots,
@@ -8,12 +7,8 @@ import {
   markSpotRenewalNotified,
 } from '../spots/spots.repository'
 import { createNotificationIfNew } from './notification.repository'
-import { sendPushBatch } from './notification-push.service'
-import {
-  buildPushData,
-  notificationDedupeKey,
-  shapeNotification,
-} from './notification-shape'
+import { deliverNotifications } from './notification-delivery'
+import { notificationDedupeKey } from './notification-shape'
 
 const reconcilerLog = logger.child({ component: 'spot-lifecycle' })
 
@@ -44,32 +39,17 @@ export async function runSpotRenewalReminders(now: Date, leadMs: number) {
     })}:w${spot.endsAt.getTime()}`
     const notification = await createNotificationIfNew({
       userId: spot.creatorId,
-      type: 'SPOT_RENEWAL',
+      type: 'SPOT_RENEWAL' as const,
       spotId: spot.id,
-      title: 'Seu rolê está acabando',
-      body: `"${spot.title}" expira em breve — renove por mais 24h`,
+      params: { spotTitle: spot.title },
       data: { spotId: spot.id },
       dedupeKey,
     })
     if (notification) created.push(notification)
   }
 
-  // Entrega best-effort (foreground + push).
-  await Promise.all(
-    created.map((n) =>
-      realtime.publishNotification({
-        type: 'notification',
-        recipientId: n.userId,
-        notification: shapeNotification(n),
-      }),
-    ),
-  )
-  await sendPushBatch(
-    created.map((n) => ({
-      userId: n.userId,
-      content: { title: n.title, body: n.body, data: buildPushData(n) },
-    })),
-  )
+  // Entrega best-effort (foreground + push), no idioma de cada criador.
+  await deliverNotifications(created)
 
   if (created.length > 0) {
     reconcilerLog.info({ reminded: created.length }, 'spot renewal reminders')

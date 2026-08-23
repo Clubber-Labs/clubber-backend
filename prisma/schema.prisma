@@ -75,6 +75,14 @@ model User {
   // teto em SPOT_MAX_RADIUS_KM.
   spotRadiusKm      Int       @default(10)
 
+  /// Escolha explícita de idioma nas configurações. Null = seguir o aparelho.
+  localePreference String?
+  /// Última tag de idioma vista do aparelho (Accept-Language). Fallback para
+  /// push/e-mail, que rodam em job sem request.
+  deviceLocale     String    @default("pt-BR")
+  /// IANA do aparelho. Usuário viaja; o evento não (Event.timezone é outro dado).
+  timezone         String    @default("America/Sao_Paulo")
+
   // Preferências de produto, não consentimento: base legal é execução do
   // contrato / legítimo interesse, por isso nascem ligadas com opt-out no
   // PATCH /users/me. Moram aqui, e não em user_consents, para que ninguém
@@ -228,6 +236,8 @@ enum EventCategory {
   VOLUNTEERING
   PARTY
   OTHER
+  BRECHO
+  FESTIVAL
 }
 
 model UserCategoryPreference {
@@ -405,7 +415,8 @@ model Block {
 
 enum SocialProvider {
   GOOGLE
-  FACEBOOK
+  FACEBOOK // legado: sem rota desde 2026-08, mantido pelas contas antigas
+  APPLE
 }
 
 model SocialAccount {
@@ -449,6 +460,9 @@ model Event {
   description String?
   date        DateTime
   endDate     DateTime?
+  /// IANA do LOCAL do evento, derivado de lat/lng. `date` continua sendo o
+  /// instante UTC; a hora que o usuário marcou é hora de parede daqui.
+  timezone    String
   latitude    Float
   longitude   Float
   address     String?
@@ -527,6 +541,9 @@ model EventSeries {
   // template e o reconciler as pula. durationMs = endDate-date da 1ª ocorrência.
   title       String?
   description String?
+  /// Fuso do local da série: as ocorrências avançam nele, preservando a hora
+  /// de parede através do DST (ver recurrence.ts).
+  timezone    String?
   latitude    Float?
   longitude   Float?
   address     String?
@@ -1011,8 +1028,9 @@ model Notification {
   postId    String?
   commentId String?
   spotId    String?
-  title     String
-  body      String
+  /// Snapshot do que a leitura não deriva da FK (título de spot/evento). O texto
+  /// em si não é gravado: sai de params + tipo no idioma de quem lê.
+  params    Json?
   data      Json?
   dedupeKey String
   readAt    DateTime?
