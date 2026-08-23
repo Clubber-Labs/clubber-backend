@@ -1,10 +1,17 @@
 import { randomInt } from 'node:crypto'
 import { compare, hash } from 'bcryptjs'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
+import { effectiveLocale } from '../../lib/i18n/user-locale'
 import { logger } from '../../lib/logger'
 import { getMailer } from '../../lib/mailer'
 import { revokeAllSessions } from '../auth/auth.service'
 import { reactivateOnLogin } from '../users/users.repository'
+import {
+  passwordResetHtml,
+  passwordResetSubject,
+  passwordResetText,
+} from './password-reset.email'
 import {
   consumeCodeAndSetPassword,
   createCodeIfNoneActive,
@@ -19,23 +26,15 @@ import type {
 
 const log = logger.child({ component: 'password-reset' })
 
-// Mensagem única para TODA falha de reset (e-mail desconhecido, código errado,
+// Código único para TODA falha de reset (e-mail desconhecido, código errado,
 // expirado ou travado): não revela qual parte falhou nem se o e-mail existe.
-const INVALID_RESET = {
-  statusCode: 400,
-  message: 'Código inválido ou expirado',
+function invalidReset() {
+  return new AppError(400, 'INVALID_VERIFICATION_CODE')
 }
 
 function generateCode(): string {
   // randomInt é cripto-forte; padStart preserva zeros à esquerda (ex.: 012345).
   return String(randomInt(0, 1_000_000)).padStart(6, '0')
-}
-
-function buildEmail(code: string) {
-  const minutes = env.PASSWORD_RESET_CODE_TTL_MINUTES
-  const text = `Seu código de recuperação de senha é: ${code}\n\nEle expira em ${minutes} minutos. Se você não pediu, ignore este e-mail.`
-  const html = `<p>Seu código de recuperação de senha é:</p><p style="font-size:24px;font-weight:bold;letter-spacing:2px">${code}</p><p>Ele expira em ${minutes} minutos. Se você não pediu, ignore este e-mail.</p>`
-  return { text, html }
 }
 
 export async function requestPasswordReset({ email }: ForgotPasswordBody) {
@@ -66,12 +65,19 @@ export async function requestPasswordReset({ email }: ForgotPasswordBody) {
   // Envio best-effort: uma falha transitória do provedor não pode quebrar o
   // contrato sempre-200/sem-enumeração. O usuário simplesmente pede de novo.
   try {
-    const { text, html } = buildEmail(code)
+    const params = {
+      name: user.name.trim().split(/\s+/)[0],
+      code,
+      expiresInMinutes: env.PASSWORD_RESET_CODE_TTL_MINUTES,
+    }
+    // E-mail não tem Accept-Language: o idioma vem da preferência do usuário,
+    // com o último aparelho visto como segunda opção.
+    const locale = effectiveLocale(user)
     await getMailer().sendMail({
       to: email,
-      subject: 'Código de recuperação de senha',
-      text,
-      html,
+      subject: passwordResetSubject(code, locale),
+      text: passwordResetText(params, locale),
+      html: passwordResetHtml(params, locale),
     })
   } catch (err) {
     log.error({ err, userId: user.id }, 'falha ao enviar e-mail de recuperação')
@@ -84,25 +90,25 @@ export async function resetPassword({
   newPassword,
 }: ResetPasswordBody) {
   const user = await findUserByEmailForReset(email)
-  if (!user || user.accountStatus === 'ANONYMIZED') throw INVALID_RESET
+  if (!user || user.accountStatus === 'ANONYMIZED') throw invalidReset()
 
   const record = await findActiveCodeByUser(user.id)
-  if (!record) throw INVALID_RESET
+  if (!record) throw invalidReset()
 
   // Trava por brute-force: checa o teto ANTES de comparar o código.
-  if (record.attempts >= env.PASSWORD_RESET_MAX_ATTEMPTS) throw INVALID_RESET
+  if (record.attempts >= env.PASSWORD_RESET_MAX_ATTEMPTS) throw invalidReset()
 
   const valid = await compare(code, record.codeHash)
   if (!valid) {
     await incrementAttempts(record.id)
-    throw INVALID_RESET
+    throw invalidReset()
   }
 
   const passwordHash = await hash(newPassword, 10)
   // Consome o código (guarda de uso único) e troca a senha atomicamente. Se outra
   // requisição já consumiu este código (corrida), retorna false → erro genérico.
   const ok = await consumeCodeAndSetPassword(record.id, user.id, passwordHash)
-  if (!ok) throw INVALID_RESET
+  if (!ok) throw invalidReset()
 
   // Trocar a senha encerra TODAS as sessões: se alguém entrou com a senha antiga,
   // o reset (tipicamente "esqueci a senha") o expulsa de todos os dispositivos.

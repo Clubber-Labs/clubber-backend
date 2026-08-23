@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { captureDeviceContext } from '../users/users.service'
 import type {
   ListNotificationsQuery,
   RegisterDeviceBody,
@@ -23,6 +24,7 @@ export async function getNotificationsHandler(
   const result = await getNotifications(
     request.user.sub,
     request.query as ListNotificationsQuery,
+    request.locale,
   )
   return reply.send(result)
 }
@@ -56,8 +58,13 @@ export async function registerDeviceHandler(
   request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  const { token, platform } = request.body as RegisterDeviceBody
+  const { token, platform, timezone } = request.body as RegisterDeviceBody
   const device = await registerDevice(request.user.sub, token, platform)
+  await captureDeviceContext(
+    request.user.sub,
+    request.headers['accept-language'],
+    timezone,
+  )
   return reply
     .status(201)
     .send({ id: device.id, token: device.token, platform: device.platform })

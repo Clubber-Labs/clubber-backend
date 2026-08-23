@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { canViewAuthorContent } from '../../lib/profile-visibility'
 import { findEventAccess } from '../events/events.repository'
 import { findInvite } from './event-invites.repository'
@@ -16,20 +17,17 @@ export async function checkEventAccess(
   if (event.isPublic) return
 
   if (!requesterId) {
-    throw {
-      statusCode: 401,
-      message: 'Autenticação necessária para acessar este evento',
-    }
+    throw new AppError(401, 'AUTH_REQUIRED')
   }
 
   const authorVisible = await canViewAuthorContent(event.authorId, requesterId)
   if (!authorVisible) {
-    throw { statusCode: 403, message: 'Você não tem acesso a este evento' }
+    throw new AppError(403, 'EVENT_ACCESS_DENIED')
   }
 
   const invite = await findInvite(event.id, requesterId)
   if (!invite) {
-    throw { statusCode: 403, message: 'Você não tem acesso a este evento' }
+    throw new AppError(403, 'EVENT_ACCESS_DENIED')
   }
 }
 
@@ -40,7 +38,7 @@ export async function checkEventAccess(
 export async function ensureEventAccess(eventId: string, requesterId?: string) {
   const event = await findEventAccess(eventId)
   if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
+    throw new AppError(404, 'EVENT_NOT_FOUND')
   }
   await checkEventAccess(event, requesterId)
   return event

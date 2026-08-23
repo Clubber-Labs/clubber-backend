@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { findEventById } from '../events/events.repository'
 import { notifyFromActor } from '../notifications/notifications.service'
 import {
@@ -14,26 +15,20 @@ export async function inviteToEvent(
 ) {
   const event = await findEventById(eventId)
   if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
+    throw new AppError(404, 'EVENT_NOT_FOUND')
   }
   if (event.authorId !== inviterId) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas o autor pode convidar participantes',
-    }
+    throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
   if (event.isPublic) {
-    throw {
-      statusCode: 400,
-      message: 'Eventos públicos não precisam de convites',
-    }
+    throw new AppError(400, 'PUBLIC_EVENT_NO_INVITES')
   }
 
   // Se userIds não foi fornecido, convida todos os seguidores
   const targetIds = body?.userIds ?? (await findFollowerIds(inviterId))
 
   if (targetIds.length === 0) {
-    throw { statusCode: 400, message: 'Nenhum usuário para convidar' }
+    throw new AppError(400, 'NO_USERS_TO_INVITE')
   }
 
   const invites = await createInvites(eventId, inviterId, targetIds)
@@ -55,10 +50,10 @@ export async function inviteToEvent(
 export async function listEventInvites(eventId: string, requesterId: string) {
   const event = await findEventById(eventId)
   if (!event) {
-    throw { statusCode: 404, message: 'Evento não encontrado' }
+    throw new AppError(404, 'EVENT_NOT_FOUND')
   }
   if (event.authorId !== requesterId) {
-    throw { statusCode: 403, message: 'Apenas o autor pode ver os convites' }
+    throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
   return findEventInvites(eventId)
 }

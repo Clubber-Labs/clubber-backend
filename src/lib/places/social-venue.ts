@@ -8,8 +8,9 @@ import { SUBCATEGORIES } from '../subcategories'
 // nome ("loja", "curso", "estúdio"), atacando a raiz: o tipo do lugar é o sinal.
 
 // Categorias da taxonomia que representam "lugar de passar tempo em grupo".
-// SPORTS, HEALTH_WELLNESS, FASHION, EDUCATION, PETS ficam de fora (uso
-// individual/serviço/varejo) — seus tipos simplesmente não entram na whitelist.
+// SPORTS e PETS ficam de fora (uso individual/serviço) — seus tipos simplesmente
+// não entram na whitelist. BRECHO entra: o garimpo É o rolê (a IA descarta
+// varejo de roupa genérico na segunda passada).
 const SOCIAL_CATEGORIES = new Set<EventCategory>([
   'PARTY',
   'NIGHTLIFE',
@@ -20,8 +21,8 @@ const SOCIAL_CATEGORIES = new Set<EventCategory>([
   'GAMING',
   'ART',
   'OUTDOORS',
-  'FAMILY',
   'MARKETS',
+  'BRECHO',
 ])
 
 // Reforço/extensão da whitelist social. A maioria são tipos que o Places (New)
@@ -66,6 +67,11 @@ const SOCIAL_EXTRA_TYPES = [
   'live_music_venue',
   'event_venue',
   'banquet_hall',
+  // venues sociais cujas subcategorias saíram do seletor na curadoria jovem:
+  // continuam rolê válido como lugar, só não são mais interesse de perfil
+  'bowling_alley',
+  'amusement_park',
+  'water_park',
 ]
 
 /** Tipos do Places que ANCORAM um candidato como social (derivado da taxonomia). */

@@ -117,3 +117,72 @@ describe('buildOccurrenceDates', () => {
     for (const d of dates) expect(d.getTime()).toBeGreaterThan(from.getTime())
   })
 })
+
+describe('hora de parede através do DST', () => {
+  // Nova York vira o relógio em 08/03/2026 (2h → 3h). Antes: 22h local = 03h UTC;
+  // depois: 22h local = 02h UTC. O que o usuário marcou foi "22h", não o UTC.
+  const NY = 'America/New_York'
+
+  it('WEEKLY mantém 22h locais antes e depois da virada', () => {
+    const dates = buildOccurrenceDates({
+      start: new Date('2026-03-05T03:00:00Z'), // qui 05/03, 22h em NY (EST)
+      frequency: 'WEEKLY',
+      interval: 1,
+      now: new Date('2026-03-01T00:00:00Z'),
+      count: 3,
+      timeZone: NY,
+    })
+
+    const wallTimes = dates.map((d) =>
+      new Intl.DateTimeFormat('en-US', {
+        timeZone: NY,
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).format(d),
+    )
+    expect(wallTimes).toEqual(['22:00', '22:00', '22:00'])
+    // O instante UTC MUDA (é esse o ponto): 03h antes, 02h depois da virada.
+    expect(dates[0].toISOString()).toBe('2026-03-05T03:00:00.000Z')
+    expect(dates[1].toISOString()).toBe('2026-03-12T02:00:00.000Z')
+  })
+
+  it('MONTHLY mantém a hora local e o clamp de fim de mês', () => {
+    const dates = buildOccurrenceDates({
+      start: new Date('2026-02-01T03:00:00Z'), // sáb 31/01, 22h em NY (EST)
+      frequency: 'MONTHLY',
+      interval: 1,
+      now: new Date('2026-01-10T00:00:00Z'),
+      count: 3,
+      timeZone: NY,
+    })
+
+    const local = dates.map((d) =>
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: NY,
+        dateStyle: 'short',
+        timeStyle: 'short',
+        hour12: false,
+      }).format(d),
+    )
+    // 31 jan → 28 fev (clamp) → 31 mar (volta ao dia 31, sem drift).
+    expect(local).toEqual([
+      '2026-01-31, 22:00',
+      '2026-02-28, 22:00',
+      '2026-03-31, 22:00',
+    ])
+    // Março já em EDT: mesma hora de parede, offset UTC diferente.
+    expect(dates[2].toISOString()).toBe('2026-04-01T02:00:00.000Z')
+  })
+
+  it('sem timeZone informado, computa em UTC (comportamento de série antiga)', () => {
+    const dates = buildOccurrenceDates({
+      start: new Date('2026-03-05T03:00:00Z'),
+      frequency: 'WEEKLY',
+      interval: 1,
+      now: new Date('2026-03-01T00:00:00Z'),
+      count: 2,
+    })
+    expect(dates[1].toISOString()).toBe('2026-03-12T03:00:00.000Z')
+  })
+})

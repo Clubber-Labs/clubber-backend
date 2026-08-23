@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { Prisma } from '@prisma/client'
+import type { Prisma, SocialProvider } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
+import { timezoneForLocation } from '../lib/i18n/timezone'
 import { buildSignupConsentData } from '../modules/consent/consent.repository'
 import { testPrisma } from './prisma'
 
@@ -123,7 +124,7 @@ export async function makeUser(
 
 export async function makeSocialAccount(
   userId: string,
-  provider: 'GOOGLE' | 'FACEBOOK' = 'GOOGLE',
+  provider: SocialProvider = 'GOOGLE',
   overrides: { providerUserId?: string; email?: string | null } = {},
 ) {
   const id = uid()
@@ -151,6 +152,7 @@ export async function makeEvent(
     canceledAt?: Date | null
     latitude?: number
     longitude?: number
+    timezone?: string
     isFeatured?: boolean
     title?: string
     description?: string
@@ -168,6 +170,12 @@ export async function makeEvent(
       endDate: overrides.endDate ?? null,
       latitude: overrides.latitude ?? -25.4,
       longitude: overrides.longitude ?? -49.3,
+      timezone:
+        overrides.timezone ??
+        timezoneForLocation(
+          overrides.latitude ?? -25.4,
+          overrides.longitude ?? -49.3,
+        ),
       categories:
         overrides.categories ??
         (overrides.category ? [overrides.category] : ['PARTY']),

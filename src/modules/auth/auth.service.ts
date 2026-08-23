@@ -1,5 +1,6 @@
 import { compare, hashSync } from 'bcryptjs'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import {
   buildOtpauthUrl,
   buildQrCodeDataUrl,
@@ -80,25 +81,24 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
     // igualar o tempo das duas respostas. Vale para o identificador que não bate
     // nem como e-mail nem como username: a resolução acima é uma consulta só.
     await compare(data.password, DUMMY_PASSWORD_HASH)
-    throw { statusCode: 401, message: 'Invalid credentials' }
+    throw new AppError(401, 'INVALID_CREDENTIALS')
   }
 
   const valid = await compare(data.password, user.password)
   if (!valid) {
-    throw { statusCode: 401, message: 'Invalid credentials' }
+    throw new AppError(401, 'INVALID_CREDENTIALS')
   }
 
   // Moderação: conta punida não loga (a sessão já existente é barrada na denylist
   // do authenticate). Checado após a senha pra só o dono saber o motivo.
   if (user.accountStatus === 'BANNED') {
-    throw { statusCode: 403, message: 'Esta conta foi banida permanentemente.' }
+    throw new AppError(403, 'ACCOUNT_BANNED')
   }
   if (user.accountStatus === 'SUSPENDED') {
     if (user.suspendedUntil && user.suspendedUntil > new Date()) {
-      throw {
-        statusCode: 403,
-        message: `Esta conta está suspensa até ${user.suspendedUntil.toISOString()}.`,
-      }
+      throw new AppError(403, 'ACCOUNT_SUSPENDED', undefined, {
+        until: user.suspendedUntil.toISOString(),
+      })
     }
     // Suspensão vencida: auto-cura e segue (espírito do reactivateOnLogin).
     const res = await clearExpiredSuspension(user.id, new Date())
@@ -111,7 +111,7 @@ export async function validateLogin(data: LoginBody): Promise<LoginResult> {
     if (!data.mfaCode) return { status: 'mfa_required' }
     const ok = await verifyMfaCode(user.id, user, data.mfaCode)
     if (!ok) {
-      throw { statusCode: 401, message: 'Código de verificação inválido' }
+      throw new AppError(401, 'INVALID_VERIFICATION_CODE')
     }
   } else if (user.role === 'ADMIN') {
     // MFA é obrigatório no backoffice: admin sem segundo fator cadastrado não
@@ -159,7 +159,7 @@ async function assertSessionRenewable(userId: string) {
     user?.accountStatus === 'SUSPENDED'
   if (punished) {
     await revokeAllRefreshTokensForUser(userId)
-    throw { statusCode: 401, message: 'Refresh token inválido' }
+    throw new AppError(401, 'INVALID_REFRESH_TOKEN')
   }
 }
 
@@ -181,7 +181,7 @@ export async function rotateRefreshToken(
     hashRefreshToken(rawToken),
   )
   if (!record) {
-    throw { statusCode: 401, message: 'Refresh token inválido' }
+    throw new AppError(401, 'INVALID_REFRESH_TOKEN')
   }
 
   if (!claimed) {
@@ -202,10 +202,9 @@ export async function rotateRefreshToken(
       await revokeAllRefreshTokensForUser(record.userId)
     }
     const expired = record.expiresAt.getTime() <= Date.now()
-    throw {
-      statusCode: 401,
-      message: expired ? 'Refresh token expirado' : 'Refresh token inválido',
-    }
+    throw new AppError(401, 'INVALID_REFRESH_TOKEN', undefined, {
+      reason: expired ? 'expired' : 'invalid',
+    })
   }
 
   await assertSessionRenewable(record.userId)
@@ -239,22 +238,16 @@ export async function revokeAllSessions(userId: string) {
 
 function assertAdmin(role: string) {
   if (role !== 'ADMIN') {
-    throw {
-      statusCode: 403,
-      message: 'MFA disponível apenas para contas administrativas',
-    }
+    throw new AppError(403, 'MFA_ADMIN_ONLY')
   }
 }
 
 export async function setupMfa(userId: string) {
   const user = await findUserMfaById(userId)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND')
   assertAdmin(user.role)
   if (user.mfaEnabled) {
-    throw {
-      statusCode: 409,
-      message: 'MFA já está ativo. Desative antes de cadastrar novamente.',
-    }
+    throw new AppError(409, 'MFA_ALREADY_ENABLED')
   }
   const secret = generateSecret()
   await updateUserMfa(userId, { mfaSecret: encryptSecret(secret) })
@@ -266,13 +259,13 @@ export async function setupMfa(userId: string) {
 
 export async function enableMfa(userId: string, code: string) {
   const user = await findUserMfaById(userId)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND')
   assertAdmin(user.role)
   if (user.mfaEnabled) {
-    throw { statusCode: 409, message: 'MFA já está ativo.' }
+    throw new AppError(409, 'MFA_ALREADY_ENABLED')
   }
   if (!user.mfaSecret) {
-    throw { statusCode: 400, message: 'Inicie o cadastro do MFA primeiro.' }
+    throw new AppError(400, 'MFA_SETUP_NOT_STARTED')
   }
   let codeValid: boolean
   try {
@@ -283,7 +276,7 @@ export async function enableMfa(userId: string, code: string) {
     codeValid = false
   }
   if (!codeValid) {
-    throw { statusCode: 401, message: 'Código inválido.' }
+    throw new AppError(401, 'INVALID_MFA_CODE')
   }
   const recoveryCodes = generateRecoveryCodes()
   await updateUserMfa(userId, {
@@ -296,11 +289,11 @@ export async function enableMfa(userId: string, code: string) {
 
 export async function disableMfa(userId: string, code: string) {
   const user = await findUserMfaById(userId)
-  if (!user) throw { statusCode: 404, message: 'Usuário não encontrado' }
+  if (!user) throw new AppError(404, 'USER_NOT_FOUND')
   assertAdmin(user.role)
   if (!user.mfaEnabled) return { mfaEnabled: false } // idempotente
   const ok = await verifyMfaCode(userId, user, code)
-  if (!ok) throw { statusCode: 401, message: 'Código inválido.' }
+  if (!ok) throw new AppError(401, 'INVALID_MFA_CODE')
   await updateUserMfa(userId, {
     mfaEnabled: false,
     mfaSecret: null,

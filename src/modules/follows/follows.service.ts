@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   clearFollowNotifications,
@@ -16,27 +17,28 @@ import {
 
 export async function followUser(followerId: string, followingId: string) {
   if (followerId === followingId) {
-    throw { statusCode: 400, message: 'Você não pode seguir a si mesmo' }
+    throw new AppError(400, 'SELF_FOLLOW')
   }
 
   // Bloqueio em qualquer direção impede o follow. Mensagem genérica para não
   // revelar quem bloqueou quem.
   if (await isBlockedEitherWay(followerId, followingId)) {
-    throw { statusCode: 403, message: 'Ação indisponível' }
+    throw new AppError(403, 'FORBIDDEN')
   }
 
   const targetUser = await findUserById(followingId)
   if (!targetUser) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+    throw new AppError(404, 'USER_NOT_FOUND')
   }
 
   const existing = await findFollow(followerId, followingId)
   if (existing) {
-    const message =
+    throw new AppError(
+      409,
       existing.status === 'PENDING'
-        ? 'Solicitação de follow já enviada'
-        : 'Você já segue este usuário'
-    throw { statusCode: 409, message }
+        ? 'FOLLOW_REQUEST_ALREADY_SENT'
+        : 'ALREADY_FOLLOWING',
+    )
   }
 
   const status = targetUser.isPrivate ? 'PENDING' : 'ACCEPTED'
@@ -55,10 +57,10 @@ export async function approveFollowRequest(
 ) {
   const follow = await findFollow(followerId, ownerId)
   if (!follow) {
-    throw { statusCode: 404, message: 'Solicitação não encontrada' }
+    throw new AppError(404, 'FOLLOW_REQUEST_NOT_FOUND')
   }
   if (follow.status !== 'PENDING') {
-    throw { statusCode: 409, message: 'Solicitação já foi processada' }
+    throw new AppError(409, 'FOLLOW_REQUEST_PROCESSED')
   }
   const accepted = await acceptFollow(follow.id)
   await notifyFromActor({
@@ -72,10 +74,10 @@ export async function approveFollowRequest(
 export async function rejectFollowRequest(ownerId: string, followerId: string) {
   const follow = await findFollow(followerId, ownerId)
   if (!follow) {
-    throw { statusCode: 404, message: 'Solicitação não encontrada' }
+    throw new AppError(404, 'FOLLOW_REQUEST_NOT_FOUND')
   }
   if (follow.status !== 'PENDING') {
-    throw { statusCode: 409, message: 'Solicitação já foi processada' }
+    throw new AppError(409, 'FOLLOW_REQUEST_PROCESSED')
   }
   const result = await deleteFollow(followerId, ownerId)
   await clearFollowNotifications(followerId, ownerId)
@@ -85,7 +87,7 @@ export async function rejectFollowRequest(ownerId: string, followerId: string) {
 export async function removeFollower(ownerId: string, followerId: string) {
   const follow = await findFollow(followerId, ownerId)
   if (!follow) {
-    throw { statusCode: 404, message: 'Seguidor não encontrado' }
+    throw new AppError(404, 'FOLLOWER_NOT_FOUND')
   }
   const result = await deleteFollow(followerId, ownerId)
   await clearFollowNotifications(followerId, ownerId)
@@ -95,7 +97,7 @@ export async function removeFollower(ownerId: string, followerId: string) {
 export async function unfollowUser(followerId: string, followingId: string) {
   const follow = await findFollow(followerId, followingId)
   if (!follow) {
-    throw { statusCode: 404, message: 'Você não segue este usuário' }
+    throw new AppError(404, 'FOLLOW_NOT_FOUND')
   }
   const result = await deleteFollow(followerId, followingId)
   await clearFollowNotifications(followerId, followingId)
@@ -105,7 +107,7 @@ export async function unfollowUser(followerId: string, followingId: string) {
 async function ensureCanViewFollowList(userId: string, requesterId: string) {
   const user = await findUserById(userId)
   if (!user) {
-    throw { statusCode: 404, message: 'Usuário não encontrado' }
+    throw new AppError(404, 'USER_NOT_FOUND')
   }
 
   if (!user.isPrivate || requesterId === userId) {
@@ -114,7 +116,7 @@ async function ensureCanViewFollowList(userId: string, requesterId: string) {
 
   const follow = await findFollow(requesterId, userId)
   if (follow?.status !== 'ACCEPTED') {
-    throw { statusCode: 403, message: 'Perfil privado' }
+    throw new AppError(403, 'PRIVATE_PROFILE')
   }
 }
 

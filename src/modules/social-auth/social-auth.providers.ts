@@ -1,6 +1,16 @@
 import { OAuth2Client, type TokenPayload } from 'google-auth-library'
+import {
+  createRemoteJWKSet,
+  type JWTPayload,
+  errors as joseErrors,
+  jwtVerify,
+} from 'jose'
 import { env } from '../../lib/env'
-import type { VerifiedSocialProfile } from './social-auth.schema'
+import { AppError } from '../../lib/errors/app-error'
+import type {
+  SocialLoginBody,
+  VerifiedSocialProfile,
+} from './social-auth.schema'
 
 const googleClient = new OAuth2Client()
 
@@ -8,7 +18,7 @@ export async function verifyGoogleToken(
   idToken: string,
 ): Promise<VerifiedSocialProfile> {
   if (!env.GOOGLE_CLIENT_ID) {
-    throw { statusCode: 500, message: 'GOOGLE_CLIENT_ID não configurado' }
+    throw new AppError(500, 'SOCIAL_PROVIDER_MISCONFIGURED')
   }
 
   let payload: TokenPayload | undefined
@@ -19,11 +29,11 @@ export async function verifyGoogleToken(
     })
     payload = ticket.getPayload()
   } catch {
-    throw { statusCode: 401, message: 'Token Google inválido' }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
   if (!payload?.sub) {
-    throw { statusCode: 401, message: 'Token Google inválido' }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
   return {
@@ -37,93 +47,50 @@ export async function verifyGoogleToken(
   }
 }
 
-type FacebookDebugTokenResponse = {
-  data?: {
-    is_valid?: boolean
-    app_id?: string
-    user_id?: string
-  }
-}
+// Escopo de módulo: o jose cacheia as chaves entre requests e só refaz o
+// fetch quando aparece um kid desconhecido (rotação de chave da Apple).
+const appleJwks = createRemoteJWKSet(
+  new URL('https://appleid.apple.com/auth/keys'),
+)
 
-type FacebookMeResponse = {
-  id?: string
-  email?: string
-  first_name?: string
-  last_name?: string
-  picture?: { data?: { url?: string } }
-}
-
-async function fetchJson<T>(
-  url: string,
-  init: RequestInit,
-  providerLabel: string,
-): Promise<T> {
-  let response: Response
-  try {
-    response = await fetch(url, init)
-  } catch {
-    throw {
-      statusCode: 502,
-      message: `Falha ao validar com o ${providerLabel}`,
-    }
-  }
-  if (!response.ok) {
-    throw { statusCode: 401, message: `Token ${providerLabel} inválido` }
-  }
-  return (await response.json()) as T
-}
-
-export async function verifyFacebookToken(
-  accessToken: string,
+export async function verifyAppleToken(
+  identityToken: string,
+  fullName?: SocialLoginBody['fullName'],
 ): Promise<VerifiedSocialProfile> {
-  if (!env.FACEBOOK_APP_ID || !env.FACEBOOK_APP_SECRET) {
-    throw {
-      statusCode: 500,
-      message: 'FACEBOOK_APP_ID/FACEBOOK_APP_SECRET não configurado',
+  let payload: JWTPayload
+  try {
+    ;({ payload } = await jwtVerify(identityToken, appleJwks, {
+      issuer: 'https://appleid.apple.com',
+      audience: env.APPLE_BUNDLE_ID,
+    }))
+  } catch (err) {
+    // Erro fora do jose (fetch do JWKS falhou) ou timeout = indisponibilidade
+    // da Apple, não token ruim.
+    if (
+      !(err instanceof joseErrors.JOSEError) ||
+      err instanceof joseErrors.JWKSTimeout
+    ) {
+      throw new AppError(502, 'SOCIAL_PROVIDER_UNAVAILABLE', undefined, {
+        provider: 'Apple',
+      })
     }
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
-  const appToken = `${env.FACEBOOK_APP_ID}|${env.FACEBOOK_APP_SECRET}`
-
-  // Tokens são enviados via body (POST) e header (Bearer) ao invés de query string
-  // pra evitar vazamento em logs de proxy, access logs e error reporters.
-  const debug = await fetchJson<FacebookDebugTokenResponse>(
-    'https://graph.facebook.com/debug_token',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        input_token: accessToken,
-        access_token: appToken,
-      }).toString(),
-    },
-    'Facebook',
-  )
-  if (
-    !debug.data?.is_valid ||
-    debug.data.app_id !== env.FACEBOOK_APP_ID ||
-    !debug.data.user_id
-  ) {
-    throw { statusCode: 401, message: 'Token Facebook inválido' }
+  if (!payload.sub) {
+    throw new AppError(401, 'INVALID_PROVIDER_TOKEN')
   }
 
-  const me = await fetchJson<FacebookMeResponse>(
-    'https://graph.facebook.com/me?fields=id,email,first_name,last_name,picture',
-    { headers: { Authorization: `Bearer ${accessToken}` } },
-    'Facebook',
-  )
-
-  // O Facebook não expõe email_verified separadamente — o email retornado
-  // já é o confirmado na conta. Tratamos a presença do email como verificação.
-  const email = me.email ?? null
-
+  // email_verified chega como boolean ou string 'true' dependendo do fluxo.
+  // Email de private relay (@privaterelay.appleid.com) é tratado como normal.
   return {
-    provider: 'FACEBOOK',
-    providerUserId: debug.data.user_id,
-    email,
-    emailVerified: email != null,
-    firstName: me.first_name ?? null,
-    lastName: me.last_name ?? null,
-    pictureUrl: me.picture?.data?.url ?? null,
+    provider: 'APPLE',
+    providerUserId: payload.sub,
+    email: typeof payload.email === 'string' ? payload.email : null,
+    emailVerified:
+      payload.email_verified === true || payload.email_verified === 'true',
+    firstName: fullName?.givenName ?? null,
+    lastName: fullName?.familyName ?? null,
+    pictureUrl: null,
   }
 }

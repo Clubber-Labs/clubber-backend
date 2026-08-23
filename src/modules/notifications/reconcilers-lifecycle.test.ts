@@ -130,8 +130,6 @@ describe('fiação start → trabalho: o tick agendado delega ao reconcile', () 
       data: {
         userId: user.id,
         type: 'EVENT_COMMENT',
-        title: 'velha',
-        body: 'corpo',
         dedupeKey: `ret-${user.id}`,
         createdAt: new Date(Date.now() - 200 * 24 * 60 * 60 * 1000), // 200 dias
       },

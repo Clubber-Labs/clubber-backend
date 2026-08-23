@@ -1132,7 +1132,7 @@ describe('POST /events', () => {
         date: new Date(Date.now() + 86400000).toISOString(),
         latitude: -25.4,
         longitude: -49.3,
-        categories: ['PARTY', 'MUSIC', 'SPORTS', 'TECH', 'ART', 'GAMING'],
+        categories: ['PARTY', 'MUSIC', 'SPORTS', 'CAFE', 'ART', 'GAMING'],
         isPublic: true,
       },
     })
@@ -1327,6 +1327,88 @@ describe('POST /events', () => {
     })
 
     expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('fuso horário do evento', () => {
+  it('deriva o fuso da coordenada na criação e o devolve na resposta', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/events',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        title: 'Rooftop em Nova York',
+        date: new Date(Date.now() + 86400000).toISOString(),
+        latitude: 40.7128,
+        longitude: -74.006,
+        categories: ['PARTY'],
+        isPublic: true,
+      },
+    })
+
+    expect(res.statusCode).toBe(201)
+    // O app formata a hora NESTE fuso, não no do aparelho de quem lê.
+    expect(res.json().timezone).toBe('America/New_York')
+  })
+
+  it('recalcula o fuso quando o evento muda de cidade', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id, {
+      latitude: -25.4284,
+      longitude: -49.2733,
+    })
+    expect(event.timezone).toBe('America/Sao_Paulo')
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { latitude: 38.7223, longitude: -9.1393 },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().timezone).toBe('Europe/Lisbon')
+  })
+
+  it('coordenada parcial combina o corpo com a que está na linha', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id, {
+      latitude: -25.4284,
+      longitude: -49.2733,
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      // Só a longitude: a latitude efetiva vem da linha. O resultado só existe
+      // com as duas juntas — a latitude de Curitiba na longitude do Chile cai
+      // no norte chileno.
+      body: { longitude: -70.6483 },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().timezone).toBe('America/Santiago')
+  })
+
+  it('editar sem mexer na coordenada preserva o fuso', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id, {
+      latitude: 40.7128,
+      longitude: -74.006,
+    })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { title: 'Outro nome' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().timezone).toBe('America/New_York')
   })
 })
 

@@ -11,10 +11,10 @@ function uniqueViolation(target: unknown) {
 }
 
 describe('handlePrismaUniqueError', () => {
-  it('traduz a violação de coluna única', () => {
+  it('traduz a violação de coluna única para código', () => {
     expect(handlePrismaUniqueError(uniqueViolation(['email']))).toEqual({
       statusCode: 409,
-      message: 'Este e-mail já está cadastrado em outra conta.',
+      code: 'EMAIL_TAKEN',
       field: 'email',
     })
   })
@@ -25,24 +25,24 @@ describe('handlePrismaUniqueError', () => {
     expect(
       handlePrismaUniqueError(uniqueViolation('users_username_lower_key')),
     ).toMatchObject({
-      message: 'Este nome de usuário já está em uso.',
+      code: 'USERNAME_TAKEN',
       field: 'username',
     })
 
     expect(
       handlePrismaUniqueError(uniqueViolation(['users_email_lower_key'])),
     ).toMatchObject({
-      message: 'Este e-mail já está cadastrado em outra conta.',
+      code: 'EMAIL_TAKEN',
       field: 'email',
     })
   })
 
-  it('cai na mensagem genérica para constraint desconhecida', () => {
+  it('cai no código genérico para constraint desconhecida', () => {
     expect(
       handlePrismaUniqueError(uniqueViolation(['stripeCustomerId'])),
     ).toEqual({
       statusCode: 409,
-      message: 'Este dado já está em uso em outra conta.',
+      code: 'DUPLICATE_VALUE',
     })
   })
 

@@ -271,6 +271,39 @@ describe('runSpotJoinedFanout (SPOT_JOIN)', () => {
     ).toBeNull()
   })
 
+  it('in-app para todos os membros; push só para quem tem consent', async () => {
+    const creator = await makeUser()
+    const member = await makeUser()
+    const joiner = await makeUser()
+    await testPrisma.userConsent.update({
+      where: { userId: creator.id },
+      data: { pushNotifications: true },
+    })
+    const creatorToken = 'ExponentPushToken[cccccccccccccccccccccc]'
+    const memberToken = 'ExponentPushToken[dddddddddddddddddddddd]'
+    await testPrisma.deviceToken.createMany({
+      data: [
+        { userId: creator.id, token: creatorToken },
+        { userId: member.id, token: memberToken },
+      ],
+    })
+    const spot = await makeSpot(creator.id, {
+      memberIds: [member.id, joiner.id],
+    })
+
+    const { notified } = await runSpotJoinedFanout(spot.id, joiner.id)
+
+    expect(notified).toBe(2)
+    expect(
+      await testPrisma.notification.findFirst({
+        where: { userId: member.id, type: 'SPOT_JOIN', spotId: spot.id },
+      }),
+    ).not.toBeNull()
+    const targets = fakePush.sent.map((m) => m.to)
+    expect(targets).toContain(creatorToken)
+    expect(targets).not.toContain(memberToken)
+  })
+
   it('é idempotente por (spot, quem entrou)', async () => {
     const creator = await makeUser()
     const joiner = await makeUser()

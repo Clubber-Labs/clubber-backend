@@ -1,4 +1,5 @@
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import {
   createFeaturedEventWithQuota,
   findEventForFeatured,
@@ -16,45 +17,32 @@ export async function addFeaturedEvent(
   requesterId: string,
 ) {
   const event = await findEventForFeatured(eventId)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
 
   if (event.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas o autor do evento pode destacá-lo',
-    }
+    throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
 
   if (!event.author.isPremium) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas usuários premium podem destacar eventos',
-    }
+    throw new AppError(403, 'PREMIUM_REQUIRED')
   }
 
   const now = Date.now()
   if (body.startsAt.getTime() < now - START_AT_TOLERANCE_MS) {
-    throw {
-      statusCode: 400,
-      message: 'startsAt deve ser igual ou posterior ao momento atual',
-    }
+    throw new AppError(400, 'STARTS_AT_IN_PAST')
   }
 
   if (body.endsAt > event.date) {
-    throw {
-      statusCode: 400,
-      message: 'endsAt não pode ser posterior à data do evento',
-    }
+    throw new AppError(400, 'ENDS_AT_AFTER_EVENT_DATE')
   }
 
   // Teto de duração: a quota mensal conta destaques (não tempo), então sem isto
   // um único destaque poderia durar até a data do evento gastando só 1 crédito.
   const maxDurationMs = env.PROMOTION_MAX_DURATION_DAYS * 24 * 60 * 60 * 1000
   if (body.endsAt.getTime() - body.startsAt.getTime() > maxDurationMs) {
-    throw {
-      statusCode: 400,
-      message: `O destaque pode durar no máximo ${env.PROMOTION_MAX_DURATION_DAYS} dias`,
-    }
+    throw new AppError(400, 'PROMOTION_TOO_LONG', undefined, {
+      maxDays: env.PROMOTION_MAX_DURATION_DAYS,
+    })
   }
 
   const overlap = await findOverlappingActiveFeature(
@@ -63,10 +51,7 @@ export async function addFeaturedEvent(
     body.endsAt,
   )
   if (overlap) {
-    throw {
-      statusCode: 409,
-      message: 'Já existe um destaque ativo neste período',
-    }
+    throw new AppError(409, 'PROMOTION_OVERLAP')
   }
 
   try {
@@ -91,10 +76,7 @@ export async function addFeaturedEvent(
       typeof err.message === 'string' &&
       err.message.includes('featured_events_no_overlap_active')
     ) {
-      throw {
-        statusCode: 409,
-        message: 'Já existe um destaque ativo neste período',
-      }
+      throw new AppError(409, 'PROMOTION_OVERLAP')
     }
     throw err
   }
@@ -106,22 +88,19 @@ export async function cancelFeaturedEvent(
   requesterId: string,
 ) {
   const event = await findEventForFeatured(eventId)
-  if (!event) throw { statusCode: 404, message: 'Evento não encontrado' }
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
 
   if (event.authorId !== requesterId) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas o autor do evento pode cancelar destaques',
-    }
+    throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
 
   const feature = await findFeatureById(featureId)
   if (!feature || feature.eventId !== eventId) {
-    throw { statusCode: 404, message: 'Destaque não encontrado' }
+    throw new AppError(404, 'PROMOTION_NOT_FOUND')
   }
 
   if (feature.canceledAt !== null) {
-    throw { statusCode: 409, message: 'Destaque já cancelado' }
+    throw new AppError(409, 'PROMOTION_ALREADY_CANCELED')
   }
 
   await softCancelFeaturedEvent({ featureId, eventId })

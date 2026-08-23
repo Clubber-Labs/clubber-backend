@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream'
 import { env } from '../../lib/env'
+import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
 import { realtime } from '../../lib/realtime'
 import { getStorage } from '../../lib/storage'
@@ -172,19 +173,16 @@ function shapeInboxItem(conversation: InboxRow, unreadCount: number) {
 async function authorizeSend(conversationId: string, userId: string) {
   const conversation = await findConversationWithParticipants(conversationId)
   if (!conversation) {
-    throw { statusCode: 404, message: 'Conversa não encontrada' }
+    throw new AppError(404, 'CONVERSATION_NOT_FOUND')
   }
   if (!conversation.participants.some((p) => p.userId === userId)) {
-    throw { statusCode: 403, message: 'Você não participa desta conversa' }
+    throw new AppError(403, 'NOT_CONVERSATION_MEMBER')
   }
   if (conversation.type === 'DIRECT') {
     const others = conversation.participants.filter((p) => p.userId !== userId)
     for (const other of others) {
       if (await isBlockedEitherWay(userId, other.userId)) {
-        throw {
-          statusCode: 403,
-          message: 'Não é possível enviar mensagens nesta conversa',
-        }
+        throw new AppError(403, 'CONVERSATION_READ_ONLY')
       }
     }
   }
@@ -247,10 +245,10 @@ async function emitSystemMessage(
 async function requireGroup(conversationId: string) {
   const conversation = await findConversationById(conversationId)
   if (!conversation) {
-    throw { statusCode: 404, message: 'Conversa não encontrada' }
+    throw new AppError(404, 'CONVERSATION_NOT_FOUND')
   }
   if (conversation.type !== 'GROUP') {
-    throw { statusCode: 400, message: 'Operação válida apenas para grupos' }
+    throw new AppError(400, 'GROUP_ONLY_OPERATION')
   }
   return conversation
 }
@@ -287,10 +285,7 @@ export async function startConversation(
     (id) => id !== userId,
   )
   if (memberIds.length === 0) {
-    throw {
-      statusCode: 400,
-      message: 'Grupo precisa de ao menos um participante',
-    }
+    throw new AppError(400, 'GROUP_NEEDS_PARTICIPANT')
   }
   // Em paralelo (não sequencial) pra não bloquear o event loop em grupos grandes.
   await Promise.all(
@@ -324,7 +319,7 @@ export async function getConversation(userId: string, conversationId: string) {
   await assertActiveParticipant(conversationId, userId)
   const conversation = await findConversationWithParticipants(conversationId)
   if (!conversation) {
-    throw { statusCode: 404, message: 'Conversa não encontrada' }
+    throw new AppError(404, 'CONVERSATION_NOT_FOUND')
   }
   return shapeConversation(conversation)
 }
@@ -408,7 +403,7 @@ export async function sendTextMessage(
     // conteúdo de outra conversa via preview do reply).
     const replyTo = await findMessageById(replyToId)
     if (!replyTo || replyTo.conversationId !== conversationId) {
-      throw { statusCode: 400, message: 'Mensagem citada inválida' }
+      throw new AppError(400, 'INVALID_REPLY_MESSAGE')
     }
   }
   let message: MessageRow
@@ -434,8 +429,6 @@ export async function sendTextMessage(
   return shapeMessage(message)
 }
 
-const STORAGE_QUOTA_MESSAGE = 'Cota de armazenamento de mídia excedida'
-
 /**
  * Pré-check de cota (best-effort, antes de subir): lança 413 se o usuário JÁ
  * atingiu o teto — evita subir um arquivo que com certeza será rejeitado. O
@@ -446,7 +439,7 @@ async function assertQuotaAvailable(userId: string): Promise<void> {
   // `>=` (não `>`): aqui ainda não sabemos o tamanho do arquivo, então rejeita
   // quem JÁ está no teto. O check autoritativo no lock usa `used + bytes > max`.
   if (used >= env.CHAT_USER_STORAGE_QUOTA_BYTES) {
-    throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
+    throw new AppError(413, 'STORAGE_QUOTA_EXCEEDED')
   }
 }
 
@@ -478,7 +471,7 @@ async function createBackendMediaMessage(
   } catch (err) {
     await deleteChatMedia(attachment.key, logger)
     if (err instanceof QuotaExceededError) {
-      throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
+      throw new AppError(413, 'STORAGE_QUOTA_EXCEEDED')
     }
     const dup = await resolveIdempotencyConflict(
       err,
@@ -624,15 +617,20 @@ export async function sendVideoMessage(
   // um prefixo diferente não pode pertencer a esta conversa.
   const folder = conversationFolder(conversationId)
   if (!input.key.startsWith(`${folder}/`)) {
-    throw { statusCode: 403, message: 'Vídeo não pertence a esta conversa' }
+    throw new AppError(403, 'VIDEO_NOT_IN_CONVERSATION')
   }
   const asset = await getStorage().getAsset(input.key)
   if (!asset) {
-    throw { statusCode: 400, message: 'Vídeo não encontrado no provedor' }
+    throw new AppError(400, 'VIDEO_NOT_FOUND')
   }
   assertVideoFormat(asset.format)
   if (asset.bytes > MAX_VIDEO_SIZE) {
-    throw { statusCode: 413, message: 'Vídeo excede o limite de 50 MB' }
+    throw new AppError(413, 'FILE_TOO_LARGE', undefined, { maxMb: 50 })
+  }
+  let thumbnailKey: string | null = null
+  if (input.posterBuffer) {
+    const poster = await uploadMessageImage(input.posterBuffer, conversationId)
+    thumbnailKey = poster.key
   }
   let thumbnailKey: string | null = null
   if (input.posterBuffer) {
@@ -670,7 +668,7 @@ export async function sendVideoMessage(
       // O vídeo (subido pelo cliente) e o poster (se houver) viraram órfãos.
       await deleteChatMedia(input.key, logger)
       if (thumbnailKey) await deleteChatMedia(thumbnailKey, logger)
-      throw { statusCode: 413, message: STORAGE_QUOTA_MESSAGE }
+      throw new AppError(413, 'STORAGE_QUOTA_EXCEEDED')
     }
     // Corrida de idempotência: devolve a vencedora SEM deletar o vídeo — o
     // retry do cliente reusa a MESMA key da assinatura original, então
@@ -742,29 +740,20 @@ export async function editMessage(
   await assertActiveParticipant(conversationId, userId)
   const message = await findMessageById(messageId)
   if (!message || message.conversationId !== conversationId) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
   if (message.type === 'SYSTEM') {
-    throw {
-      statusCode: 403,
-      message: 'Mensagem de sistema não pode ser editada',
-    }
+    throw new AppError(403, 'SYSTEM_MESSAGE_IMMUTABLE')
   }
   // Só o autor edita (admin de grupo NÃO edita msg alheia — diferente do delete).
   if (message.senderId !== userId) {
-    throw {
-      statusCode: 403,
-      message: 'Sem permissão para editar esta mensagem',
-    }
+    throw new AppError(403, 'NOT_MESSAGE_AUTHOR')
   }
   if (message.deletedAt !== null) {
-    throw { statusCode: 403, message: 'Mensagem apagada não pode ser editada' }
+    throw new AppError(403, 'MESSAGE_DELETED')
   }
   if (message.content === null) {
-    throw {
-      statusCode: 403,
-      message: 'Apenas mensagens de texto podem ser editadas',
-    }
+    throw new AppError(403, 'MESSAGE_NOT_EDITABLE')
   }
   let updated: MessageRow
   try {
@@ -773,10 +762,7 @@ export async function editMessage(
     // Corrida: um DELETE concorrente apagou a mensagem (P2025). Mesmo contrato
     // do check de deletedAt acima — não edita tombstone.
     if (isRecordNotFound(err)) {
-      throw {
-        statusCode: 403,
-        message: 'Mensagem apagada não pode ser editada',
-      }
+      throw new AppError(403, 'MESSAGE_DELETED')
     }
     throw err
   }
@@ -790,7 +776,7 @@ async function loadMessageInConversation(
 ) {
   const message = await findMessageById(messageId)
   if (!message || message.conversationId !== conversationId) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
   return message
 }
@@ -804,21 +790,15 @@ export async function reactToMessage(
   await assertActiveParticipant(conversationId, userId)
   const message = await loadMessageInConversation(conversationId, messageId)
   if (message.type === 'SYSTEM') {
-    throw {
-      statusCode: 403,
-      message: 'Mensagem de sistema não pode receber reação',
-    }
+    throw new AppError(403, 'SYSTEM_MESSAGE_IMMUTABLE')
   }
   if (message.deletedAt !== null) {
-    throw {
-      statusCode: 403,
-      message: 'Mensagem apagada não pode receber reação',
-    }
+    throw new AppError(403, 'MESSAGE_DELETED')
   }
   await addMessageReaction(messageId, userId, emoji)
   const updated = await findMessageWithConversation(messageId)
   if (!updated) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
@@ -840,7 +820,7 @@ export async function removeReaction(
   await removeMessageReaction(messageId, userId, emoji)
   const updated = await findMessageWithConversation(messageId)
   if (!updated) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
@@ -854,19 +834,13 @@ export async function deleteMessage(
   const participant = await assertActiveParticipant(conversationId, userId)
   const message = await findMessageById(messageId)
   if (!message || message.conversationId !== conversationId) {
-    throw { statusCode: 404, message: 'Mensagem não encontrada' }
+    throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
   if (message.type === 'SYSTEM') {
-    throw {
-      statusCode: 403,
-      message: 'Mensagem de sistema não pode ser apagada',
-    }
+    throw new AppError(403, 'SYSTEM_MESSAGE_IMMUTABLE')
   }
   if (message.senderId !== userId && participant.role !== 'ADMIN') {
-    throw {
-      statusCode: 403,
-      message: 'Sem permissão para apagar esta mensagem',
-    }
+    throw new AppError(403, 'NOT_MESSAGE_AUTHOR')
   }
   if (message.deletedAt !== null) return // já apagada — idempotente
   await softDeleteMessage(messageId)
@@ -892,7 +866,7 @@ export async function addGroupParticipant(
 
   const existing = await findParticipant(conversationId, targetId)
   if (existing && existing.leftAt === null) {
-    throw { statusCode: 409, message: 'Usuário já participa do grupo' }
+    throw new AppError(409, 'ALREADY_MEMBER')
   }
   await reactivateParticipant(conversationId, targetId)
   const [actorUser, targetUser] = await Promise.all([
@@ -918,11 +892,11 @@ export async function removeGroupParticipant(
   await requireGroup(conversationId)
   assertAdmin(actor)
   if (targetId === userId) {
-    throw { statusCode: 400, message: 'Use sair do grupo para se remover' }
+    throw new AppError(400, 'USE_LEAVE_GROUP')
   }
   const result = await deactivateParticipant(conversationId, targetId)
   if (result.count === 0) {
-    throw { statusCode: 404, message: 'Participante não encontrado' }
+    throw new AppError(404, 'PARTICIPANT_NOT_FOUND')
   }
   const [actorUser, targetUser] = await Promise.all([
     findUserBrief(userId),
@@ -982,7 +956,7 @@ export async function setParticipantRoleService(
   assertAdmin(actor)
   const target = await findParticipant(conversationId, targetId)
   if (!target || target.leftAt !== null) {
-    throw { statusCode: 404, message: 'Participante não encontrado' }
+    throw new AppError(404, 'PARTICIPANT_NOT_FOUND')
   }
   await setParticipantRole(conversationId, targetId, role)
   return getConversation(userId, conversationId)

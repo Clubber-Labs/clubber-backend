@@ -1,3 +1,4 @@
+import { AppError } from '../../lib/errors/app-error'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { notifyFromActor } from '../notifications/notifications.service'
 import {
@@ -31,7 +32,7 @@ export async function cancelAttendance(userId: string, eventId: string) {
 
   const existing = await findAttendanceByUserAndEvent(userId, eventId)
   if (!existing) {
-    throw { statusCode: 404, message: 'Confirmação de presença não encontrada' }
+    throw new AppError(404, 'ATTENDANCE_NOT_FOUND')
   }
 
   return deleteAttendance(userId, eventId)

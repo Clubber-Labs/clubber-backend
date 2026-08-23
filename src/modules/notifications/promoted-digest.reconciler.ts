@@ -2,13 +2,11 @@ import { Prisma } from '@prisma/client'
 import { env } from '../../lib/env'
 import { logger } from '../../lib/logger'
 import { prisma } from '../../lib/prisma'
-import { realtime } from '../../lib/realtime'
 import {
   createManyNotifications,
   findNotificationsForEvent,
 } from './notification.repository'
-import { sendPushBatch } from './notification-push.service'
-import { buildPushData, shapeNotification } from './notification-shape'
+import { deliverNotifications } from './notification-delivery'
 
 const digestLog = logger.child({ component: 'promoted-digest' })
 
@@ -31,9 +29,10 @@ type DigestRow = { userId: string; eventId: string }
  * promovidos na região ainda resultam em 1 push por pessoa por período.
  *
  * Elegibilidade (espelha a query invertida de proximidade): conta ACTIVE,
- * consentimento push + locationPrecise não revogado, localização fresca,
- * ativo recentemente (lastSeenAt). Cooldown: nenhuma notificação de promoção
- * nos últimos PROMOTION_DIGEST_COOLDOWN_DAYS.
+ * consentimento de localização (locationPrecise, não revogado — push NÃO é
+ * critério: o in-app é para todos e o push é filtrado na entrega), localização
+ * fresca, ativo recentemente (lastSeenAt). Cooldown: nenhuma notificação de
+ * promoção nos últimos PROMOTION_DIGEST_COOLDOWN_DAYS.
  *
  * Relevância (LATERAL top-1 por usuário): casa categoria preferida primeiro,
  * depois o mais próximo, depois o de maior engajamento.
@@ -130,7 +129,6 @@ export async function runPromotedDigest(
           AND u.location IS NOT NULL
           AND u."locationUpdatedAt" > ${locationCutoff}
           AND u."lastSeenAt" > ${activeCutoff}
-          AND c."pushNotifications" = true
           AND c."locationPrecise" = true
           AND c."revokedAt" IS NULL
           AND NOT EXISTS (
@@ -156,13 +154,18 @@ export async function runPromotedDigest(
       }
 
       for (const [eventId, userIds] of byEvent) {
+        const eventTitle = titleByEvent.get(eventId)
+        // O evento veio do SELECT desta rodada; sem título a linha não teria
+        // corpo renderizável, então some do lote em vez de virar texto vazio.
+        if (!eventTitle) continue
         await createManyNotifications(
           userIds.map((userId) => ({
             userId,
             type: 'EVENT_NEARBY' as const,
             eventId,
-            title: 'Em destaque perto de você',
-            body: titleByEvent.get(eventId) ?? 'Evento em destaque',
+            // `promoted` escolhe a copy de destaque: mesmo tipo (o deep-link é
+            // o mesmo), mensagem diferente da de evento novo.
+            params: { eventTitle, promoted: true },
             data: { eventId },
             dedupeKey: promotedDedupeKey(eventId),
           })),
@@ -175,25 +178,7 @@ export async function runPromotedDigest(
           eventId,
           'EVENT_NEARBY',
         )
-        await Promise.all(
-          created.map((n) =>
-            realtime.publishNotification({
-              type: 'notification',
-              recipientId: n.userId,
-              notification: shapeNotification(n),
-            }),
-          ),
-        )
-        await sendPushBatch(
-          created.map((n) => ({
-            userId: n.userId,
-            content: {
-              title: n.title,
-              body: n.body,
-              data: buildPushData(n),
-            },
-          })),
-        )
+        await deliverNotifications(created)
         notified += created.length
       }
 

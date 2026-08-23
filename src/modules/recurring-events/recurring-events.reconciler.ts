@@ -1,4 +1,5 @@
 import { cache } from '../../lib/cache'
+import { timezoneForLocation } from '../../lib/i18n/timezone'
 import { logger } from '../../lib/logger'
 import { buildOccurrenceDates, RECURRENCE_MAX_OCCURRENCES } from './recurrence'
 import {
@@ -53,6 +54,9 @@ export async function reconcileRecurringSeries(now = new Date()) {
       until: s.until,
       count: s.count,
       after: bounds.latest,
+      // Série sem fuso (anterior a esta migration) segue em UTC: mudar a conta
+      // agora deslocaria a agenda de séries que já existem.
+      timeZone: s.timezone,
     })
     if (newDates.length === 0) continue
 
@@ -61,6 +65,9 @@ export async function reconcileRecurringSeries(now = new Date()) {
       rows.push({
         title: s.title,
         description: s.description,
+        // A ocorrência sempre grava um fuso, mesmo vinda de série legada: é o
+        // que o app usa para formatar a hora.
+        timezone: s.timezone ?? timezoneForLocation(s.latitude, s.longitude),
         latitude: s.latitude,
         longitude: s.longitude,
         address: s.address,

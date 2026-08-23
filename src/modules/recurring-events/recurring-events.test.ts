@@ -333,13 +333,13 @@ describe('reconcileRecurringSeries (reposição de horizonte)', () => {
     const start = new Date('2026-06-01T20:00:00Z')
     const series = await makeEventSeries(author.id, {
       frequency: 'WEEKLY',
-      categories: ['PARTY'],
-      subcategories: ['PARTY_BALADA'],
+      categories: ['NIGHTLIFE'],
+      subcategories: ['NIGHTLIFE_BALADA'],
     })
     await makeEvent(author.id, {
       seriesId: series.id,
       date: start,
-      subcategories: ['PARTY_BALADA'],
+      subcategories: ['NIGHTLIFE_BALADA'],
     })
 
     await reconcileRecurringSeries(new Date(start.getTime() + 7 * DAY))
@@ -351,7 +351,7 @@ describe('reconcileRecurringSeries (reposição de horizonte)', () => {
     })
     expect(replenished.length).toBeGreaterThan(0)
     for (const occ of replenished) {
-      expect(occ.subcategories).toEqual(['PARTY_BALADA'])
+      expect(occ.subcategories).toEqual(['NIGHTLIFE_BALADA'])
     }
   })
 

@@ -1,9 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { env } from '../../lib/env'
 import { buildApp } from '../../test/app'
 import { makeUser } from '../../test/factories'
 import { fakeMailer } from '../../test/fake-mailer'
 import { testPrisma } from '../../test/prisma'
+import { passwordResetText } from './password-reset.email'
 import { reconcilePasswordResetCodes } from './password-reset.reconciler'
 
 let app: FastifyInstance
@@ -159,6 +161,91 @@ describe('POST /auth/forgot-password', () => {
 
     const blocked = await forgot(user.email)
     expect(blocked.statusCode).toBe(429)
+  })
+
+  it('envia o template com código no assunto, primeiro nome e validade', async () => {
+    const user = await makeUser({ name: 'Luiza Andrade' })
+
+    await forgot(user.email)
+    const code = lastCode()
+    const mail = fakeMailer.last
+
+    expect(mail?.subject).toBe(
+      `${code} é o seu código de recuperação — Clubber`,
+    )
+    expect(mail?.html).toContain(code)
+    expect(mail?.html).toContain('Luiza')
+    expect(mail?.html).not.toContain('Andrade')
+    expect(mail?.text).toContain(code)
+    expect(mail?.text).toContain(
+      `${env.PASSWORD_RESET_CODE_TTL_MINUTES} minutos`,
+    )
+  })
+
+  it('escapa HTML no nome do usuário', async () => {
+    // Sem espaços: a saudação usa só o primeiro nome (split por whitespace).
+    const user = await makeUser({ name: '<hacker>' })
+
+    await forgot(user.email)
+
+    expect(fakeMailer.last?.html).not.toContain('<hacker>')
+    expect(fakeMailer.last?.html).toContain('&lt;hacker&gt;')
+  })
+})
+
+describe('e-mail no idioma do usuário', () => {
+  it('usa a escolha explícita do usuário (localePreference)', async () => {
+    const user = await makeUser({ name: 'Luiza Andrade' })
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { localePreference: 'en' },
+    })
+
+    await forgot(user.email)
+    const code = lastCode()
+    const mail = fakeMailer.last
+
+    expect(mail?.subject).toBe(`${code} is your recovery code — Clubber`)
+    expect(mail?.html).toContain('lang="en"')
+    expect(mail?.html).toContain('Luiza')
+    expect(mail?.text).toContain(
+      `${env.PASSWORD_RESET_CODE_TTL_MINUTES} minutes`,
+    )
+  })
+
+  it('sem escolha explícita, segue o idioma do aparelho', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { deviceLocale: 'es-419' },
+    })
+
+    await forgot(user.email)
+
+    expect(fakeMailer.last?.html).toContain('lang="es"')
+    expect(fakeMailer.last?.subject).toContain('tu código de recuperación')
+  })
+
+  it('idioma sem dicionário cai no inglês, não no português', async () => {
+    const user = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { deviceLocale: 'fr-FR' },
+    })
+
+    await forgot(user.email)
+
+    expect(fakeMailer.last?.html).toContain('lang="en"')
+  })
+
+  it('flexiona a validade no singular', () => {
+    const params = { name: 'Ana', code: '123456', expiresInMinutes: 1 }
+
+    expect(passwordResetText(params, 'pt-BR')).toContain('1 minuto e')
+    expect(passwordResetText(params, 'en')).toContain('1 minute and')
+    expect(
+      passwordResetText({ ...params, expiresInMinutes: 30 }, 'en'),
+    ).toContain('30 minutes')
   })
 })
 

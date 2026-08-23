@@ -1,4 +1,6 @@
-import { DEFAULT_LOCALE, type EventCategory } from './event-categories'
+import type { EventCategory } from './event-categories'
+import { DEFAULT_LOCALE, type Locale } from './i18n/locale'
+import { t } from './i18n/translate'
 
 /**
  * Gêneros/estilos musicais — dimensão TRANSVERSAL às categorias de vida noturna
@@ -15,43 +17,37 @@ export type Genre = {
   appliesTo: EventCategory[]
 }
 
-const NIGHTLIFE_CATS: EventCategory[] = ['PARTY', 'MUSIC', 'NIGHTLIFE']
+const NIGHTLIFE_CATS: EventCategory[] = [
+  'PARTY',
+  'MUSIC',
+  'NIGHTLIFE',
+  'FESTIVAL',
+]
 
-export const GENRES: Genre[] = [
+// `as const` estreita as chaves para literais (GenreKey), amarrando cada gênero
+// ao seu rótulo nos dicionários de i18n em tempo de compilação.
+// Curadoria jovem: só os gêneros que tocam em rolê/evento. As vertentes
+// eletrônicas substituem o antigo GENRE_ELETRONICA genérico.
+export const GENRES = [
   { key: 'GENRE_SERTANEJO', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_FUNK', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_PAGODE_SAMBA', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_ROCK', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_POP', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_ELETRONICA', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_MPB', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_RAP', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_FORRO', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_PISEIRO', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_REGGAE', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_AXE', appliesTo: NIGHTLIFE_CATS },
-  { key: 'GENRE_JAZZ_BLUES', appliesTo: NIGHTLIFE_CATS },
   { key: 'GENRE_INDIE', appliesTo: NIGHTLIFE_CATS },
-]
+  { key: 'GENRE_HOUSE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_TECH_HOUSE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_TECHNO', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_PSYTRANCE', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_DNB', appliesTo: NIGHTLIFE_CATS },
+  { key: 'GENRE_EDM', appliesTo: NIGHTLIFE_CATS },
+] as const satisfies readonly Genre[]
 
-const GENRE_LABELS: Record<string, Record<string, string>> = {
-  'pt-BR': {
-    GENRE_SERTANEJO: 'Sertanejo',
-    GENRE_FUNK: 'Funk',
-    GENRE_PAGODE_SAMBA: 'Pagode e samba',
-    GENRE_ROCK: 'Rock',
-    GENRE_POP: 'Pop',
-    GENRE_ELETRONICA: 'Eletrônica',
-    GENRE_MPB: 'MPB',
-    GENRE_RAP: 'Rap e hip-hop',
-    GENRE_FORRO: 'Forró',
-    GENRE_PISEIRO: 'Piseiro',
-    GENRE_REGGAE: 'Reggae',
-    GENRE_AXE: 'Axé',
-    GENRE_JAZZ_BLUES: 'Jazz e blues',
-    GENRE_INDIE: 'Indie e alternativo',
-  },
-}
+export type GenreKey = (typeof GENRES)[number]['key']
 
 export const GENRE_KEYS = GENRES.map((g) => g.key)
 
@@ -66,11 +62,10 @@ export type GenreOption = {
 }
 
 /** Gêneros com rótulo no locale pedido (fallback pt-BR) + categorias a que se aplicam. */
-export function listGenres(locale: string = DEFAULT_LOCALE): GenreOption[] {
-  const labels = GENRE_LABELS[locale] ?? GENRE_LABELS[DEFAULT_LOCALE]
+export function listGenres(locale: Locale = DEFAULT_LOCALE): GenreOption[] {
   return GENRES.map((g) => ({
     value: g.key,
-    label: labels[g.key] ?? g.key,
+    label: t(`genres.${g.key}`, locale),
     appliesTo: g.appliesTo,
   }))
 }

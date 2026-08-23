@@ -257,15 +257,15 @@ describe('findUsersToNotifyNearEvent', () => {
 
   it('notifica por subcategoria preferida mesmo sem casar a categoria', async () => {
     const author = await makeUser()
-    // Sem preferência de categoria; só o interesse fino (PARTY_BALADA).
+    // Sem preferência de categoria; só o interesse fino (NIGHTLIFE_BALADA).
     const subFan = await makeNotifiableUser({ category: null })
-    await makeUserSubcategoryPreference(subFan.id, 'PARTY_BALADA')
+    await makeUserSubcategoryPreference(subFan.id, 'NIGHTLIFE_BALADA')
     // Quem não compartilha nem categoria nem subcategoria fica de fora.
     const unrelated = await makeNotifiableUser({ category: null })
     await makeUserSubcategoryPreference(unrelated.id, 'NIGHTLIFE_BAR')
 
     const ids = await findUsersToNotifyNearEvent(
-      { ...EVENT, subcategories: ['PARTY_BALADA'], authorId: author.id },
+      { ...EVENT, subcategories: ['NIGHTLIFE_BALADA'], authorId: author.id },
       SCAN,
     )
     expect(ids).toContain(subFan.id)
@@ -296,7 +296,7 @@ describe('findUsersToNotifyNearEvent', () => {
     expect(ids).not.toContain(unrelated.id)
   })
 
-  it('exclui sem categoria, sem consentimentos, velho, sem localização, bloqueado e o autor', async () => {
+  it('exclui sem categoria, sem consentimento de localização, velho, sem localização, bloqueado e o autor', async () => {
     // O autor é totalmente elegível (perto + categoria + consent) — mas nunca
     // recebe a notificação da própria criação.
     const author = await makeNotifiableUser()
@@ -316,7 +316,9 @@ describe('findUsersToNotifyNearEvent', () => {
     const ids = await scan(author.id)
     expect(ids).not.toContain(author.id)
     expect(ids).not.toContain(noCategory.id)
-    expect(ids).not.toContain(noPush.id)
+    // Sem push ainda é selecionado: o in-app é para todos e o push é filtrado
+    // na entrega (deliverNotifications).
+    expect(ids).toContain(noPush.id)
     expect(ids).not.toContain(noLocConsent.id)
     expect(ids).not.toContain(stale.id)
     expect(ids).not.toContain(noLocation.id)
@@ -332,7 +334,7 @@ describe('findUsersToNotifyNearEvent', () => {
 describe('findUsersToNotifyNearSpot — preferência de 2 níveis na descoberta', () => {
   const spotTarget = (creatorId: string) => ({
     ...EVENT, // categories: ['MUSIC']
-    subcategories: ['PARTY_BALADA'],
+    subcategories: ['NIGHTLIFE_BALADA'],
     authorId: creatorId,
     visibility: 'PUBLIC' as const,
   })
@@ -341,7 +343,7 @@ describe('findUsersToNotifyNearSpot — preferência de 2 níveis na descoberta'
     const creator = await makeUser()
     // Prefere a SUBcategoria do spot (não a categoria) → audiência, não descoberta.
     const subFan = await makeNotifiableUser({ category: 'SPORTS' })
-    await makeUserSubcategoryPreference(subFan.id, 'PARTY_BALADA')
+    await makeUserSubcategoryPreference(subFan.id, 'NIGHTLIFE_BALADA')
     // Não prefere nem categoria nem subcategoria → alvo legítimo de descoberta.
     const neutral = await makeNotifiableUser({ category: 'SPORTS' })
 
@@ -356,7 +358,7 @@ describe('findUsersToNotifyNearSpot — preferência de 2 níveis na descoberta'
   it('audiência INCLUI quem prefere a subcategoria do spot (subPref cobre)', async () => {
     const creator = await makeUser()
     const subFan = await makeNotifiableUser({ category: 'SPORTS' })
-    await makeUserSubcategoryPreference(subFan.id, 'PARTY_BALADA')
+    await makeUserSubcategoryPreference(subFan.id, 'NIGHTLIFE_BALADA')
     const neutral = await makeNotifiableUser({ category: 'SPORTS' })
 
     const ids = await findUsersToNotifyNearSpot(spotTarget(creator.id), SCAN, {

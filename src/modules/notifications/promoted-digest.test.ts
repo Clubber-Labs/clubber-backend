@@ -124,8 +124,7 @@ describe('runPromotedDigest', () => {
         userId: user.id,
         type: 'EVENT_NEARBY',
         eventId: previous.id,
-        title: 'x',
-        body: 'x',
+        params: { eventTitle: 'x', promoted: true },
         dedupeKey: `EVENT_NEARBY:promoted:${previous.id}`,
       },
     })
@@ -149,7 +148,7 @@ describe('runPromotedDigest', () => {
     expect(second.notified).toBe(0)
   })
 
-  it('ignora usuário sem consentimento de push', async () => {
+  it('sem consent de push: cria o in-app curado, sem enviar push', async () => {
     const user = await makeEligibleUser()
     await testPrisma.userConsent.update({
       where: { userId: user.id },
@@ -160,7 +159,9 @@ describe('runPromotedDigest', () => {
 
     const { notified } = await runPromotedDigest(new Date())
 
-    expect(notified).toBe(0)
+    expect(notified).toBe(1)
+    expect(await promotedNotifications(user.id)).toHaveLength(1)
+    expect(fakePush.sent).toHaveLength(0)
   })
 
   it('ignora usuário inativo (lastSeenAt antigo)', async () => {
