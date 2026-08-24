@@ -54,9 +54,13 @@ devem ficar expostos à internet.
 
 > **A KEK não tem recuperação.** Perdê-la torna todo o histórico de chat
 > ciphertext inútil — não há reset, backup de conveniência nem caminho de
-> suporte, ao contrário do `JWT_SECRET` (que só invalida sessões) ou do segredo
-> de MFA (que o usuário recadastra). Guarde-a no gerenciador de segredos, com
-> backup próprio e versionado, **fora** do arquivo de env da máquina.
+> suporte. É a única variável deste arquivo com essa propriedade: perder o
+> `JWT_SECRET` derruba as sessões **e** torna todo `mfaSecret` indecifrável
+> (a chave de cifra do MFA é derivada dele via HKDF, ver `src/lib/mfa.ts`),
+> mas dali o usuário recadastra o MFA — da KEK não se volta. Guarde-a no
+> gerenciador de segredos, com backup próprio e versionado, **fora** do
+> arquivo de env da máquina. O procedimento completo de geração, custódia e
+> rotação está em [docs/GESTAO_DE_CHAVES.md](docs/GESTAO_DE_CHAVES.md).
 >
 > Rotação: gere a `CHAT_KEK_V2`, **mantenha a V1 no ambiente**, aponte
 > `CHAT_KEK_ACTIVE_VERSION=2` e só remova a V1 quando o reconciler de rewrap
@@ -187,10 +191,16 @@ o código da aplicação, não o estado do schema.
       *Docker Image* do Coolify (login com PAT/token com escopo `read:packages`
       contra `ghcr.io`), para o Coolify conseguir puxar a imagem publicada
       pelo workflow.
+- [ ] **Gerar a KEK do chat e guardá-la ANTES de cadastrar** — `openssl rand
+      -base64 32`, uma chave distinta por ambiente, guardada nas três cópias
+      previstas em [docs/GESTAO_DE_CHAVES.md](docs/GESTAO_DE_CHAVES.md)
+      (cofre, Coolify, break-glass offline). É o único segredo daqui sem
+      recuperação: cadastrar sem ter guardado é apostar o histórico de chat
+      inteiro na sobrevivência do painel do Coolify.
 - [ ] **Preencher todas as variáveis de ambiente** da seção 1 — checar em
-      especial as obrigatórias de produção (1.1 e 1.2) e as credenciais
-      Cloudinary `_PROD` (1.3), já que a ausência delas só quebra em runtime,
-      não no boot.
+      especial as obrigatórias de produção (1.1 e 1.2) e as credenciais R2
+      `_PROD` (1.3), já que a ausência delas só quebra em runtime, não no
+      boot.
 - [ ] **Configurar o webhook de deploy do Coolify** como último step do
       workflow do GitHub Actions.
 - [ ] **Disparar o primeiro deploy e acompanhar o log do `prisma migrate
