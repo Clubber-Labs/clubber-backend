@@ -68,8 +68,8 @@ devem ficar expostos à internet.
 
 ### 1.2. Obrigatórias condicionalmente em produção (`NODE_ENV=production`)
 
-Validadas pelos `.refine(...)` no fim do schema (`src/lib/env.ts:359-408`).
-Falha de boot, não degradação silenciosa.
+Validadas pelos `.refine(...)` no fim do schema (`src/lib/env.ts`, bloco de
+refines depois do `baseSchema`). Falha de boot, não degradação silenciosa.
 
 | Variável | Obrigatória quando | Descrição |
 |---|---|---|
@@ -77,6 +77,7 @@ Falha de boot, não degradação silenciosa.
 | `EMAIL_DRIVER` | Sempre em produção (não pode ser `log`) | Driver de envio de e-mail. `log` só imprime o OTP no terminal — proibido em prod (vazaria o código de reset de senha nos logs). Definir `resend`. |
 | `RESEND_API_KEY` | Quando `EMAIL_DRIVER=resend` | Chave da API do Resend. Como produção exige `EMAIL_DRIVER=resend`, esta chave é obrigatória em produção por consequência. |
 | `REDIS_URL` | Quando `NOTIFICATIONS_ENABLED=true` em produção | A fila de notificações (BullMQ) roda sobre o Redis. Sem ela, o fan-out falharia silenciosamente — por isso o boot barra. Aponte para o hostname interno do recurso Redis. |
+| `REDIS_URL` (esquema TLS) | Em produção, **quando o host for externo** | O realtime publica a mensagem **já decifrada** no pub/sub, então o texto em claro atravessa o Redis. Host interno (nome de serviço do Coolify como `redis-service`, loopback ou IP privado) segue aceitando `redis://` — o tráfego não sai da máquina. Host externo (FQDN público, Redis gerenciado) exige `rediss://`, senão o boot falha. |
 | `METRICS_TOKEN` | Quando `METRICS_ENABLED=true` (default) em produção | Token Bearer exigido em `/metrics`. Sem ele, o endpoint exporia rotas/tráfego sem autenticação — boot falha. Alternativa: `METRICS_ENABLED=false`. |
 
 ### 1.3. Obrigatórias por uso de feature (não validadas no boot — falham em runtime)
@@ -116,6 +117,10 @@ específica de ajuste.
 | `UPLOADS_DIR` | `./uploads` | Só relevante com `STORAGE_DRIVER=local`. |
 | `R2_PUBLIC_BASE_URL_DEV` / `_PROD` | — | Public Development URL do bucket (`https://pub-xxxx.r2.dev`) em dev, ou custom domain em prod. Só relevante com `STORAGE_DRIVER=r2` (ver 1.3). |
 | `CHAT_USER_STORAGE_QUOTA_BYTES` | `1073741824` (1 GB) | Cota de mídia de chat por usuário. |
+| `CHAT_PUSH_PREVIEW_ENABLED` | `true` | Se o push de chat leva o texto decifrado da mensagem. `false` faz o worker nem decifrar e o push virar só "nova mensagem" — botão para cortar o vazamento de conteúdo para APNs/FCM sem deploy. |
+| `CHAT_EVIDENCE_CONTEXT_BEFORE` / `_AFTER` | `10` / `3` | Mensagens de contexto capturadas antes e depois da denunciada no snapshot da denúncia. |
+| `CHAT_EVIDENCE_RETENTION_DAYS` | `180` | Prazo até o expurgo da prova e da mídia retida. Sem prazo, o snapshot vira arquivo eterno de conversa privada. |
+| `CHAT_EVIDENCE_CLEANUP_INTERVAL_MS` / `CHAT_EVIDENCE_CLEANUP_ENABLED` | `3600000` / `true` | Reconciler que aplica a retenção acima. |
 | `EMAIL_FROM` | `Clubber <no-reply@clubber.app>` | Remetente dos e-mails transacionais. |
 | `PASSWORD_RESET_CODE_TTL_MINUTES` | `15` | Validade do OTP de recuperação. |
 | `PASSWORD_RESET_MAX_ATTEMPTS` | `5` | Tentativas por código. |

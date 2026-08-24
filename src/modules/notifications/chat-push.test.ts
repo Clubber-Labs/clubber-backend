@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { __resetDekCache } from '../../lib/crypto/dek-cache'
+import { env } from '../../lib/env'
 import {
   makeBlock,
   makeDirectConversation,
@@ -30,8 +32,22 @@ function markDelivered(conversationId: string, userId: string, at: Date) {
   })
 }
 
+/**
+ * `env` é `as const`; o cast é o preço de exercitar a flag sem recarregar o
+ * módulo (ela é lida a cada push, não capturada no import).
+ */
+function setPreviewFlag(enabled: boolean) {
+  ;(
+    env as unknown as { CHAT_PUSH_PREVIEW_ENABLED: boolean }
+  ).CHAT_PUSH_PREVIEW_ENABLED = enabled
+}
+
 beforeEach(() => {
   fakePush.reset()
+})
+
+afterEach(() => {
+  setPreviewFlag(true)
 })
 
 describe('runChatMessagePush — DM', () => {
@@ -55,6 +71,29 @@ describe('runChatMessagePush — DM', () => {
         messageId: message.id,
       },
     })
+  })
+
+  // O push sai com delay e pode cair numa instância cujo cache de DEK não tem a
+  // chave (TTL vencido, restart, outro nó): o worker precisa saber desembrulhar
+  // do banco. Se a KEK faltar no ambiente, é este teste que quebra.
+  it('decifra o preview com o cache de DEK frio', async () => {
+    const sender = await makeUser()
+    const recipient = await makePushableUser()
+    const convo = await makeDirectConversation(sender.id, recipient.id)
+    const message = await makeMessage(convo.id, sender.id, {
+      content: 'texto cifrado no banco',
+    })
+
+    const row = await testPrisma.message.findUniqueOrThrow({
+      where: { id: message.id },
+    })
+    expect(row.content).toBeNull()
+    expect(row.contentCipher).not.toBeNull()
+
+    __resetDekCache()
+    await runChatMessagePush(message.id)
+
+    expect(fakePush.sent[0]).toMatchObject({ body: 'texto cifrado no banco' })
   })
 
   it('pula quem já recebeu via socket (lastDeliveredAt cobre a mensagem)', async () => {
@@ -182,6 +221,46 @@ describe('runChatMessagePush — DM', () => {
 
     await runChatMessagePush(message.id)
     expect(fakePush.sent[0].body).toBe('📷 Foto')
+  })
+
+  it('com o preview desligado não manda o texto e nem decifra', async () => {
+    const sender = await makeUser()
+    const recipient = await makePushableUser()
+    const convo = await makeDirectConversation(sender.id, recipient.id)
+    const message = await makeMessage(convo.id, sender.id, {
+      content: 'endereço da festa',
+    })
+
+    setPreviewFlag(false)
+    __resetDekCache()
+    await runChatMessagePush(message.id)
+
+    expect(fakePush.sent[0].body).toBe('Nova mensagem')
+    // O que sai para APNs/FCM é o payload inteiro, não só o corpo.
+    expect(JSON.stringify(fakePush.sent)).not.toContain('endereço da festa')
+  })
+
+  it('com o preview desligado esconde também o tipo do anexo', async () => {
+    const sender = await makeUser()
+    const recipient = await makePushableUser()
+    const convo = await makeDirectConversation(sender.id, recipient.id)
+    const message = await makeMessage(convo.id, sender.id, { content: null })
+    await testPrisma.messageAttachment.create({
+      data: {
+        messageId: message.id,
+        kind: 'IMAGE',
+        url: 'https://cdn.test/img.jpg',
+        key: 'chat/img',
+        format: 'jpg',
+        size: 1024,
+        order: 0,
+      },
+    })
+
+    setPreviewFlag(false)
+    await runChatMessagePush(message.id)
+
+    expect(fakePush.sent[0].body).toBe('Nova mensagem')
   })
 })
 

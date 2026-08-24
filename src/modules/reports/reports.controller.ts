@@ -1,4 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { extractRequestMeta } from '../../lib/request-meta'
+import { readReportEvidence } from './report-evidence.service'
 import type {
   CreateReportBody,
   ListReportsQuery,
@@ -39,6 +41,19 @@ export async function getReportById(
   const { id } = request.params as ReportParams
   const report = await getReport(id, request.user.sub)
   return reply.send(report)
+}
+
+export async function getReportEvidence(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as ReportParams
+  const evidence = await readReportEvidence(
+    id,
+    request.user.sub,
+    extractRequestMeta(request),
+  )
+  return reply.send(evidence)
 }
 
 export async function postEventReport(

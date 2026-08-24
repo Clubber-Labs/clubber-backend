@@ -68,6 +68,7 @@ import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { startRecurringEventsReconciler } from './modules/recurring-events/recurring-events.reconciler'
 import { recurringEventsRoutes } from './modules/recurring-events/recurring-events.routes'
+import { startReportEvidenceReconciler } from './modules/reports/report-evidence.reconciler'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { spotsRoutes } from './modules/spots/spots.routes'
@@ -282,6 +283,9 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   }
   if (env.NODE_ENV !== 'test' && env.SUSPENSION_RECONCILE_ENABLED) {
     startSuspensionReconciler(env.SUSPENSION_RECONCILE_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.CHAT_EVIDENCE_CLEANUP_ENABLED) {
+    startReportEvidenceReconciler(env.CHAT_EVIDENCE_CLEANUP_INTERVAL_MS)
   }
   // Repopula a denylist de moderação a partir do banco (sobrevive a restart /
   // flush do Redis). Best-effort: falha não impede o boot.

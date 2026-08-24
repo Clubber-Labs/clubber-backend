@@ -1,5 +1,7 @@
+import { env } from '../../lib/env'
 import type { Locale } from '../../lib/i18n/locale'
 import { t } from '../../lib/i18n/translate'
+import { hydrateMessage } from '../chat/chat.crypto'
 import {
   findChatPushRecipientUserIds,
   findMessageForPush,
@@ -27,6 +29,9 @@ type PushableMessage = NonNullable<
 >
 
 function preview(message: PushableMessage, locale: Locale) {
+  // Flag desligada: nada do conteúdo sai daqui — nem o texto, nem o tipo do
+  // anexo. Um único significado para o botão, e o worker sequer decifrou.
+  if (!env.CHAT_PUSH_PREVIEW_ENABLED) return t('chatPush.emptyPreview', locale)
   const text = message.content?.trim()
   if (text) return truncate(text)
   const kind = message.attachments[0]?.kind
@@ -70,6 +75,11 @@ export async function runChatMessagePush(
   // Apagada durante o delay ou de sistema: nada a notificar.
   if (!message || message.deletedAt || message.type === 'SYSTEM') {
     return { sent: 0 }
+  }
+  // Só decifra se o preview for sair: com a flag desligada o texto em claro não
+  // chega nem a existir em memória neste processo.
+  if (env.CHAT_PUSH_PREVIEW_ENABLED) {
+    await hydrateMessage(message)
   }
   const recipients = await findChatPushRecipientUserIds(
     message.conversationId,

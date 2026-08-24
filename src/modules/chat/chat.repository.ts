@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
+import type { EncryptedContent } from './chat.crypto'
 
 const userSelect = {
   id: true,
@@ -36,7 +37,12 @@ const messageInclude = {
     select: {
       id: true,
       senderId: true,
+      // content/contentCipher/contentKeyVersion: a leitura dual do preview é
+      // resolvida pelo hydrateMessages junto com a da mensagem — mesma conversa,
+      // mesma DEK, custo zero.
       content: true,
+      contentCipher: true,
+      contentKeyVersion: true,
       deletedAt: true,
       sender: { select: userSelect },
     },
@@ -58,6 +64,51 @@ const activeParticipantsInclude = {
 /** Chave determinística do par DIRECT (uuids ordenados). */
 export function directKeyFor(a: string, b: string) {
   return [a, b].sort().join(':')
+}
+
+// ── Chaves de conversa (envelope encryption) ─────────────────────────────────
+// Persistem bytes opacos: quem envelopa/desembrulha é o chat.crypto.
+
+const conversationKeySelect = {
+  version: true,
+  wrappedDek: true,
+  kekVersion: true,
+} as const
+
+/** Chave vigente: a de maior versão ainda não aposentada. */
+export async function findActiveConversationKey(conversationId: string) {
+  return prisma.conversationKey.findFirst({
+    where: { conversationId, retiredAt: null },
+    orderBy: { version: 'desc' },
+    select: conversationKeySelect,
+  })
+}
+
+/** Versão específica — mensagem antiga aponta para a chave com que foi cifrada. */
+export async function findConversationKey(
+  conversationId: string,
+  version: number,
+) {
+  return prisma.conversationKey.findUnique({
+    where: { conversationId_version: { conversationId, version } },
+    select: conversationKeySelect,
+  })
+}
+
+export async function createConversationKey(
+  conversationId: string,
+  version: number,
+  wrapped: { kekVersion: number; blob: Buffer },
+) {
+  return prisma.conversationKey.create({
+    data: {
+      conversationId,
+      version,
+      wrappedDek: new Uint8Array(wrapped.blob),
+      kekVersion: wrapped.kekVersion,
+    },
+    select: conversationKeySelect,
+  })
 }
 
 export async function findUserBrief(id: string) {
@@ -248,7 +299,7 @@ export async function listInboxConversations(
 export async function createTextMessage(
   conversationId: string,
   senderId: string,
-  content: string,
+  content: EncryptedContent,
   replyToId?: string,
   idempotencyKey?: string,
 ) {
@@ -257,7 +308,9 @@ export async function createTextMessage(
       data: {
         conversationId,
         senderId,
-        content,
+        // `content` (plaintext) fica nulo: só o legado pré-backfill o preenche.
+        contentCipher: content.cipher,
+        contentKeyVersion: content.keyVersion,
         replyToId: replyToId ?? null,
         idempotencyKey: idempotencyKey ?? null,
       },
@@ -312,7 +365,7 @@ export class QuotaExceededError extends Error {
 export async function createAttachmentMessage(
   conversationId: string,
   senderId: string,
-  content: string | null,
+  content: EncryptedContent | null,
   attachment: AttachmentInput,
   idempotencyKey: string | undefined,
   maxBytes: number,
@@ -336,7 +389,8 @@ export async function createAttachmentMessage(
       data: {
         conversationId,
         senderId,
-        content,
+        contentCipher: content?.cipher ?? null,
+        contentKeyVersion: content?.keyVersion ?? null,
         idempotencyKey: idempotencyKey ?? null,
         attachments: {
           create: [
@@ -424,7 +478,11 @@ export async function findMessageById(id: string) {
       conversationId: true,
       senderId: true,
       type: true,
+      // Os três juntos: o service decide "é mensagem de texto?" (editável) pela
+      // ausência de AMBOS — plaintext legado e ciphertext.
       content: true,
+      contentCipher: true,
+      contentKeyVersion: true,
       deletedAt: true,
     },
   })
@@ -438,11 +496,19 @@ export async function findMessageById(id: string) {
 export async function createSystemMessage(
   conversationId: string,
   actorId: string,
-  content: string,
+  content: EncryptedContent,
 ) {
   const [message] = await prisma.$transaction([
     prisma.message.create({
-      data: { conversationId, senderId: actorId, content, type: 'SYSTEM' },
+      // Mensagem de sistema TAMBÉM cifra: ela carrega nomes de usuários, que em
+      // claro no dump anulariam metade do ganho.
+      data: {
+        conversationId,
+        senderId: actorId,
+        contentCipher: content.cipher,
+        contentKeyVersion: content.keyVersion,
+        type: 'SYSTEM',
+      },
       include: messageInclude,
     }),
     prisma.conversation.update({
@@ -457,13 +523,23 @@ export async function createSystemMessage(
   return message
 }
 
-export async function editMessageContent(id: string, content: string) {
+export async function editMessageContent(
+  id: string,
+  content: EncryptedContent,
+) {
   // `deletedAt: null` no where torna a edição atômica: se um DELETE concorrente
   // apagar a mensagem entre o check do service e aqui, o update não encontra a
   // linha e lança P2025 (tratado no service) — em vez de editar um tombstone.
   return prisma.message.update({
     where: { id, deletedAt: null },
-    data: { content, editedAt: new Date() },
+    data: {
+      contentCipher: content.cipher,
+      contentKeyVersion: content.keyVersion,
+      // Zera o plaintext legado: editar uma mensagem pré-backfill não pode
+      // deixar a versão antiga em claro na linha.
+      content: null,
+      editedAt: new Date(),
+    },
     include: messageInclude,
   })
 }
@@ -500,6 +576,92 @@ export async function findMessageWithConversation(id: string) {
 
 /** Anexos (key + kind + thumbnailKey) de uma mensagem — para limpar o storage
  * ao apagá-la (vídeo tem um poster em key própria). */
+/**
+ * Conversa com TODOS os participantes, inclusive os que saíram — ao contrário
+ * de findConversationWithParticipants, que filtra `leftAt: null`. Num snapshot
+ * de denúncia, quem saiu do grupo depois de agredir é exatamente quem precisa
+ * constar.
+ */
+export async function findConversationForEvidence(id: string) {
+  return prisma.conversation.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      type: true,
+      title: true,
+      participants: {
+        orderBy: [{ joinedAt: 'asc' as const }, { userId: 'asc' as const }],
+        select: {
+          userId: true,
+          leftAt: true,
+          user: { select: { username: true } },
+        },
+      },
+    },
+  })
+}
+
+/**
+ * Janela de contexto ao redor de uma mensagem, para o snapshot de denúncia.
+ * Ordena por (createdAt, id) — o mesmo par estável usado no resto do módulo,
+ * porque createdAt sozinho empata em envios simultâneos.
+ *
+ * Traz mensagens apagadas de propósito: o snapshot registra o que existia no
+ * instante da denúncia, e `deletedAt` acompanha cada linha.
+ */
+export async function findMessagesAround(
+  conversationId: string,
+  messageId: string,
+  before: number,
+  after: number,
+) {
+  const pivot = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: { createdAt: true },
+  })
+  if (!pivot) return []
+
+  const olderThanPivot = {
+    conversationId,
+    OR: [
+      { createdAt: { lt: pivot.createdAt } },
+      { createdAt: pivot.createdAt, id: { lt: messageId } },
+    ],
+  }
+  const newerThanPivot = {
+    conversationId,
+    OR: [
+      { createdAt: { gt: pivot.createdAt } },
+      { createdAt: pivot.createdAt, id: { gt: messageId } },
+    ],
+  }
+
+  const [antes, alvo, depois] = await Promise.all([
+    before === 0
+      ? []
+      : prisma.message.findMany({
+          where: olderThanPivot,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: before,
+          include: messageInclude,
+        }),
+    prisma.message.findMany({
+      where: { id: messageId },
+      include: messageInclude,
+    }),
+    after === 0
+      ? []
+      : prisma.message.findMany({
+          where: newerThanPivot,
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: after,
+          include: messageInclude,
+        }),
+  ])
+
+  return [...antes.reverse(), ...alvo, ...depois]
+}
+
 export async function findMessageAttachments(messageId: string) {
   return prisma.messageAttachment.findMany({
     where: { messageId },

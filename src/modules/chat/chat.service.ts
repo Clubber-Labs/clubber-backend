@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream'
 import { env } from '../../lib/env'
 import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
+import { isRecordNotFound, isUniqueViolation } from '../../lib/prisma-errors'
 import { realtime } from '../../lib/realtime'
 import { getStorage } from '../../lib/storage'
 import {
@@ -19,6 +20,7 @@ import {
   assertAdmin,
   assertReachable,
 } from './chat.access'
+import { encryptContent, hydrateMessage, hydrateMessages } from './chat.crypto'
 import {
   addMessageReaction,
   clearConversationForParticipant,
@@ -60,22 +62,6 @@ type ConversationRow = NonNullable<
   Awaited<ReturnType<typeof findConversationWithParticipants>>
 >
 type InboxRow = Awaited<ReturnType<typeof listInboxConversations>>[number]
-
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: string }).code === 'P2002'
-  )
-}
-
-function isRecordNotFound(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: string }).code === 'P2025'
-  )
-}
 
 function shapeParticipants(participants: ConversationRow['participants']) {
   return participants.map((p) => ({
@@ -234,11 +220,24 @@ async function emitSystemMessage(
   content: string,
 ) {
   try {
-    const message = await createSystemMessage(conversationId, actorId, content)
+    const encrypted = await encryptContent(conversationId, content)
+    const message = await createSystemMessage(
+      conversationId,
+      actorId,
+      encrypted,
+    )
     const participantIds = await findActiveParticipantUserIds(conversationId)
-    await publishMessage(conversationId, participantIds, message)
-  } catch {
-    // best-effort: a ação principal já foi confirmada
+    await publishMessage(
+      conversationId,
+      participantIds,
+      await hydrateMessage(message),
+    )
+  } catch (err) {
+    // best-effort: a ação principal já foi confirmada. Mas LOGA — engolir em
+    // silêncio esconderia uma falha de chave, que é sintoma grave.
+    logger.error(
+      `Falha ao emitir mensagem de sistema em ${conversationId}: ${(err as Error).message}`,
+    )
   }
 }
 
@@ -301,6 +300,9 @@ export async function listInbox(
   cursor?: string,
 ) {
   const conversations = await listInboxConversations(userId, limit, cursor)
+  // Um lote só para o inbox inteiro: N conversas = N unwraps (quase todos em
+  // cache), não um por mensagem.
+  await hydrateMessages(conversations.flatMap((c) => c.messages))
   const unread = await unreadCounts(
     userId,
     conversations.map((c) => c.id),
@@ -332,6 +334,7 @@ export async function listMessages(
 ) {
   await assertActiveParticipant(conversationId, userId)
   const messages = await findConversationMessages(conversationId, limit, cursor)
+  await hydrateMessages(messages)
   const nextCursor =
     messages.length === limit ? messages[messages.length - 1].id : null
   return { data: messages.map(shapeMessage), nextCursor }
@@ -353,7 +356,7 @@ async function findIdempotentMessage(
     userId,
     idempotencyKey,
   )
-  return existing ? shapeMessage(existing) : null
+  return existing ? shapeMessage(await hydrateMessage(existing)) : null
 }
 
 /**
@@ -381,7 +384,7 @@ async function resolveIdempotencyConflict(
     userId,
     idempotencyKey,
   )
-  return existing ? shapeMessage(existing) : null
+  return existing ? shapeMessage(await hydrateMessage(existing)) : null
 }
 
 export async function sendTextMessage(
@@ -406,12 +409,13 @@ export async function sendTextMessage(
       throw new AppError(400, 'INVALID_REPLY_MESSAGE')
     }
   }
+  const encrypted = await encryptContent(conversationId, content)
   let message: MessageRow
   try {
     message = await createTextMessage(
       conversationId,
       userId,
-      content,
+      encrypted,
       replyToId,
       idempotencyKey,
     )
@@ -425,6 +429,7 @@ export async function sendTextMessage(
     if (dup) return dup
     throw err
   }
+  await hydrateMessage(message)
   await publishMessage(conversationId, participantIds, message)
   return shapeMessage(message)
 }
@@ -747,12 +752,15 @@ export async function editMessage(
   if (message.deletedAt !== null) {
     throw new AppError(403, 'MESSAGE_DELETED')
   }
-  if (message.content === null) {
+  // Mídia não é editável. Depois da cifra a ausência de texto só se prova pelas
+  // DUAS colunas: a nova grava em contentCipher e deixa content nulo.
+  if (message.content === null && message.contentCipher === null) {
     throw new AppError(403, 'MESSAGE_NOT_EDITABLE')
   }
+  const encrypted = await encryptContent(conversationId, content)
   let updated: MessageRow
   try {
-    updated = await editMessageContent(messageId, content)
+    updated = await editMessageContent(messageId, encrypted)
   } catch (err) {
     // Corrida: um DELETE concorrente apagou a mensagem (P2025). Mesmo contrato
     // do check de deletedAt acima — não edita tombstone.
@@ -761,6 +769,7 @@ export async function editMessage(
     }
     throw err
   }
+  await hydrateMessage(updated)
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }
@@ -795,6 +804,7 @@ export async function reactToMessage(
   if (!updated) {
     throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
+  await hydrateMessage(updated)
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }
@@ -817,6 +827,7 @@ export async function removeReaction(
   if (!updated) {
     throw new AppError(404, 'MESSAGE_NOT_FOUND')
   }
+  await hydrateMessage(updated)
   await publishEditedMessage(conversationId, updated)
   return shapeMessage(updated)
 }

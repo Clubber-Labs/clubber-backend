@@ -2,6 +2,32 @@ import path from 'node:path'
 import { z } from 'zod'
 
 // Envelope encryption do chat: uma KEK por versão, em base64 de 32 bytes.
+const PRIVATE_IPV4 =
+  /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/
+
+/**
+ * Host do Redis que não sai da máquina/rede interna: nome de serviço de um
+ * único rótulo (DNS interno do Docker/Coolify, ex. `redis-service`), loopback
+ * ou IP privado. Qualquer outra coisa é tratada como externa — inclusive URL
+ * que não parseia, para o caso duvidoso exigir TLS em vez de liberar.
+ */
+export function isInternalRedisHost(url: string): boolean {
+  let host: string
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return false
+  }
+  const bare = host.startsWith('[') ? host.slice(1, -1) : host
+  // `new URL('redis://')` não lança: devolve host vazio. Sem esta guarda ele
+  // cairia na regra do rótulo único e passaria por interno.
+  if (!bare) return false
+  if (bare === 'localhost' || bare === '::1') return true
+  if (PRIVATE_IPV4.test(bare)) return true
+  // Sem ponto = rótulo único, que só resolve dentro da rede do compose.
+  return !bare.includes('.')
+}
+
 const CHAT_KEK_BYTES = 32
 const CHAT_KEK_MAX_VERSION = 2
 
@@ -287,6 +313,32 @@ const baseSchema = z.object({
     .min(1)
     .max(CHAT_KEK_MAX_VERSION)
     .default(1),
+  // O preview do push carrega o texto DECIFRADO da mensagem para APNs/FCM, que
+  // estão fora do nosso perímetro. Desligar faz o worker nem decifrar: o push
+  // vira só "nova mensagem". É o botão para cortar esse vazamento sem deploy.
+  CHAT_PUSH_PREVIEW_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Contexto capturado no snapshot da denúncia. Assédio e ameaça se avaliam pelo
+  // que PRECEDE a mensagem — uma frase isolada pode ser resposta legítima a uma
+  // agressão anterior. 10 cobre uma troca típica sem virar exportação da
+  // conversa (minimização LGPD); o "depois" é pequeno e costuma vir vazio no
+  // instante da denúncia, existindo para capturar a réplica imediata.
+  CHAT_EVIDENCE_CONTEXT_BEFORE: z.coerce.number().int().min(0).default(10),
+  CHAT_EVIDENCE_CONTEXT_AFTER: z.coerce.number().int().min(0).default(3),
+  // Retenção da prova. Sem prazo, o snapshot vira arquivo eterno de conversa
+  // privada — é o reconciler que fecha o ciclo do Art. 16 da LGPD.
+  CHAT_EVIDENCE_RETENTION_DAYS: z.coerce.number().int().positive().default(180),
+  CHAT_EVIDENCE_CLEANUP_INTERVAL_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(3600000),
+  CHAT_EVIDENCE_CLEANUP_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   // Exclusão de conta (soft-delete): carência antes da anonimização, intervalo
   // do reconciler que processa as exclusões agendadas, e flag liga/desliga.
   ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(30),
@@ -437,6 +489,24 @@ const parsed = baseSchema
       path: ['REDIS_URL'],
       message:
         'REDIS_URL é obrigatório quando NOTIFICATIONS_ENABLED=true em produção (a fila de notificações precisa do Redis).',
+    },
+  )
+  // O realtime publica a mensagem JÁ DECIFRADA no pub/sub: o texto em claro
+  // atravessa o Redis. Exigimos TLS quando esse tráfego SAI da máquina — dentro
+  // da rede interna do Coolify (nome de serviço, loopback, IP privado) ele não
+  // passa por rede não confiável, e exigir TLS ali só quebraria o deploy.
+  .refine(
+    (v) =>
+      !(
+        v.NODE_ENV === 'production' &&
+        v.REDIS_URL &&
+        !v.REDIS_URL.startsWith('rediss://') &&
+        !isInternalRedisHost(v.REDIS_URL)
+      ),
+    {
+      path: ['REDIS_URL'],
+      message:
+        'REDIS_URL aponta para um host externo e precisa usar rediss:// em produção: o texto decifrado das mensagens trafega pelo pub/sub.',
     },
   )
   // Boot falha em vez de abrir CORS pra qualquer origem em produção: refletir a
@@ -649,6 +719,12 @@ export const env = {
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
   CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
   CHAT_KEK_ACTIVE_VERSION: parsed.CHAT_KEK_ACTIVE_VERSION,
+  CHAT_PUSH_PREVIEW_ENABLED: parsed.CHAT_PUSH_PREVIEW_ENABLED,
+  CHAT_EVIDENCE_CONTEXT_BEFORE: parsed.CHAT_EVIDENCE_CONTEXT_BEFORE,
+  CHAT_EVIDENCE_CONTEXT_AFTER: parsed.CHAT_EVIDENCE_CONTEXT_AFTER,
+  CHAT_EVIDENCE_RETENTION_DAYS: parsed.CHAT_EVIDENCE_RETENTION_DAYS,
+  CHAT_EVIDENCE_CLEANUP_INTERVAL_MS: parsed.CHAT_EVIDENCE_CLEANUP_INTERVAL_MS,
+  CHAT_EVIDENCE_CLEANUP_ENABLED: parsed.CHAT_EVIDENCE_CLEANUP_ENABLED,
   // Mapa versão → KEK já decodificada. Os refines acima garantem que toda chave
   // presente tem 32 bytes e que a ativa existe, então aqui não há caso de erro.
   CHAT_KEKS: ((): ReadonlyMap<number, Buffer> => {

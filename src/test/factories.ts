@@ -3,6 +3,10 @@ import type { Prisma, SocialProvider } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
 import { timezoneForLocation } from '../lib/i18n/timezone'
+import {
+  encryptContent,
+  ensureConversationDek,
+} from '../modules/chat/chat.crypto'
 import { buildSignupConsentData } from '../modules/consent/consent.repository'
 import { testPrisma } from './prisma'
 
@@ -532,19 +536,46 @@ export async function makeGroupConversation(
   })
 }
 
+/**
+ * CIFRA por padrão — de propósito. Se a factory gravasse em `content`, os mais
+ * de cem usos espalhados pelo chat.test.ts exercitariam só o ramo legado da
+ * leitura dual e a cifra ficaria sem cobertura real.
+ *
+ * `legacyPlaintext: true` grava o texto em claro, simulando uma linha anterior
+ * ao backfill: use só nos testes de leitura dual e do próprio backfill.
+ */
 export async function makeMessage(
   conversationId: string,
   senderId: string,
-  overrides: { content?: string | null; createdAt?: Date } = {},
+  overrides: {
+    content?: string | null
+    createdAt?: Date
+    legacyPlaintext?: boolean
+  } = {},
 ) {
+  const content =
+    overrides.content === undefined ? 'Mensagem' : overrides.content
+
+  const cipher =
+    content === null || overrides.legacyPlaintext
+      ? null
+      : await encryptContent(conversationId, content)
+
   return testPrisma.message.create({
     data: {
       conversationId,
       senderId,
-      content: overrides.content === undefined ? 'Mensagem' : overrides.content,
+      content: cipher ? null : content,
+      contentCipher: cipher?.cipher ?? null,
+      contentKeyVersion: cipher?.keyVersion ?? null,
       ...(overrides.createdAt && { createdAt: overrides.createdAt }),
     },
   })
+}
+
+/** Chave de conversa provisionada explicitamente (o envio normal faz sozinho). */
+export async function makeConversationKey(conversationId: string) {
+  return ensureConversationDek(conversationId)
 }
 
 export async function makeBlock(blockerId: string, blockedId: string) {
