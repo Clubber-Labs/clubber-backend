@@ -287,6 +287,13 @@ const baseSchema = z.object({
     .min(1)
     .max(CHAT_KEK_MAX_VERSION)
     .default(1),
+  // O preview do push carrega o texto DECIFRADO da mensagem para APNs/FCM, que
+  // estão fora do nosso perímetro. Desligar faz o worker nem decifrar: o push
+  // vira só "nova mensagem". É o botão para cortar esse vazamento sem deploy.
+  CHAT_PUSH_PREVIEW_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   // Exclusão de conta (soft-delete): carência antes da anonimização, intervalo
   // do reconciler que processa as exclusões agendadas, e flag liga/desliga.
   ACCOUNT_DELETION_GRACE_DAYS: z.coerce.number().int().positive().default(30),
@@ -437,6 +444,22 @@ const parsed = baseSchema
       path: ['REDIS_URL'],
       message:
         'REDIS_URL é obrigatório quando NOTIFICATIONS_ENABLED=true em produção (a fila de notificações precisa do Redis).',
+    },
+  )
+  // O realtime publica a mensagem JÁ DECIFRADA no pub/sub: o texto em claro
+  // atravessa o Redis. Em produção, exigir TLS é o mínimo — sem isso a cifra em
+  // repouso conviveria com o mesmo conteúdo trafegando em claro na rede.
+  .refine(
+    (v) =>
+      !(
+        v.NODE_ENV === 'production' &&
+        v.REDIS_URL &&
+        !v.REDIS_URL.startsWith('rediss://')
+      ),
+    {
+      path: ['REDIS_URL'],
+      message:
+        'REDIS_URL precisa usar rediss:// em produção: o texto decifrado das mensagens trafega pelo pub/sub.',
     },
   )
   // Boot falha em vez de abrir CORS pra qualquer origem em produção: refletir a
@@ -649,6 +672,7 @@ export const env = {
   CLOUDINARY_AUTH_TOKEN_KEY: parsed.CLOUDINARY_AUTH_TOKEN_KEY,
   CHAT_USER_STORAGE_QUOTA_BYTES: parsed.CHAT_USER_STORAGE_QUOTA_BYTES,
   CHAT_KEK_ACTIVE_VERSION: parsed.CHAT_KEK_ACTIVE_VERSION,
+  CHAT_PUSH_PREVIEW_ENABLED: parsed.CHAT_PUSH_PREVIEW_ENABLED,
   // Mapa versão → KEK já decodificada. Os refines acima garantem que toda chave
   // presente tem 32 bytes e que a ativa existe, então aqui não há caso de erro.
   CHAT_KEKS: ((): ReadonlyMap<number, Buffer> => {
