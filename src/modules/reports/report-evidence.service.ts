@@ -56,7 +56,7 @@ export async function readReportEvidence(
   await assertReportAdmin(adminId)
 
   const evidence = await readEvidenceWithAudit(reportId, adminId, meta)
-  if (!evidence || evidence.payloadCipher.length === 0) {
+  if (!evidence) {
     throw new AppError(404, 'REPORT_EVIDENCE_NOT_FOUND')
   }
 

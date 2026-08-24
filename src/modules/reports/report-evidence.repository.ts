@@ -71,22 +71,29 @@ export async function readEvidenceWithAudit(
   adminId: string,
   meta: { ipAddress: string | null; userAgent: string | null },
 ) {
-  const [evidence] = await prisma.$transaction([
-    prisma.reportEvidence.findUnique({
+  return prisma.$transaction(async (tx) => {
+    const evidence = await tx.reportEvidence.findUnique({
       where: { reportId },
       select: evidenceSelect,
-    }),
-    prisma.moderationAccessLog.create({
+    })
+    // Nada para ver (id inexistente, ou prova já expurgada pela retenção): não
+    // registra. VIEW_EVIDENCE precisa significar "este admin leu este conteúdo"
+    // — uma tentativa em vazio gravada como leitura envenena a própria trilha
+    // que justifica ter tirado o content do GET /reports.
+    if (!evidence || evidence.payloadCipher.length === 0) return null
+
+    await tx.moderationAccessLog.create({
       data: {
         adminId,
         action: 'VIEW_EVIDENCE',
         reportId,
+        evidenceId: evidence.id,
         ipAddress: meta.ipAddress,
         userAgent: meta.userAgent,
       },
-    }),
-  ])
-  return evidence
+    })
+    return evidence
+  })
 }
 
 /** Keys que a remoção do conteúdo denunciado NÃO pode apagar. */

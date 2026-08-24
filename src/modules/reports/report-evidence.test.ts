@@ -225,10 +225,29 @@ describe('GET /reports/:id/evidence', () => {
       where: { reportId: created.id },
     })
     expect(logs).toHaveLength(2)
+    const evidence = await testPrisma.reportEvidence.findUniqueOrThrow({
+      where: { reportId: created.id },
+    })
     expect(logs[0]).toMatchObject({
       adminId: admin.id,
       action: 'VIEW_EVIDENCE',
+      evidenceId: evidence.id,
     })
+  })
+
+  it('não grava auditoria quando não havia nada para ler', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reports/00000000-0000-0000-0000-000000000000/evidence',
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+    // VIEW_EVIDENCE precisa significar leitura de verdade: tentativa em vazio
+    // registrada como leitura envenena a trilha.
+    expect(await testPrisma.moderationAccessLog.findMany()).toHaveLength(0)
   })
 
   it('não grava auditoria quando o requisitante não é admin', async () => {
@@ -415,6 +434,7 @@ describe('retenção', () => {
       headers: { authorization: `Bearer ${token(app, admin.id)}` },
     })
     expect(res.statusCode).toBe(404)
+    expect(await testPrisma.moderationAccessLog.findMany()).toHaveLength(0)
   })
 
   it('não toca em evidência dentro do prazo', async () => {
