@@ -12,6 +12,7 @@ import {
   setCachedDek,
 } from '../../lib/crypto/dek-cache'
 import { logger } from '../../lib/logger'
+import { isUniqueViolation } from '../../lib/prisma-errors'
 import {
   createConversationKey,
   findActiveConversationKey,
@@ -88,7 +89,11 @@ export async function ensureConversationDek(
     const created = await createConversationKey(conversationId, 1, wrapped)
     setCachedDek(conversationDekCacheKey(conversationId, created.version), dek)
     return { dek, version: created.version }
-  } catch {
+  } catch (err) {
+    // SÓ a violação do unique é corrida. Sem esta guarda, uma queda de conexão
+    // ou permissão negada na tabela viraria "chave indisponível" — o sintoma
+    // que a auditoria desta cifra mais precisa enxergar ficaria escondido.
+    if (!isUniqueViolation(err)) throw err
     // Corrida de provisionamento: dois envios simultâneos numa conversa sem
     // chave. O unique (conversationId, version) elege um vencedor; o perdedor
     // relê e usa a chave dele — jamais duas chaves para a mesma conversa.

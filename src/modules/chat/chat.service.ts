@@ -2,6 +2,7 @@ import type { Readable } from 'node:stream'
 import { env } from '../../lib/env'
 import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
+import { isRecordNotFound, isUniqueViolation } from '../../lib/prisma-errors'
 import { realtime } from '../../lib/realtime'
 import { getStorage } from '../../lib/storage'
 import {
@@ -61,22 +62,6 @@ type ConversationRow = NonNullable<
   Awaited<ReturnType<typeof findConversationWithParticipants>>
 >
 type InboxRow = Awaited<ReturnType<typeof listInboxConversations>>[number]
-
-function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: string }).code === 'P2002'
-  )
-}
-
-function isRecordNotFound(err: unknown): boolean {
-  return (
-    typeof err === 'object' &&
-    err !== null &&
-    (err as { code?: string }).code === 'P2025'
-  )
-}
 
 function shapeParticipants(participants: ConversationRow['participants']) {
   return participants.map((p) => ({
