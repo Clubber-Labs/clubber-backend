@@ -2,6 +2,32 @@ import path from 'node:path'
 import { z } from 'zod'
 
 // Envelope encryption do chat: uma KEK por versão, em base64 de 32 bytes.
+const PRIVATE_IPV4 =
+  /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/
+
+/**
+ * Host do Redis que não sai da máquina/rede interna: nome de serviço de um
+ * único rótulo (DNS interno do Docker/Coolify, ex. `redis-service`), loopback
+ * ou IP privado. Qualquer outra coisa é tratada como externa — inclusive URL
+ * que não parseia, para o caso duvidoso exigir TLS em vez de liberar.
+ */
+export function isInternalRedisHost(url: string): boolean {
+  let host: string
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return false
+  }
+  const bare = host.startsWith('[') ? host.slice(1, -1) : host
+  // `new URL('redis://')` não lança: devolve host vazio. Sem esta guarda ele
+  // cairia na regra do rótulo único e passaria por interno.
+  if (!bare) return false
+  if (bare === 'localhost' || bare === '::1') return true
+  if (PRIVATE_IPV4.test(bare)) return true
+  // Sem ponto = rótulo único, que só resolve dentro da rede do compose.
+  return !bare.includes('.')
+}
+
 const CHAT_KEK_BYTES = 32
 const CHAT_KEK_MAX_VERSION = 2
 
@@ -466,19 +492,21 @@ const parsed = baseSchema
     },
   )
   // O realtime publica a mensagem JÁ DECIFRADA no pub/sub: o texto em claro
-  // atravessa o Redis. Em produção, exigir TLS é o mínimo — sem isso a cifra em
-  // repouso conviveria com o mesmo conteúdo trafegando em claro na rede.
+  // atravessa o Redis. Exigimos TLS quando esse tráfego SAI da máquina — dentro
+  // da rede interna do Coolify (nome de serviço, loopback, IP privado) ele não
+  // passa por rede não confiável, e exigir TLS ali só quebraria o deploy.
   .refine(
     (v) =>
       !(
         v.NODE_ENV === 'production' &&
         v.REDIS_URL &&
-        !v.REDIS_URL.startsWith('rediss://')
+        !v.REDIS_URL.startsWith('rediss://') &&
+        !isInternalRedisHost(v.REDIS_URL)
       ),
     {
       path: ['REDIS_URL'],
       message:
-        'REDIS_URL precisa usar rediss:// em produção: o texto decifrado das mensagens trafega pelo pub/sub.',
+        'REDIS_URL aponta para um host externo e precisa usar rediss:// em produção: o texto decifrado das mensagens trafega pelo pub/sub.',
     },
   )
   // Boot falha em vez de abrir CORS pra qualquer origem em produção: refletir a
