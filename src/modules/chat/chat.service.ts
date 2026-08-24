@@ -772,7 +772,9 @@ export async function editMessage(
   if (message.deletedAt !== null) {
     throw new AppError(403, 'MESSAGE_DELETED')
   }
-  if (message.content === null) {
+  // Mídia não é editável. Depois da cifra a ausência de texto só se prova pelas
+  // DUAS colunas: a nova grava em contentCipher e deixa content nulo.
+  if (message.content === null && message.contentCipher === null) {
     throw new AppError(403, 'MESSAGE_NOT_EDITABLE')
   }
   const encrypted = await encryptContent(conversationId, content)
