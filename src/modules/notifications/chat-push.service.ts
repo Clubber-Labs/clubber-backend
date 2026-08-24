@@ -1,6 +1,6 @@
-import { hydrateMessage } from '../chat/chat.crypto'
 import type { Locale } from '../../lib/i18n/locale'
 import { t } from '../../lib/i18n/translate'
+import { hydrateMessage } from '../chat/chat.crypto'
 import {
   findChatPushRecipientUserIds,
   findMessageForPush,
