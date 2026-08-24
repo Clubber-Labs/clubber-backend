@@ -9,6 +9,7 @@ import {
   deleteReport,
   deleteReportTarget,
   getReportById,
+  getReportEvidence,
   getReports,
   patchReport,
   postCommentReport,
@@ -58,6 +59,19 @@ export async function reportsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     getReportById,
+  )
+
+  // Único caminho para o conteúdo denunciado em claro, e ele deixa rastro em
+  // moderation_access_logs. Rate limit baixo: leitura de conteúdo privado por
+  // moderação é ação pontual, não varredura.
+  api.get(
+    '/reports/:id/evidence',
+    {
+      schema: { params: reportParamSchema },
+      config: { rateLimit: rateLimit(20) },
+      onRequest: [app.authenticate],
+    },
+    getReportEvidence,
   )
 
   api.patch(

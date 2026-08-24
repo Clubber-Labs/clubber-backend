@@ -52,6 +52,10 @@ afterEach(async () => {
   await testPrisma.$transaction([
     testPrisma.webhookEvent.deleteMany(),
     testPrisma.subscription.deleteMany(),
+    // Antes de report (FK com cascade, mas a ordem explícita evita depender dele)
+    // e antes de user, que é o dono do log de acesso da moderação.
+    testPrisma.reportEvidence.deleteMany(),
+    testPrisma.moderationAccessLog.deleteMany(),
     testPrisma.report.deleteMany(),
     testPrisma.spotGenerationUsage.deleteMany(),
     testPrisma.spotDiscoveryUsage.deleteMany(),

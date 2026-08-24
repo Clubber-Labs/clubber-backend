@@ -54,15 +54,18 @@ const reportInclude = {
       },
     },
   },
+  // Sem `content`: depois da cifra ele nasce nulo, e mesmo antes dela qualquer
+  // admin lia o texto denunciado aqui sem deixar rastro. O único caminho para o
+  // conteúdo passa a ser GET /reports/:id/evidence, que é auditado.
   message: {
     select: {
       id: true,
-      content: true,
       senderId: true,
       conversationId: true,
       createdAt: true,
     },
   },
+  evidence: { select: { id: true } },
   post: {
     select: {
       id: true,
@@ -238,16 +241,6 @@ export async function createCommentReport(
   })
 }
 
-export async function createMessageReport(
-  data: CreateReportBody,
-  reporterId: string,
-  messageId: string,
-) {
-  return prisma.report.create({
-    data: { ...data, reporterId, messageId },
-  })
-}
-
 export async function createPostReport(
   data: CreateReportBody,
   reporterId: string,
@@ -341,6 +334,16 @@ export async function updateReportResolution(
   })
 }
 
+/**
+ * Devolve as keys retidas LIDAS ANTES do delete: o cascade leva a linha da
+ * evidência junto, e sem isso a mídia que ela mandava preservar ficaria órfã no
+ * storage, sem nada mais apontando para ela.
+ */
 export async function deleteReportById(id: string) {
-  return prisma.report.delete({ where: { id } })
+  const evidence = await prisma.reportEvidence.findUnique({
+    where: { reportId: id },
+    select: { retainedMediaKeys: true },
+  })
+  await prisma.report.delete({ where: { id } })
+  return evidence?.retainedMediaKeys ?? []
 }

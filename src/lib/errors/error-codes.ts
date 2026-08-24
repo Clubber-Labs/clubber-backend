@@ -66,6 +66,9 @@ export const ERROR_CODES = [
   'CONVERSATION_NOT_FOUND',
   'REACTION_NOT_FOUND',
   'REPORT_NOT_FOUND',
+  // Denúncia anterior ao recurso de evidência, ou prova já expurgada pela
+  // retenção: distinto de REPORT_NOT_FOUND, que é a denúncia não existir.
+  'REPORT_EVIDENCE_NOT_FOUND',
   'NOTIFICATION_NOT_FOUND',
   'SERIES_NOT_FOUND',
   'PROMOTION_NOT_FOUND',

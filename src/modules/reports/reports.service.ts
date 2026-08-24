@@ -12,10 +12,12 @@ import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { deleteEvent, findEventImageKeys } from '../events/events.repository'
 import { deletePost, findPostImageKeys } from '../posts/posts.repository'
 import { banUser, suspendUser, unsuspendUser } from '../users/users.service'
+import { findRetainedMediaKeys } from './report-evidence.repository'
+import { createMessageReportWithEvidence } from './report-evidence.service'
+import { assertReportAdmin } from './reports.access'
 import {
   createCommentReport,
   createEventReport,
-  createMessageReport,
   createPostReport,
   createUserReport,
   deleteReportById,
@@ -31,7 +33,6 @@ import {
   findReportPostById,
   findReports,
   findReportTargetUserById,
-  findUserRoleById,
   updateReportResolution,
 } from './reports.repository'
 import type {
@@ -41,11 +42,16 @@ import type {
   ResolveReportBody,
 } from './reports.schema'
 
-async function assertAdmin(userId: string) {
-  const user = await findUserRoleById(userId)
-  if (user?.role !== 'ADMIN') {
-    throw new AppError(403, 'ADMIN_ONLY')
-  }
+/**
+ * Troca o objeto `evidence` por um booleano: o painel só precisa saber se há
+ * prova para oferecer o botão, e devolver o id sugeriria que ele serve para
+ * alguma coisa — o endpoint auditado é chaveado pelo reportId.
+ */
+function shapeReport<T extends { evidence: { id: string } | null }>(
+  report: T,
+): Omit<T, 'evidence'> & { hasEvidence: boolean } {
+  const { evidence, ...rest } = report
+  return { ...rest, hasEvidence: evidence !== null }
 }
 
 export async function reportEvent(
@@ -143,7 +149,9 @@ export async function reportMessage(
     throw new AppError(409, 'REPORT_ALREADY_OPEN')
   }
 
-  return createMessageReport(data, reporterId, messageId)
+  // Depois de TODOS os guards: capturar antes deles gravaria prova de denúncia
+  // que nem chega a existir. A denúncia e a prova nascem na mesma transação.
+  return createMessageReportWithEvidence(data, reporterId, message)
 }
 
 export async function reportUser(
@@ -172,23 +180,23 @@ export async function listReports(
   query: ListReportsQuery,
   requesterId: string,
 ) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   const reports = await findReports(query)
   const hasNextPage = reports.length > query.limit
   const data = hasNextPage ? reports.slice(0, query.limit) : reports
   const nextCursor = hasNextPage ? data[data.length - 1]?.id : null
 
-  return { data, nextCursor }
+  return { data: data.map(shapeReport), nextCursor }
 }
 
 export async function getReport(reportId: string, requesterId: string) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
     throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
-  return report
+  return shapeReport(report)
 }
 
 export async function resolveReport(
@@ -196,13 +204,13 @@ export async function resolveReport(
   requesterId: string,
   data: ResolveReportBody,
 ) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
     throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
-  return updateReportResolution(reportId, requesterId, data)
+  return shapeReport(await updateReportResolution(reportId, requesterId, data))
 }
 
 async function removeReportedEvent(eventId: string) {
@@ -223,7 +231,7 @@ async function removeReportedPost(postId: string) {
   await deletePost(postId)
 }
 
-async function removeReportedMessage(messageId: string) {
+async function removeReportedMessage(reportId: string, messageId: string) {
   const message = await findMessageById(messageId)
   if (!message) {
     throw new AppError(404, 'MESSAGE_NOT_FOUND')
@@ -233,12 +241,18 @@ async function removeReportedMessage(messageId: string) {
     await softDeleteMessage(messageId)
   }
 
+  // O texto não precisa de cuidado: o soft-delete só marca deletedAt e o
+  // contentCipher fica. A mídia, sim — apagar do storage é irreversível, e
+  // "remover o conteúdo" não pode destruir a prova que justificou a remoção.
+  const retained = new Set(await findRetainedMediaKeys(reportId))
   const attachments = await findMessageAttachments(messageId)
   await Promise.all(
     attachments.flatMap((a) => {
       // Poster de vídeo é objeto próprio no storage (key separada do vídeo).
       const keys = a.thumbnailKey ? [a.key, a.thumbnailKey] : [a.key]
-      return keys.map((key) => deleteChatMedia(key, logger))
+      return keys
+        .filter((key) => !retained.has(key))
+        .map((key) => deleteChatMedia(key, logger))
     }),
   )
 }
@@ -247,7 +261,7 @@ export async function removeReportTarget(
   reportId: string,
   requesterId: string,
 ) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
     throw new AppError(404, 'REPORT_NOT_FOUND')
@@ -289,7 +303,7 @@ export async function removeReportTarget(
   } else if (report.commentId) {
     await removeReportedComment(report.commentId)
   } else if (report.messageId) {
-    await removeReportedMessage(report.messageId)
+    await removeReportedMessage(reportId, report.messageId)
   } else if (report.postId) {
     await removeReportedPost(report.postId)
   }
@@ -297,17 +311,20 @@ export async function removeReportTarget(
   // Re-fetch para refletir as FKs nulas após cascade SetNull da deleção de conteúdo
   const updated = await findReportById(reportId)
   if (!updated) throw new AppError(404, 'REPORT_NOT_FOUND')
-  return updated
+  return shapeReport(updated)
 }
 
 export async function removeReport(reportId: string, requesterId: string) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
     throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
-  await deleteReportById(reportId)
+  // A mídia retida só existia por causa desta evidência; sem ela, ninguém mais
+  // aponta para esses objetos.
+  const retained = await deleteReportById(reportId)
+  await Promise.all(retained.map((key) => deleteChatMedia(key, logger)))
 }
 
 /**
@@ -322,7 +339,7 @@ export async function moderateReportedUser(
   requesterId: string,
   body: ModerateUserBody,
 ) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   const report = await findReportById(reportId)
   if (!report) {
     throw new AppError(404, 'REPORT_NOT_FOUND')
@@ -344,15 +361,17 @@ export async function moderateReportedUser(
       ? `Usuário suspenso por ${body.days} dia(s) pela moderação`
       : 'Usuário banido pela moderação')
 
-  return updateReportResolution(reportId, requesterId, {
-    status:
-      body.action === 'SUSPEND' ? 'RESOLVED_SUSPENDED' : 'RESOLVED_BANNED',
-    resolutionNote: note,
-  })
+  return shapeReport(
+    await updateReportResolution(reportId, requesterId, {
+      status:
+        body.action === 'SUSPEND' ? 'RESOLVED_SUSPENDED' : 'RESOLVED_BANNED',
+      resolutionNote: note,
+    }),
+  )
 }
 
 /** Levanta a punição (suspensão/ban) de um usuário — não atado a denúncia. */
 export async function liftUserModeration(userId: string, requesterId: string) {
-  await assertAdmin(requesterId)
+  await assertReportAdmin(requesterId)
   return unsuspendUser(userId)
 }

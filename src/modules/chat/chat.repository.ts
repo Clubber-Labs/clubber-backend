@@ -576,6 +576,92 @@ export async function findMessageWithConversation(id: string) {
 
 /** Anexos (key + kind + thumbnailKey) de uma mensagem — para limpar o storage
  * ao apagá-la (vídeo tem um poster em key própria). */
+/**
+ * Conversa com TODOS os participantes, inclusive os que saíram — ao contrário
+ * de findConversationWithParticipants, que filtra `leftAt: null`. Num snapshot
+ * de denúncia, quem saiu do grupo depois de agredir é exatamente quem precisa
+ * constar.
+ */
+export async function findConversationForEvidence(id: string) {
+  return prisma.conversation.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      type: true,
+      title: true,
+      participants: {
+        orderBy: [{ joinedAt: 'asc' as const }, { userId: 'asc' as const }],
+        select: {
+          userId: true,
+          leftAt: true,
+          user: { select: { username: true } },
+        },
+      },
+    },
+  })
+}
+
+/**
+ * Janela de contexto ao redor de uma mensagem, para o snapshot de denúncia.
+ * Ordena por (createdAt, id) — o mesmo par estável usado no resto do módulo,
+ * porque createdAt sozinho empata em envios simultâneos.
+ *
+ * Traz mensagens apagadas de propósito: o snapshot registra o que existia no
+ * instante da denúncia, e `deletedAt` acompanha cada linha.
+ */
+export async function findMessagesAround(
+  conversationId: string,
+  messageId: string,
+  before: number,
+  after: number,
+) {
+  const pivot = await prisma.message.findUnique({
+    where: { id: messageId },
+    select: { createdAt: true },
+  })
+  if (!pivot) return []
+
+  const olderThanPivot = {
+    conversationId,
+    OR: [
+      { createdAt: { lt: pivot.createdAt } },
+      { createdAt: pivot.createdAt, id: { lt: messageId } },
+    ],
+  }
+  const newerThanPivot = {
+    conversationId,
+    OR: [
+      { createdAt: { gt: pivot.createdAt } },
+      { createdAt: pivot.createdAt, id: { gt: messageId } },
+    ],
+  }
+
+  const [antes, alvo, depois] = await Promise.all([
+    before === 0
+      ? []
+      : prisma.message.findMany({
+          where: olderThanPivot,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: before,
+          include: messageInclude,
+        }),
+    prisma.message.findMany({
+      where: { id: messageId },
+      include: messageInclude,
+    }),
+    after === 0
+      ? []
+      : prisma.message.findMany({
+          where: newerThanPivot,
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: after,
+          include: messageInclude,
+        }),
+  ])
+
+  return [...antes.reverse(), ...alvo, ...depois]
+}
+
 export async function findMessageAttachments(messageId: string) {
   return prisma.messageAttachment.findMany({
     where: { messageId },
