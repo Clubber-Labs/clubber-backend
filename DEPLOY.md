@@ -45,11 +45,22 @@ devem ficar expostos à internet.
 | `STRIPE_PREMIUM_PRICE_ID` | ID do Price recorrente do plano premium (`price_...`). |
 | `STRIPE_CHECKOUT_SUCCESS_URL` | URL de retorno de sucesso do checkout web. |
 | `STRIPE_CHECKOUT_CANCEL_URL` | URL de retorno de cancelamento do checkout web. |
+| `CHAT_KEK_V1` | Chave mestra (KEK) do envelope encryption do chat: 32 bytes em base64 (`openssl rand -base64 32`). Um `.refine()` exige a KEK da versão ativa **em todo ambiente**, sem gate por `NODE_ENV` — sem ela o boot falha de propósito, porque nenhuma mensagem poderia ser escrita nem lida. |
 
 > As cinco variáveis de Stripe são obrigatórias no schema base (`z.string()`
 > sem `.optional()`/`.default()`), não têm gate por `NODE_ENV` — o boot falha
 > em qualquer ambiente sem elas, inclusive se a feature de billing não for
 > usada ainda em produção.
+
+> **A KEK não tem recuperação.** Perdê-la torna todo o histórico de chat
+> ciphertext inútil — não há reset, backup de conveniência nem caminho de
+> suporte, ao contrário do `JWT_SECRET` (que só invalida sessões) ou do segredo
+> de MFA (que o usuário recadastra). Guarde-a no gerenciador de segredos, com
+> backup próprio e versionado, **fora** do arquivo de env da máquina.
+>
+> Rotação: gere a `CHAT_KEK_V2`, **mantenha a V1 no ambiente**, aponte
+> `CHAT_KEK_ACTIVE_VERSION=2` e só remova a V1 quando o reconciler de rewrap
+> zerar os pendentes — as DEKs antigas seguem envelopadas pela V1 até lá.
 
 ### 1.2. Obrigatórias condicionalmente em produção (`NODE_ENV=production`)
 
