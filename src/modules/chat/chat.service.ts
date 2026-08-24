@@ -632,11 +632,6 @@ export async function sendVideoMessage(
     const poster = await uploadMessageImage(input.posterBuffer, conversationId)
     thumbnailKey = poster.key
   }
-  let thumbnailKey: string | null = null
-  if (input.posterBuffer) {
-    const poster = await uploadMessageImage(input.posterBuffer, conversationId)
-    thumbnailKey = poster.key
-  }
   let message: MessageRow
   try {
     // A cota é verificada DENTRO do lock no insert (asset.bytes como adicional).
