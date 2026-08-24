@@ -348,6 +348,40 @@ describe('a prova sobrevive à remoção do conteúdo', () => {
     expect(res.json().messages[0].content).toBe('some daqui')
   })
 
+  it('recusa apagar a denúncia depois que a moderação agiu com base nela', async () => {
+    const autor = await makeUser()
+    const denunciante = await makeUser()
+    const admin = await makeUser({ role: 'ADMIN' })
+    const convo = await makeDirectConversation(autor.id, denunciante.id)
+    const message = await makeMessage(convo.id, autor.id, {
+      content: 'motivo do ban',
+    })
+    const created = await report(denunciante.id, message.id)
+
+    // A moderação age: remove o conteúdo com base nesta prova.
+    const act = await app.inject({
+      method: 'DELETE',
+      url: `/reports/${created.id}/target`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+    expect(act.statusCode).toBe(200)
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/reports/${created.id}`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(del.statusCode).toBe(409)
+    expect(del.json().code).toBe('REPORT_BACKS_ACTIVE_PUNISHMENT')
+    // A prova continua lá: o cascade nem chegou a rodar.
+    expect(
+      await testPrisma.reportEvidence.findUnique({
+        where: { reportId: created.id },
+      }),
+    ).not.toBeNull()
+  })
+
   it('limpa a mídia retida quando a denúncia é apagada', async () => {
     fakeStorage.reset()
     const autor = await makeUser()

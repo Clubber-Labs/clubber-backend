@@ -1,3 +1,4 @@
+import type { ReportStatus } from '@prisma/client'
 import { cache } from '../../lib/cache'
 import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
@@ -41,6 +42,15 @@ import type {
   ModerateUserBody,
   ResolveReportBody,
 } from './reports.schema'
+
+// Estados em que a moderação já agiu com base na denúncia. RESOLVED_INVALID e
+// REVIEWED ficam de fora de propósito: ali ela concluiu que não havia o que
+// fazer.
+const RESOLVED_WITH_ACTION: ReportStatus[] = [
+  'RESOLVED_REMOVED',
+  'RESOLVED_SUSPENDED',
+  'RESOLVED_BANNED',
+]
 
 /**
  * Troca o objeto `evidence` por um booleano: o painel só precisa saber se há
@@ -319,6 +329,16 @@ export async function removeReport(reportId: string, requesterId: string) {
   const report = await findReportById(reportId)
   if (!report) {
     throw new AppError(404, 'REPORT_NOT_FOUND')
+  }
+
+  // A evidência morre por cascade junto com a denúncia. Tudo bem enquanto a
+  // denúncia não gerou ação — spam e engano têm que poder ser apagados. Mas
+  // depois que a moderação AGIU com base nela, apagar deixaria a ação de pé sem
+  // a prova que a sustenta, que é exatamente o que a captura existe para
+  // evitar. A guarda é condicionada à evidência: denúncia sem prova
+  // (evento, post, usuário) segue apagável como antes.
+  if (report.evidence && RESOLVED_WITH_ACTION.includes(report.status)) {
+    throw new AppError(409, 'REPORT_BACKS_ACTIVE_PUNISHMENT')
   }
 
   // A mídia retida só existia por causa desta evidência; sem ela, ninguém mais
