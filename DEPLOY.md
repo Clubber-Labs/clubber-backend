@@ -112,6 +112,7 @@ específica de ajuste.
 | `UPLOADS_DIR` | `./uploads` | Só relevante com `STORAGE_DRIVER=local`. |
 | `R2_PUBLIC_BASE_URL_DEV` / `_PROD` | — | Public Development URL do bucket (`https://pub-xxxx.r2.dev`) em dev, ou custom domain em prod. Só relevante com `STORAGE_DRIVER=r2` (ver 1.3). |
 | `CHAT_USER_STORAGE_QUOTA_BYTES` | `1073741824` (1 GB) | Cota de mídia de chat por usuário. |
+| `CHAT_PUSH_PREVIEW_ENABLED` | `true` | Se o push de chat leva o texto decifrado da mensagem. `false` faz o worker nem decifrar e o push virar só "nova mensagem" — botão para cortar o vazamento de conteúdo para APNs/FCM sem deploy. |
 | `EMAIL_FROM` | `Clubber <no-reply@clubber.app>` | Remetente dos e-mails transacionais. |
 | `PASSWORD_RESET_CODE_TTL_MINUTES` | `15` | Validade do OTP de recuperação. |
 | `PASSWORD_RESET_MAX_ATTEMPTS` | `5` | Tentativas por código. |
