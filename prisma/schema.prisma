@@ -525,6 +525,9 @@ model Event {
   description   String?
   date          DateTime
   endDate       DateTime?
+  /// IANA do LOCAL do evento, derivado de lat/lng. `date` continua sendo o
+  /// instante UTC; a hora que o usuário marcou é hora de parede daqui.
+  timezone      String
   latitude      Float
   longitude     Float
   address       String?
@@ -603,6 +606,9 @@ model EventSeries {
   // template e o reconciler as pula. durationMs = endDate-date da 1ª ocorrência.
   title         String?
   description   String?
+  /// Fuso do local da série: as ocorrências avançam nele, preservando a hora
+  /// de parede através do DST (ver recurrence.ts).
+  timezone      String?
   latitude      Float?
   longitude     Float?
   address       String?
