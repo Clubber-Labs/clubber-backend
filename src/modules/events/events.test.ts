@@ -4,6 +4,7 @@ import { redis as nullableRedis } from '../../lib/redis'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
+  makeBlock,
   makeComment,
   makeEvent,
   makeFollow,
@@ -898,11 +899,30 @@ describe('GET /users/:id/events — privacy gate', () => {
     expect(res.statusCode).toBe(200)
   })
 
-  it('convite em evento privado de autor privado SEM follow ACCEPTED → 403', async () => {
+  // O convite é concessão explícita do autor: vale sem follow, mesmo com o
+  // perfil privado — é o que permite o link compartilhável funcionar fora do
+  // círculo de seguidores.
+  it('convite em evento privado de autor privado SEM follow ACCEPTED → 200', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const invitee = await makeUser()
     const event = await makeEvent(privateAuthor.id, { isPublic: false })
     await makeInvite(event.id, privateAuthor.id, invitee.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, invitee.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+  })
+
+  it('convidado bloqueado pelo autor continua sem acesso', async () => {
+    const author = await makeUser()
+    const invitee = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeInvite(event.id, author.id, invitee.id)
+    await makeBlock(author.id, invitee.id)
 
     const res = await app.inject({
       method: 'GET',

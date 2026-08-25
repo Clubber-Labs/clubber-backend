@@ -86,6 +86,7 @@ export const ERROR_CODES = [
   'CONSENT_EXPORT_EMPTY',
   'SUBSCRIPTION_NOT_FOUND',
   'VIDEO_NOT_FOUND',
+  'INVITE_LINK_NOT_FOUND',
 
   // Social (follow/block)
   'SELF_FOLLOW',
@@ -104,6 +105,12 @@ export const ERROR_CODES = [
   'END_DATE_BEFORE_START',
   'STARTS_AT_IN_PAST',
   'SERIES_ALREADY_CANCELED',
+  'EVENT_CANCELED',
+  'EVENT_ENDED',
+  // 410: o link existiu mas não vale mais — códigos distintos para a copy do
+  // app diferenciar "expirou" de "o autor revogou".
+  'INVITE_LINK_EXPIRED',
+  'INVITE_LINK_REVOKED',
   'PROMOTION_ALREADY_CANCELED',
   'PROMOTION_OVERLAP',
   'PROMOTION_TOO_LONG',

@@ -37,4 +37,16 @@ describe('sanitizeLogUrl', () => {
   it('não altera URL sem query', () => {
     expect(sanitizeLogUrl('/conversations')).toBe('/conversations')
   })
+
+  it('redige o token de convite no path', () => {
+    expect(sanitizeLogUrl('/invites/AbC123_-xyz')).toBe('/invites/[REDACTED]')
+    expect(sanitizeLogUrl('/invites/AbC123_-xyz/accept')).toBe(
+      '/invites/[REDACTED]/accept',
+    )
+    expect(sanitizeLogUrl('/e/AbC123_-xyz')).toBe('/e/[REDACTED]')
+  })
+
+  it('não redige rotas que só começam parecido', () => {
+    expect(sanitizeLogUrl('/events/123')).toBe('/events/123')
+  })
 })

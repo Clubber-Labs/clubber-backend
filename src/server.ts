@@ -42,6 +42,7 @@ import { chatGateway } from './modules/chat/chat.gateway'
 import { chatRoutes } from './modules/chat/chat.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
 import { consentRoutes } from './modules/consent/consent.routes'
+import { eventInviteLinksRoutes } from './modules/event-invite-links/event-invite-links.routes'
 import { eventInvitesRoutes } from './modules/event-invites/event-invites.routes'
 import { eventStatsRoutes } from './modules/event-stats/event-stats.routes'
 import { eventsRoutes } from './modules/events/events.routes'
@@ -226,6 +227,7 @@ app.register(commentsRoutes)
 app.register(reactionsRoutes)
 app.register(feedRoutes)
 app.register(eventInvitesRoutes)
+app.register(eventInviteLinksRoutes)
 app.register(reportsRoutes)
 app.register(billingRoutes)
 // Webhook em plugin separado pra raw body ser ativado apenas nele.

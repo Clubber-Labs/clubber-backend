@@ -105,6 +105,9 @@ const baseSchema = z.object({
     .enum(['development', 'test', 'production'])
     .default('development'),
   PUBLIC_URL: z.url().default('http://localhost:3333'),
+  // Host público dos links compartilháveis (https://clubber.social). Separado do
+  // PUBLIC_URL porque a API pode viver em outro domínio (api.*).
+  SHARE_BASE_URL: z.url().optional(),
   REDIS_URL: z
     .string()
     .regex(/^rediss?:\/\//, 'REDIS_URL deve começar com redis:// ou rediss://')
@@ -660,6 +663,7 @@ export const env = {
   PORT: parsed.PORT,
   NODE_ENV: parsed.NODE_ENV,
   PUBLIC_URL: parsed.PUBLIC_URL,
+  SHARE_BASE_URL: parsed.SHARE_BASE_URL ?? parsed.PUBLIC_URL,
   REDIS_URL: parsed.REDIS_URL,
   RATE_LIMIT_ENABLED: parsed.RATE_LIMIT_ENABLED,
   RATE_LIMIT_MAX_FACTOR: parsed.RATE_LIMIT_MAX_FACTOR,

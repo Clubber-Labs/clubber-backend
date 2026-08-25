@@ -114,6 +114,7 @@ model User {
   commentReactions     CommentReaction[]
   eventInvitesSent     EventInvite[]       @relation("inviter")
   eventInvitesReceived EventInvite[]       @relation("invited")
+  eventInviteLinks     EventInviteLink[]   @relation("inviteLinkCreator")
   socialAccounts       SocialAccount[]
   passwordResetCodes   PasswordResetCode[]
   refreshTokens        RefreshToken[]
@@ -558,6 +559,7 @@ model Event {
   comments         Comment[]
   reactions        Reaction[]
   invites          EventInvite[]
+  inviteLinks      EventInviteLink[]
   reports          Report[]
   images           EventImage[]
   features         FeaturedEvent[]
@@ -718,6 +720,27 @@ model EventInvite {
   @@unique([eventId, invitedId])
   @@index([invitedId])
   @@map("event_invites")
+}
+
+/// Link compartilhável de convite. O token é opaco (nunca o id do evento) e o
+/// aceite materializa um EventInvite — o acesso continua passando por uma única
+/// porta (checkEventAccess). Expira em resolveEndDate(evento) e é revogável.
+model EventInviteLink {
+  id          String    @id @default(uuid())
+  eventId     String
+  token       String    @unique
+  createdById String
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  usesCount   Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdBy User  @relation("inviteLinkCreator", fields: [createdById], references: [id])
+
+  // Busca do link vigente do evento (POST idempotente / listagem do autor).
+  @@index([eventId, revokedAt])
+  @@map("event_invite_links")
 }
 
 model Reaction {

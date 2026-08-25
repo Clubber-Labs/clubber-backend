@@ -304,6 +304,28 @@ export async function makeInvite(
   })
 }
 
+export async function makeInviteLink(
+  eventId: string,
+  createdById: string,
+  overrides: {
+    token?: string
+    expiresAt?: Date
+    revokedAt?: Date | null
+    usesCount?: number
+  } = {},
+) {
+  return testPrisma.eventInviteLink.create({
+    data: {
+      eventId,
+      createdById,
+      token: overrides.token ?? `tok_${uid()}`,
+      expiresAt: overrides.expiresAt ?? new Date(Date.now() + 86400000),
+      revokedAt: overrides.revokedAt ?? null,
+      usesCount: overrides.usesCount ?? 0,
+    },
+  })
+}
+
 export async function makeReport(
   reporterId: string,
   overrides: {
