@@ -3,7 +3,7 @@
 // Base clara de propósito: o dark mode do Gmail transforma cores à força (sem
 // opt-out) e inverte e-mails escuros; um e-mail claro só é escurecido com graça.
 
-import { BRAND_ASSETS_BASE_URL as ASSETS_BASE_URL } from '../../lib/brand-assets'
+import { STICKER_URL, STICKER_WORDMARK_URL } from '../../lib/brand-assets'
 import type { Locale } from '../../lib/i18n/locale'
 import { t } from '../../lib/i18n/translate'
 
@@ -91,7 +91,7 @@ export function passwordResetHtml(
           <!-- header: wordmark -->
           <tr>
             <td align="center" style="padding:8px 0 24px;">
-              <img src="${ASSETS_BASE_URL}sticker-wordmark.png" width="170" height="75" alt="clubber" style="display:block; width:170px; height:75px; border:0; font-family:Arial, Helvetica, sans-serif; font-size:24px; font-weight:bold; color:#18181B;">
+              <img src="${STICKER_WORDMARK_URL}" width="170" height="75" alt="clubber" style="display:block; width:170px; height:75px; border:0; font-family:Arial, Helvetica, sans-serif; font-size:24px; font-weight:bold; color:#18181B;">
             </td>
           </tr>
 
@@ -168,7 +168,7 @@ export function passwordResetHtml(
             <td align="center" style="padding:28px 24px 0;">
               <p style="margin:0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">${t('emails.passwordReset.footerReason', locale)}</p>
               <p style="margin:8px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:12px; color:#71717A; mso-line-height-rule:exactly; line-height:18px;">Clubber · Curitiba, PR, Brasil · <a href="https://clubber.social/ajuda" style="color:#52525B; text-decoration:underline;">${t('emails.passwordReset.helpCenter', locale)}</a></p>
-              <img src="${ASSETS_BASE_URL}sticker.png" width="36" height="36" alt="" style="display:inline-block; width:36px; height:36px; border:0; margin-top:20px;">
+              <img src="${STICKER_URL}" width="36" height="36" alt="" style="display:inline-block; width:36px; height:36px; border:0; margin-top:20px;">
               <p style="margin:10px 0 0; font-family:Arial, Helvetica, sans-serif; font-size:11px; color:#A1A1AA; mso-line-height-rule:exactly; line-height:16px;">clubber.social</p>
             </td>
           </tr>
