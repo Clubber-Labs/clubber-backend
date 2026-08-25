@@ -25,6 +25,15 @@ export async function inviteToEvent(
     throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
 
+  // Mesma régua de janela do link compartilhável: evento morto não recebe
+  // convite nem dispara push. ONGOING ainda convida ("vem agora").
+  if (event.status === 'CANCELED') {
+    throw new AppError(400, 'EVENT_CANCELED')
+  }
+  if (event.status === 'PAST') {
+    throw new AppError(400, 'EVENT_ENDED')
+  }
+
   // Se userIds não foi fornecido, convida todos os seguidores DO CONVIDADOR
   const requested = body?.userIds ?? (await findFollowerIds(inviterId))
   let targetIds = requested.filter(
