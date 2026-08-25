@@ -152,6 +152,77 @@ describe('GET /users/:userId/following', () => {
   })
 })
 
+describe('followsYou e isPrivate nas listas de follows', () => {
+  it('marca followsYou na lista following só para quem segue de volta', async () => {
+    const owner = await makeUser()
+    const mutual = await makeUser({ isPrivate: true })
+    const oneWay = await makeUser()
+    await makeFollow(owner.id, mutual.id)
+    await makeFollow(mutual.id, owner.id)
+    await makeFollow(owner.id, oneWay.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/following`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data: { id: string }[] = res.json().data
+    expect(data.find((u) => u.id === mutual.id)).toMatchObject({
+      followStatus: 'ACCEPTED',
+      followsYou: true,
+      isPrivate: true,
+    })
+    expect(data.find((u) => u.id === oneWay.id)).toMatchObject({
+      followStatus: 'ACCEPTED',
+      followsYou: false,
+      isPrivate: false,
+    })
+  })
+
+  it('calcula a relação em relação ao REQUISITANTE, não ao dono da lista', async () => {
+    const owner = await makeUser()
+    const member = await makeUser({ isPrivate: true })
+    const viewer = await makeUser()
+    await makeFollow(member.id, owner.id)
+    await makeFollow(member.id, viewer.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/followers`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const found = res
+      .json()
+      .data.find((u: { id: string }) => u.id === member.id)
+    expect(found).toMatchObject({
+      followStatus: null,
+      followsYou: true,
+      isPrivate: true,
+    })
+  })
+
+  it('não marca followsYou quando o follow de volta ainda está PENDING', async () => {
+    const owner = await makeUser({ isPrivate: true })
+    const other = await makeUser()
+    await makeFollow(owner.id, other.id)
+    await makeFollow(other.id, owner.id, 'PENDING')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/following`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const found = res.json().data.find((u: { id: string }) => u.id === other.id)
+    expect(found).toMatchObject({ followsYou: false })
+  })
+})
+
 describe('GET /users/me/follow-requests', () => {
   it('lista solicitações pendentes', async () => {
     const user = await makeUser({ isPrivate: true })
