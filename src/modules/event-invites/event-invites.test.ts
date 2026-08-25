@@ -77,7 +77,9 @@ describe('POST /events/:eventId/invites', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('retorna 400 para evento público', async () => {
+  // Em evento público o convite é divulgação: não concede nada (acesso todo
+  // mundo já tem), mas notifica e lista o convidado como nos privados.
+  it('convida em evento público (divulgação)', async () => {
     const author = await makeUser()
     const guest = await makeUser()
     const event = await makeEvent(author.id, { isPublic: true })
@@ -89,7 +91,151 @@ describe('POST /events/:eventId/invites', () => {
       body: { userIds: [guest.id] },
     })
 
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 1 })
+
+    const notification = await testPrisma.notification.findFirst({
+      where: { userId: guest.id, type: 'EVENT_INVITE' },
+    })
+    expect(notification).not.toBeNull()
+  })
+
+  it('não-autor convida em evento público', async () => {
+    const author = await makeUser()
+    const promoter = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, promoter.id)}` },
+      body: { userIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 1 })
+
+    const invite = await testPrisma.eventInvite.findUnique({
+      where: { eventId_invitedId: { eventId: event.id, invitedId: guest.id } },
+    })
+    expect(invite?.inviterId).toBe(promoter.id)
+  })
+
+  it('não-autor segue proibido em evento privado', async () => {
+    const author = await makeUser()
+    const other = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      body: { userIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(res.json().code).toBe('NOT_EVENT_AUTHOR')
+  })
+
+  it('público: perfil privado sem follow mútuo é filtrado em silêncio', async () => {
+    const author = await makeUser()
+    const promoter = await makeUser()
+    const openGuest = await makeUser()
+    const privateGuest = await makeUser({ isPrivate: true })
+    // só uma direção: promoter segue o privado, sem reciprocidade
+    await makeFollow(promoter.id, privateGuest.id, 'ACCEPTED')
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, promoter.id)}` },
+      body: { userIds: [openGuest.id, privateGuest.id] },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 1 })
+
+    const invites = await testPrisma.eventInvite.findMany({
+      where: { eventId: event.id },
+    })
+    expect(invites.map((i) => i.invitedId)).toEqual([openGuest.id])
+
+    const notif = await testPrisma.notification.findFirst({
+      where: { userId: privateGuest.id, type: 'EVENT_INVITE' },
+    })
+    expect(notif).toBeNull()
+  })
+
+  it('público: perfil privado com follow mútuo pode ser convidado', async () => {
+    const author = await makeUser()
+    const promoter = await makeUser()
+    const mutualGuest = await makeUser({ isPrivate: true })
+    await makeFollow(promoter.id, mutualGuest.id, 'ACCEPTED')
+    await makeFollow(mutualGuest.id, promoter.id, 'ACCEPTED')
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, promoter.id)}` },
+      body: { userIds: [mutualGuest.id] },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 1 })
+  })
+
+  it('público: nenhum alvo elegível → 400 NO_USERS_TO_INVITE', async () => {
+    const author = await makeUser()
+    const promoter = await makeUser()
+    const privateGuest = await makeUser({ isPrivate: true })
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, promoter.id)}` },
+      // privado sem mútuo + o próprio convidador: ambos caem no filtro
+      body: { userIds: [privateGuest.id, promoter.id] },
+    })
+
     expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('NO_USERS_TO_INVITE')
+  })
+
+  it('segundo convidador não re-notifica quem já foi convidado', async () => {
+    const author = await makeUser()
+    const promoterA = await makeUser()
+    const promoterB = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const first = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, promoterA.id)}` },
+      body: { userIds: [guest.id] },
+    })
+    const second = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, promoterB.id)}` },
+      body: { userIds: [guest.id] },
+    })
+
+    expect(first.statusCode).toBe(201)
+    expect(second.statusCode).toBe(201)
+    expect(second.json()).toMatchObject({ invited: 0 })
+
+    // sem o filtro de já-convidados, o push do convidador B duplicaria a
+    // notificação (actor diferente fura o dedupe)
+    const notifications = await testPrisma.notification.count({
+      where: { userId: guest.id, type: 'EVENT_INVITE' },
+    })
+    expect(notifications).toBe(1)
   })
 
   it('ignora duplicatas (skipDuplicates)', async () => {
