@@ -63,7 +63,7 @@ PLAY_STORE_URL=https://play.google.com/store/apps/details?id=com.netobonato.club
 | `clubber.social/.well-known/assetlinks.json` | ✅ 200, package + fingerprint |
 | `clubber.social/e/<token>` | ✅ proxy end-to-end (landing da API, `no-store` preservado) |
 | Cache CF nos paths | ✅ `cf-cache-status: DYNAMIC` (bypass rule ativa) |
-| CDN da Apple (`app-site-association.cdn-apple.com/a/v1/clubber.social`) | ⏳ servindo o `Not Found` antigo (`max-age=3600`) — re-busca sozinho ao expirar; sem purge público |
+| CDN da Apple (`app-site-association.cdn-apple.com/a/v1/clubber.social`) | ✅ servindo o AASA correto (re-buscou ao expirar o TTL, ~05:40 UTC) |
 
 Comandos para revalidar quando precisar:
 
@@ -158,7 +158,7 @@ disso e já é testável em dev.
 | Worker de proxy apex → API | ✅ institucional PR #2 deployado, **validado em produção** |
 | `SHARE_BASE_URL` | ✅ ativa |
 | Cache Rule de bypass na CF | ✅ ativa e confirmada (`DYNAMIC`) |
-| CDN da Apple | ⏳ aguardando TTL (~1h) re-buscar o AASA |
+| CDN da Apple | ✅ AASA no ar (verificado ~05:40 UTC) |
 | `TRUSTED_PROXIES` (API + Traefik) | ❌ **único gate restante do backend** — passo 7 |
 | App mobile | 🟡 PR #128 aberto; custom scheme testável já; build EAS após passo 7 + CDN Apple |
 
