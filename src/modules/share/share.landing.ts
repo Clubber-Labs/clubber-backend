@@ -70,6 +70,20 @@ type OgTags = {
   imageUrl?: string | null
 }
 
+// Com as DUAS lojas na página, esconde a da plataforma errada (iPhone não
+// precisa ver Google Play). Só quando ambas existem — com uma loja só, ela
+// aparece pra todo mundo: pior que botão errado é nenhum. Sem JS (crawler,
+// leitor estranho), ficam os dois — degradação inofensiva.
+const STORE_PICKER_SCRIPT = `<script>
+(function () {
+  var ios = document.querySelector('[data-store="ios"]')
+  var android = document.querySelector('[data-store="android"]')
+  if (!ios || !android) return
+  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) android.style.display = 'none'
+  else if (/Android/i.test(navigator.userAgent)) ios.style.display = 'none'
+})()
+</script>`
+
 function head(og: OgTags): string {
   return `<!doctype html>
 <html lang="pt-BR">
@@ -124,10 +138,11 @@ export function renderInviteLanding(
       </div>
     </section>
     <a class="btn btn-primary" href="${esc(data.appUrl)}">Abrir no Clubber</a>
-    ${data.appStoreUrl ? `<a class="btn btn-secondary" href="${esc(data.appStoreUrl)}">Baixar na App Store</a>` : ''}
-    <a class="btn btn-secondary" href="${esc(data.playStoreUrl)}">Baixar no Google Play</a>
+    ${data.appStoreUrl ? `<a class="btn btn-secondary" data-store="ios" href="${esc(data.appStoreUrl)}">Baixar na App Store</a>` : ''}
+    <a class="btn btn-secondary" data-store="android" href="${esc(data.playStoreUrl)}">Baixar no Google Play</a>
     <p class="hint">Baixou agora? Volta e toca no link do convite de novo — ele abre direto no app.</p>
   </main>
+  ${STORE_PICKER_SCRIPT}
 </body>
 </html>`
 }
@@ -159,9 +174,10 @@ export function renderUnavailableLanding(
         <p class="desc">${copy.message}</p>
       </div>
     </section>
-    ${appStoreUrl ? `<a class="btn btn-secondary" href="${esc(appStoreUrl)}">Baixar na App Store</a>` : ''}
-    <a class="btn btn-secondary" href="${esc(playStoreUrl)}">Baixar no Google Play</a>
+    ${appStoreUrl ? `<a class="btn btn-secondary" data-store="ios" href="${esc(appStoreUrl)}">Baixar na App Store</a>` : ''}
+    <a class="btn btn-secondary" data-store="android" href="${esc(playStoreUrl)}">Baixar no Google Play</a>
   </main>
+  ${STORE_PICKER_SCRIPT}
 </body>
 </html>`
 }
