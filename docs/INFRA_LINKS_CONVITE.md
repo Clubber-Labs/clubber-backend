@@ -69,9 +69,10 @@ PLAY_STORE_URL=https://play.google.com/store/apps/details?id=com.netobonato.club
 
 ## 5. Validação pós-deploy (gate para o build do #128)
 
-**Pré-requisitos:** merge+deploy do #212 na API (hoje o AASA em
-`api.clubber.social` responde "Route not found"), deploy do site institucional
-(passo 3) e passo 7 resolvido.
+**Pré-requisitos:** ~~merge+deploy do #212 na API~~ ✅ (deployado e validado em
+2026-08-25 05:03 UTC: AASA e assetlinks respondem 200 com o conteúdo certo
+direto em `api.clubber.social`); deploy do site institucional (passo 3) e
+passo 7 resolvido.
 
 ```bash
 # 1) AASA: 200, application/json, appID K238P4B9K4.com.netobonato.clubber
@@ -99,10 +100,15 @@ novo. Validar antes do build economiza esse ciclo.
 ## 6. Cloudflare/proxies: cache e log do token
 
 **O que fazer:**
-- **Cache da Cloudflare em `/e/*`:** o 404 atual do site sai com
-  `cf-cache-status: HIT`. Pós-deploy, conferir que `/e/*` **não** é cacheado
+- **Purge obrigatório no deploy do site:** verificado em 2026-08-25 que o 404
+  do apex no path EXATO do AASA está cacheado (`cf-cache-status: HIT`) — sem
+  purge (ou Cache Rule de bypass criada antes), a Cloudflare pode continuar
+  servindo o 404 mesmo depois do deploy dos rewrites. O HIT persiste com query
+  string aleatória e o build id do Next não mudou: além do purge, conferir se a
+  zona tem regra "Cache Everything" e se o deploy do institucional de fato saiu.
+- **Cache da Cloudflare em `/e/*`:** conferir que `/e/*` **não** é cacheado
   (a API manda `Cache-Control: no-store`); se aparecer `HIT` ali, criar Cache
-  Rule de **bypass** para `/e/*` e `/invites/*`.
+  Rule de **bypass** para `/e/*` e `/.well-known/*`.
 - Access logs (Cloudflare e host do site): não reter a URL completa de `/e/*`
   (o backend já mascara nos logs próprios via `sanitizeLogUrl`).
 
@@ -141,12 +147,12 @@ de build antigo nunca abre o link direto.
 | Item | Status |
 |---|---|
 | Código backend (link + accept) | ✅ PR #210 mergeado |
-| Landing + `.well-known` | 🟡 PR #212 aprovado, aguardando merge+deploy |
+| Landing + `.well-known` | ✅ PR #212 mergeado e **deployado** (API validada 05:03 UTC) |
 | DNS/TLS do apex | ✅ Cloudflare, site institucional no ar |
-| Roteamento apex → API | 🟡 rewrites mergeados (institucional PR #1), aguardando deploy do site |
-| `SHARE_BASE_URL` em produção | 🟡 cadastrada no Coolify, vale no próximo redeploy |
+| Roteamento apex → API | 🟡 rewrites mergeados (institucional PR #1), aguardando deploy do site **+ purge CF** (404 cacheado no path do AASA) |
+| `SHARE_BASE_URL` em produção | ✅ ativa (deploy do #212) |
 | `TRUSTED_PROXIES` (egress do site) | ❌ pendente — **gate do passo 5** |
-| Cache Rule de bypass `/e/*` na Cloudflare | ❌ conferir pós-deploy |
+| Cache Rule de bypass `/e/*` e `/.well-known/*` na CF | ❌ criar antes/junto do deploy do site |
 | App mobile | 🟡 PR #128 do clubber-app aberto — build bloqueado pelo passo 5 |
 
 [Clubber-Labs/clubber-institucional]: https://github.com/Clubber-Labs/clubber-institucional
