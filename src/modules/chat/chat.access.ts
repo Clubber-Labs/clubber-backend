@@ -25,7 +25,7 @@ export async function assertReachable(viewerId: string, targetId: string) {
   if (await isBlockedEitherWay(viewerId, targetId)) {
     throw new AppError(403, 'CONVERSATION_FORBIDDEN')
   }
-  if (!(await canChatWith(targetId, viewerId))) {
+  if (!(await canChatWith(targetId, viewerId, target.isPrivate))) {
     throw new AppError(403, 'PRIVATE_PROFILE')
   }
   return target

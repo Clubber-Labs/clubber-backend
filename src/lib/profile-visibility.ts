@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client'
-import { prisma } from './prisma'
 import { areMutualFollowers } from '../modules/follows/follows.repository'
+import { prisma } from './prisma'
 
 /**
  * Filtro Prisma para "eventos cujo autor é visível ao viewer".
@@ -96,19 +96,18 @@ async function isBlockedBetween(a: string, b: string): Promise<boolean> {
  *
  * NÃO checa bloqueio: quem chama (assertReachable) já barra antes, e com outro
  * código de erro — juntar aqui apagaria a distinção.
+ *
+ * `targetIsPrivate` vem do chamador, que já carregou o alvo para checar
+ * existência/status — refazer a query aqui dobraria as idas ao banco por
+ * membro ao criar grupo.
  */
 export async function canChatWith(
   targetId: string,
   viewerId: string,
+  targetIsPrivate: boolean,
 ): Promise<boolean> {
   if (viewerId === targetId) return true
-
-  const target = await prisma.user.findUnique({
-    where: { id: targetId },
-    select: { isPrivate: true },
-  })
-  if (!target) return false
-  if (!target.isPrivate) return true
+  if (!targetIsPrivate) return true
 
   return areMutualFollowers(viewerId, targetId)
 }
