@@ -15,6 +15,9 @@ export async function getInviteLanding(
   const { token } = request.params as ShareTokenParam
   const data = await getInviteLandingData(token)
 
+  // Conteúdo de evento privado atrás de token revogável: sem cache
+  // intermediário — revogar o link tem efeito imediato também na web.
+  reply.header('cache-control', 'no-store')
   reply.type('text/html; charset=utf-8')
   if (data.kind === 'ok') {
     return reply.send(renderInviteLanding(data))
