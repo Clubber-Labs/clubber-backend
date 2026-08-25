@@ -5,6 +5,8 @@ import {
   createInvites,
   findEventInvites,
   findFollowerIds,
+  findInvitableIds,
+  findInvitedIdsIn,
 } from './event-invites.repository'
 import type { InviteUsersBody } from './event-invites.schema'
 
@@ -17,22 +19,38 @@ export async function inviteToEvent(
   if (!event) {
     throw new AppError(404, 'EVENT_NOT_FOUND')
   }
-  if (event.authorId !== inviterId) {
+  // Privado: só o autor convida (o convite concede acesso). Público: qualquer
+  // autenticado convida — é divulgação, o acesso todo mundo já tem.
+  if (!event.isPublic && event.authorId !== inviterId) {
     throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
 
-  // Se userIds não foi fornecido, convida todos os seguidores
-  const targetIds = body?.userIds ?? (await findFollowerIds(inviterId))
+  // Se userIds não foi fornecido, convida todos os seguidores DO CONVIDADOR
+  const requested = body?.userIds ?? (await findFollowerIds(inviterId))
+  let targetIds = requested.filter(
+    (id) => id !== inviterId && id !== event.authorId,
+  )
+
+  // Em público o convidador pode ser um estranho para o convidado: perfil
+  // privado só entra com follow mútuo (proteção anti-spam do convidado).
+  if (event.isPublic) {
+    targetIds = await findInvitableIds(inviterId, targetIds)
+  }
 
   if (targetIds.length === 0) {
     throw new AppError(400, 'NO_USERS_TO_INVITE')
   }
 
-  const invites = await createInvites(eventId, inviterId, targetIds)
-  // Fan-out 1→N. notifyFromActor é best-effort (nunca lança) e o self-guard
-  // cobre o caso de o autor estar entre os convidados.
+  // Notifica só convites NOVOS: com vários convidadores, o dedupe da
+  // notificação (que inclui o actor) não segura o re-push de um segundo
+  // convidador para quem já foi convidado.
+  const alreadyInvited = await findInvitedIdsIn(eventId, targetIds)
+  const newIds = targetIds.filter((id) => !alreadyInvited.has(id))
+
+  const invites = await createInvites(eventId, inviterId, newIds)
+  // Fan-out 1→N. notifyFromActor é best-effort (nunca lança).
   await Promise.all(
-    targetIds.map((invitedId) =>
+    newIds.map((invitedId) =>
       notifyFromActor({
         recipientId: invitedId,
         actorId: inviterId,

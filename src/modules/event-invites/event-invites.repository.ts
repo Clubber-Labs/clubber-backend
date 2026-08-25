@@ -26,6 +26,52 @@ export async function findFollowerIds(userId: string) {
   return follows.map((f) => f.followerId)
 }
 
+/**
+ * Elegibilidade para convite por terceiros (evento público): conta ativa e
+ * perfil público, ou privado com follow mútuo ACCEPTED com o convidador — o
+ * mesmo vínculo de "amigo" do chat. Filtro em lote, uma query para N alvos.
+ */
+export async function findInvitableIds(
+  inviterId: string,
+  candidateIds: string[],
+) {
+  if (candidateIds.length === 0) return []
+  const users = await prisma.user.findMany({
+    where: {
+      id: { in: candidateIds },
+      ...activeUserWhere(),
+      OR: [
+        { isPrivate: false },
+        {
+          AND: [
+            {
+              followers: {
+                some: { followerId: inviterId, status: 'ACCEPTED' },
+              },
+            },
+            {
+              following: {
+                some: { followingId: inviterId, status: 'ACCEPTED' },
+              },
+            },
+          ],
+        },
+      ],
+    },
+    select: { id: true },
+  })
+  return users.map((u) => u.id)
+}
+
+export async function findInvitedIdsIn(eventId: string, userIds: string[]) {
+  if (userIds.length === 0) return new Set<string>()
+  const rows = await prisma.eventInvite.findMany({
+    where: { eventId, invitedId: { in: userIds } },
+    select: { invitedId: true },
+  })
+  return new Set(rows.map((r) => r.invitedId))
+}
+
 export async function findEventInvites(eventId: string) {
   return prisma.eventInvite.findMany({
     where: { eventId, invited: activeUserWhere() },
