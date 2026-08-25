@@ -20,9 +20,6 @@ export async function inviteToEvent(
   if (event.authorId !== inviterId) {
     throw new AppError(403, 'NOT_EVENT_AUTHOR')
   }
-  if (event.isPublic) {
-    throw new AppError(400, 'PUBLIC_EVENT_NO_INVITES')
-  }
 
   // Se userIds não foi fornecido, convida todos os seguidores
   const targetIds = body?.userIds ?? (await findFollowerIds(inviterId))

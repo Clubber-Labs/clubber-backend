@@ -77,7 +77,9 @@ describe('POST /events/:eventId/invites', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('retorna 400 para evento público', async () => {
+  // Em evento público o convite é divulgação: não concede nada (acesso todo
+  // mundo já tem), mas notifica e lista o convidado como nos privados.
+  it('convida em evento público (divulgação)', async () => {
     const author = await makeUser()
     const guest = await makeUser()
     const event = await makeEvent(author.id, { isPublic: true })
@@ -89,7 +91,13 @@ describe('POST /events/:eventId/invites', () => {
       body: { userIds: [guest.id] },
     })
 
-    expect(res.statusCode).toBe(400)
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 1 })
+
+    const notification = await testPrisma.notification.findFirst({
+      where: { userId: guest.id, type: 'EVENT_INVITE' },
+    })
+    expect(notification).not.toBeNull()
   })
 
   it('ignora duplicatas (skipDuplicates)', async () => {

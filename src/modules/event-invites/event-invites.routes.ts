@@ -16,7 +16,8 @@ export async function eventInvitesRoutes(app: FastifyInstance) {
 
   const api = app.withTypeProvider<ZodTypeProvider>()
 
-  // Convidar seguidores (todos ou selecionados) para um evento privado
+  // Convidar usuários (todos os seguidores ou selecionados). Em evento privado
+  // o convite concede acesso; em público é divulgação (push EVENT_INVITE).
   api.post(
     '/events/:eventId/invites',
     {
