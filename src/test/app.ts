@@ -39,6 +39,7 @@ import { postsRoutes } from '../modules/posts/posts.routes'
 import { reactionsRoutes } from '../modules/reactions/reactions.routes'
 import { recurringEventsRoutes } from '../modules/recurring-events/recurring-events.routes'
 import { reportsRoutes } from '../modules/reports/reports.routes'
+import { shareRoutes } from '../modules/share/share.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { spotsRoutes } from '../modules/spots/spots.routes'
 import { usersRoutes } from '../modules/users/users.routes'
@@ -98,6 +99,7 @@ export function buildApp() {
   app.register(feedRoutes)
   app.register(eventInvitesRoutes)
   app.register(eventInviteLinksRoutes)
+  app.register(shareRoutes)
   app.register(reportsRoutes)
   app.register(billingRoutes)
   app.register(billingWebhookRoutes)

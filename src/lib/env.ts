@@ -171,6 +171,26 @@ const baseSchema = z.object({
   // Audience do identityToken do "Sign in with Apple" (bundle id do app iOS).
   // Sem secret: a verificação usa o JWKS público da Apple.
   APPLE_BUNDLE_ID: z.string().default('com.netobonato.clubber'),
+  // Universal Links / App Links (.well-known servidos em SHARE_BASE_URL).
+  // Valores públicos por natureza (qualquer um lê o AASA de qualquer site);
+  // os defaults são os do app oficial e as envs existem para staging/fork.
+  APPLE_TEAM_ID: z.string().default('K238P4B9K4'),
+  ANDROID_PACKAGE_NAME: z.string().default('com.netobonato.clubber'),
+  // CSV: aceita mais de um fingerprint (ex.: chave do Play App Signing + chave
+  // de build interno do EAS) — todos abrem o app.
+  ANDROID_CERT_SHA256: z
+    .string()
+    .default(
+      '22:36:8C:18:AC:6F:70:89:DC:FC:7D:46:0A:66:0C:24:56:19:50:F3:DF:C4:84:79:01:EB:A0:CB:07:62:38:6D',
+    ),
+  // Botões da landing de convite. A URL da App Store precisa do id numérico da
+  // loja — sem ela o botão iOS não aparece.
+  APP_STORE_URL: z.url().optional(),
+  PLAY_STORE_URL: z
+    .url()
+    .default(
+      'https://play.google.com/store/apps/details?id=com.netobonato.clubber',
+    ),
   FEATURED_RECONCILE_INTERVAL_MS: z.coerce
     .number()
     .int()
@@ -685,6 +705,13 @@ export const env = {
   GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
   ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY,
   APPLE_BUNDLE_ID: parsed.APPLE_BUNDLE_ID,
+  APPLE_TEAM_ID: parsed.APPLE_TEAM_ID,
+  ANDROID_PACKAGE_NAME: parsed.ANDROID_PACKAGE_NAME,
+  ANDROID_CERT_SHA256: parsed.ANDROID_CERT_SHA256.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+  APP_STORE_URL: parsed.APP_STORE_URL,
+  PLAY_STORE_URL: parsed.PLAY_STORE_URL,
   FEATURED_RECONCILE_INTERVAL_MS: parsed.FEATURED_RECONCILE_INTERVAL_MS,
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,

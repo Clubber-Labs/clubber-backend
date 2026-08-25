@@ -71,6 +71,7 @@ import { startRecurringEventsReconciler } from './modules/recurring-events/recur
 import { recurringEventsRoutes } from './modules/recurring-events/recurring-events.routes'
 import { startReportEvidenceReconciler } from './modules/reports/report-evidence.reconciler'
 import { reportsRoutes } from './modules/reports/reports.routes'
+import { shareRoutes } from './modules/share/share.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
@@ -228,6 +229,7 @@ app.register(reactionsRoutes)
 app.register(feedRoutes)
 app.register(eventInvitesRoutes)
 app.register(eventInviteLinksRoutes)
+app.register(shareRoutes)
 app.register(reportsRoutes)
 app.register(billingRoutes)
 // Webhook em plugin separado pra raw body ser ativado apenas nele.
