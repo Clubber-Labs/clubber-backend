@@ -72,6 +72,35 @@ describe('POST /events/:eventId/invite-links', () => {
     )
   })
 
+  it('POSTs concorrentes não criam dois links ativos', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    const headers = { authorization: `Bearer ${token(app, author.id)}` }
+
+    // Sem o advisory lock por evento, ambos veriam "nenhum link ativo" e cada
+    // um criaria o seu — o lock serializa: um cria (201), o outro reusa (200).
+    const [a, b] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/events/${event.id}/invite-links`,
+        headers,
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/events/${event.id}/invite-links`,
+        headers,
+      }),
+    ])
+
+    expect([a.statusCode, b.statusCode].sort()).toEqual([200, 201])
+    expect(a.json().token).toBe(b.json().token)
+
+    const count = await testPrisma.eventInviteLink.count({
+      where: { eventId: event.id },
+    })
+    expect(count).toBe(1)
+  })
+
   it('reusa o link vigente em vez de acumular (idempotente)', async () => {
     const author = await makeUser()
     const event = await makeEvent(author.id, { isPublic: false })

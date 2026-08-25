@@ -15,20 +15,28 @@ export async function findEventForLink(eventId: string) {
   })
 }
 
-export async function findActiveLink(eventId: string, now: Date) {
-  return prisma.eventInviteLink.findFirst({
-    where: { eventId, revokedAt: null, expiresAt: { gt: now } },
-    orderBy: { createdAt: 'desc' },
+/**
+ * "Reusa o vigente ou cria" numa transação atrás de advisory lock por evento —
+ * mesmo padrão do teto de spots (spots.repository): sob READ COMMITTED, dois
+ * POSTs concorrentes leriam ambos "nenhum link ativo" e criariam dois. O lock
+ * serializa a criação do MESMO evento; o token vindo do caller só é usado
+ * quando o create de fato acontece.
+ */
+export async function findOrCreateActiveLink(
+  eventId: string,
+  data: { token: string; createdById: string; expiresAt: Date },
+  now: Date,
+) {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`invite_link:${eventId}`}))`
+    const existing = await tx.eventInviteLink.findFirst({
+      where: { eventId, revokedAt: null, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (existing) return { link: existing, created: false }
+    const link = await tx.eventInviteLink.create({ data: { eventId, ...data } })
+    return { link, created: true }
   })
-}
-
-export async function createLink(data: {
-  eventId: string
-  token: string
-  createdById: string
-  expiresAt: Date
-}) {
-  return prisma.eventInviteLink.create({ data })
 }
 
 export async function findLinksByEvent(eventId: string) {

@@ -7,12 +7,11 @@ import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import { findInvite } from '../event-invites/event-invites.repository'
 import {
   acceptLink,
-  createLink,
-  findActiveLink,
   findEventForLink,
   findLinkById,
   findLinkByToken,
   findLinksByEvent,
+  findOrCreateActiveLink,
   revokeLink,
 } from './event-invite-links.repository'
 
@@ -55,18 +54,16 @@ export async function createInviteLink(eventId: string, requesterId: string) {
     throw new AppError(400, 'EVENT_ENDED')
   }
 
-  const existing = await findActiveLink(eventId, now)
-  if (existing) {
-    return { link: serializeLink(existing), created: false }
-  }
-
-  const link = await createLink({
+  const { link, created } = await findOrCreateActiveLink(
     eventId,
-    createdById: requesterId,
-    token: randomBytes(16).toString('base64url'),
-    expiresAt,
-  })
-  return { link: serializeLink(link), created: true }
+    {
+      createdById: requesterId,
+      token: randomBytes(16).toString('base64url'),
+      expiresAt,
+    },
+    now,
+  )
+  return { link: serializeLink(link), created }
 }
 
 export async function listInviteLinks(eventId: string, requesterId: string) {
