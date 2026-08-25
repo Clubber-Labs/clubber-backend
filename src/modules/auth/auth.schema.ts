@@ -4,8 +4,8 @@ import { timezoneSchema } from '../../lib/i18n/timezone'
 export const loginBodySchema = z
   .object({
     // E-mail OU username, resolvido no service (ambos case-insensitive). String
-    // livre de propósito: username não restringe charset, então validar como
-    // e-mail recusaria identificadores válidos antes do service.
+    // livre de propósito: os dois formatos têm charsets incompatíveis, então
+    // qualquer validação de um recusaria identificadores válidos do outro.
     identifier: z.string().trim().min(1).max(255).optional(),
     // Legado: builds do app já publicadas só sabem enviar `email`. Aceito como
     // sinônimo de identifier — deixou de ser z.email() para não haver dois
