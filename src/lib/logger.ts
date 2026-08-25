@@ -2,9 +2,14 @@ import { type LoggerOptions, pino } from 'pino'
 import { env } from './env'
 
 const SENSITIVE_QUERY = /([?&](?:token|ticket|access_token)=)[^&]*/gi
+// Token de convite vive no PATH (/e/:token, /invites/:token[/accept]) — sem
+// isto, o log de request entregaria acesso a evento privado a quem lê logs.
+const SENSITIVE_PATH = /^(\/(?:e|invites)\/)[^/?]+/
 
 export function sanitizeLogUrl(url: string): string {
-  return url.replace(SENSITIVE_QUERY, '$1[REDACTED]')
+  return url
+    .replace(SENSITIVE_PATH, '$1[REDACTED]')
+    .replace(SENSITIVE_QUERY, '$1[REDACTED]')
 }
 
 const prettyTransport = {

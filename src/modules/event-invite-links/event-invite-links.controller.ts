@@ -53,7 +53,9 @@ export async function getInvitePreview(
 ) {
   const { token } = request.params as InviteTokenParam
   const preview = await getInviteLinkPreview(token, request.user?.sub)
-  return reply.send(preview)
+  // Conteúdo de evento privado atrás de um token revogável: nenhum cache
+  // intermediário pode servir isso depois da revogação.
+  return reply.header('cache-control', 'no-store').send(preview)
 }
 
 export async function postAcceptInvite(
