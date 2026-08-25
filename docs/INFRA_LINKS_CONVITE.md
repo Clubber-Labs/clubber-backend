@@ -1,70 +1,49 @@
-# Infra pendente — links de convite (`clubber.social`)
+# Infra — links de convite (`clubber.social`)
 
-Pendências de infraestrutura para o link de convite compartilhável funcionar de
-ponta a ponta (PRs #210 backend, #212 landing/app-links, PR 3 mobile). O código
-está pronto; **nada disso funciona em produção até os passos abaixo**.
+Runbook da infraestrutura do link de convite compartilhável (PRs #210 backend
+✅, #212 landing/app-links ✅, #128 mobile no clubber-app). Atualizado em
+2026-08-25 após a validação em produção: **o apex está no ar e verde** — as
+pendências restantes estão na tabela do fim.
 
-Ordem de execução: os passos 1–4 são pré-requisito do deploy; o 5 valida; os
-demais são configuração fina. O PR 3 (mobile) só deve gerar build depois do
-passo 5 passar.
+Arquitetura real: o apex `clubber.social` hospeda o **site institucional**
+(Cloudflare Workers Builds servindo estático, repo
+[Clubber-Labs/clubber-institucional]); a API vive em `api.clubber.social`
+(Coolify, atrás do proxy laranja da CF). As rotas do convite chegam à API por
+um **Worker de proxy** (institucional PR #2) que intercepta `/e/*` e os dois
+`.well-known` — rewrites de Next não existem em runtime de site estático (o
+PR #1, que tentava por essa via, falhou no build e foi substituído).
 
 ---
 
-## 1. DNS: apontar `clubber.social` para o backend
+## 1. DNS: `clubber.social` — ✅ FEITO
 
-**O que fazer:**
-- No provedor do domínio, criar o registro do apex `clubber.social` apontando
-  para a infra onde a API roda:
-  - IP fixo → registro `A` (e `AAAA` se houver IPv6)
-  - Hostname do provedor (LB/Coolify/edge) → `ALIAS`/`ANAME` (apex não aceita
-    `CNAME` na maioria dos provedores)
-- Se a API ficar em subdomínio próprio (ex.: `api.clubber.social`), o apex
-  ainda precisa resolver para um proxy que encaminhe ao MESMO app — as rotas
-  `/e/*` e `/.well-known/*` são servidas pelo Fastify, não são arquivos
-  estáticos hospedados à parte.
+Apex resolve pela Cloudflare (NS `autumn/sri.ns.cloudflare.com`, proxy
+laranja) e serve o site institucional. A API está em `api.clubber.social`
+(`/health` 200).
 
-**Por quê:** o link compartilhado é `https://clubber.social/e/<token>`, e Apple
-e Google baixam os arquivos de verificação desse host exato.
+## 2. TLS — ✅ FEITO
 
-## 2. TLS: certificado HTTPS válido para `clubber.social`
+HTTPS válido no apex e na API via Cloudflare.
 
-**O que fazer:**
-- Emitir/ativar o certificado no proxy que atende o domínio (Let's Encrypt
-  automático no Coolify/Traefik/Caddy; ou o cert gerenciado do provedor).
-- Conferir que `https://clubber.social` abre sem QUALQUER erro de certificado
-  (nome, cadeia, validade).
+## 3. Roteamento apex → API — ✅ FEITO (Worker de proxy)
 
-**Por quê:** Universal Links (iOS) e App Links (Android) **exigem** HTTPS sem
-erro — com cert inválido a verificação falha em silêncio e o link passa a abrir
-só o browser, para sempre.
+Worker do institucional (PR #2, `main` no `wrangler.jsonc`) intercepta:
 
-## 3. Roteamento: host → serviço do backend
+- `/e/:token` → landing do convite
+- `/.well-known/apple-app-site-association`
+- `/.well-known/assetlinks.json`
 
-**O que fazer:**
-- No proxy/ingress, rotear `clubber.social` para o serviço da API (o mesmo
-  container/app da API principal).
-- Garantir que estas rotas chegam ao Fastify sem redirect e sem autenticação de
-  borda na frente:
-  - `GET /e/*` (landing do convite)
-  - `GET /.well-known/apple-app-site-association`
-  - `GET /.well-known/assetlinks.json`
-- Sem redirect é literal: a Apple não segue redirect ao baixar o
-  `apple-app-site-association` — regras tipo "força www" ou "apex → app" não
-  podem se aplicar a esse path.
+e proxia para `api.clubber.social` **sem redirect** (requisito da Apple),
+preservando os headers da API (`no-store` da landing confirmado). O Worker
+sobrescreve (`set`) o `x-forwarded-for` com o `cf-connecting-ip` do visitante
+— descarta XFF spoofado pelo cliente e deixa a cadeia
+`visitante, <rede CF>, <Traefik>` para o passo 7 resolver.
 
-**Por quê:** os três endpoints nasceram no PR #212 como rotas da API; qualquer
-camada que intercepte (redirect, auth de borda, página de manutenção) quebra a
-verificação dos deep links.
+## 4. Variáveis de ambiente — ✅ ATIVAS
 
-## 4. Variáveis de ambiente em produção
+`SHARE_BASE_URL=https://clubber.social` ativa desde o deploy do #212.
 
-**O que fazer:** no ambiente de produção da API, definir:
-
-```env
-SHARE_BASE_URL=https://clubber.social
-```
-
-Opcionais (têm default correto no código, sobrescrever só se mudar):
+Opcionais (default correto no código):
 
 ```env
 APPLE_TEAM_ID=K238P4B9K4
@@ -76,76 +55,119 @@ PLAY_STORE_URL=https://play.google.com/store/apps/details?id=com.netobonato.club
 # APP_STORE_URL=https://apps.apple.com/app/id<NUMERO>
 ```
 
-**Por quê:** `SHARE_BASE_URL` é o host que o backend usa para montar a URL de
-compartilhamento; sem ela cai no `PUBLIC_URL` (a URL da API), e o link
-compartilhado sai errado. Sem `APP_STORE_URL` o botão iOS da landing
-simplesmente não renderiza (comportamento intencional).
+## 5. Validação pós-deploy — ✅ APEX VERDE (2026-08-25 ~05:25 UTC)
 
-## 5. Validação pós-deploy (gate para o PR 3)
+| Check | Resultado |
+|---|---|
+| `clubber.social/.well-known/apple-app-site-association` | ✅ 200, `application/json`, appIDs corretos, sem redirect |
+| `clubber.social/.well-known/assetlinks.json` | ✅ 200, package + fingerprint |
+| `clubber.social/e/<token>` | ✅ proxy end-to-end (landing da API, `no-store` preservado) |
+| Cache CF nos paths | ✅ `cf-cache-status: DYNAMIC` (bypass rule ativa) |
+| CDN da Apple (`app-site-association.cdn-apple.com/a/v1/clubber.social`) | ✅ servindo o AASA correto (re-buscou ao expirar o TTL, ~05:40 UTC) |
 
-**O que fazer:** rodar e conferir cada um:
+Comandos para revalidar quando precisar:
 
 ```bash
-# 1) AASA: 200, content-type application/json, appID K238P4B9K4.com.netobonato.clubber
 curl -si https://clubber.social/.well-known/apple-app-site-association | head -20
-
-# 2) assetlinks: 200, package com.netobonato.clubber + fingerprint SHA-256
 curl -si https://clubber.social/.well-known/assetlinks.json | head -20
-
-# 3) Nenhum redirect no caminho (deve ser 200 direto, sem 301/302)
-curl -sI https://clubber.social/.well-known/apple-app-site-association | grep -i "HTTP\|location"
-
-# 4) Landing: gerar um link real (POST /events/:id/invite-links) e abrir
-curl -s https://clubber.social/e/<token> | grep og:title
-
-# 5) Verificação do Google (depois do app buildado com o intent filter):
-#    https://developers.google.com/digital-asset-links/tools/generator
-# 6) Verificação da Apple (o CDN dela precisa enxergar o arquivo):
-curl -s "https://app-site-association.cdn-apple.com/a/v1/clubber.social" | head -5
+curl -s  https://clubber.social/e/<token> | grep og:title
+curl -s  "https://app-site-association.cdn-apple.com/a/v1/clubber.social" | head -5
+# Android (após o app buildado com o intent filter):
+#   https://developers.google.com/digital-asset-links/tools/generator
 ```
 
-**Por quê:** a Apple baixa o AASA via CDN próprio e **cacheia por horas/dias** —
-subir com o arquivo errado significa esperar o cache expirar (ou re-instalar o
-app) para testar de novo. Validar antes do build economiza esse ciclo.
+## 6. Cloudflare: cache e log do token — ✅ Cache Rule criada
 
-## 6. Proxy/CDN: log e cache do token
+- Cache Rule `bypass-links-convite` ativa na zona: **Bypass cache** para
+  `starts_with /e/` OR `starts_with /.well-known/` — confirmada em produção
+  (`DYNAMIC`). Foi ela que evitou o purge: o 404 antigo cacheado deixou de ser
+  consultado quando o Worker subiu.
+- Access logs (Cloudflare e Workers): não reter a URL completa de `/e/*` — no
+  backend o token já é mascarado (`sanitizeLogUrl`).
 
-**O que fazer:**
-- Access log do proxy: não logar a URL completa de `/e/*` e `/invites/*` (ou
-  mascarar o path). No backend isso já está resolvido (`sanitizeLogUrl`).
-- Se houver CDN/cache na frente: garantir que `Cache-Control: no-store` (que a
-  API já envia na landing e no preview) é respeitado — não configurar override
-  de cache para essas rotas.
+**Por quê:** o token É a credencial de acesso ao evento privado; cache servindo
+landing revogada anula a revogação, e log de proxy com o path entrega convites
+vigentes.
 
-**Por quê:** o token do link É a credencial de acesso ao evento privado; um
-access log de proxy guardando o path entrega convites vigentes a quem lê o log,
-e um cache servindo landing revogada anula a revogação.
+## 7. TRUSTED_PROXIES — ✅ FEITO (validado 2026-08-25 06:02 UTC)
 
-## 7. Rate limit atrás do proxy novo
+> Executado: env na API (passo A) + `forwardedHeaders.trustedIPs` nos dois
+> entrypoints do Traefik (passo B) + redeploy/restart. Validação: requests de
+> teste em `/health` e em `/e/*` **via Worker do apex** chegaram com
+> `remoteAddress` = IP público real do visitante (IPv6 inclusive) — a cadeia
+> completa `visitante → Worker → CF → Traefik → API` resolve o IP individual.
+> O passo a passo abaixo fica como referência de manutenção.
 
-**O que fazer:** se a rota `clubber.social` introduzir um proxy que ainda não
-está em `TRUSTED_PROXIES`, adicionar o IP/CIDR dele à env.
+A cadeia real é `visitante → Cloudflare (ou Worker) → Traefik → API`. O
+backend resolve `request.ip` (usado pelo rate limit) via `trustProxy` do
+Fastify ([src/server.ts]) alimentado pela env `TRUSTED_PROXIES` (CSV): o
+X-Forwarded-For é percorrido da direita para a esquerda até o primeiro IP
+**não**-confiável. **Fonte de verdade é o XFF — nunca `cf-connecting-ip`**,
+que no fluxo do Worker é o IP do próprio Worker.
 
-**Por quê:** o rate limit do preview (60/min) e do accept (20/min) é por IP;
-sem o proxy na lista, todos os requests chegam com o IP do proxy e o limite
-vira um balde global — throttling errado para usuários legítimos.
+Como `api.clubber.social` já está atrás da CF, enquanto isso não for feito o
+rate limit de TODAS as rotas opera em balde global — não é só o convite.
 
-## 8. Depois da infra: build nativo do app
+### A. Env na API (Coolify → app da API → Environment Variables)
 
-**O que fazer:** com os passos 1–5 verdes e o PR 3 (mobile) mergeado, gerar
-build novo via EAS (`associatedDomains` iOS + `intentFilters` Android).
+```env
+TRUSTED_PROXIES=127.0.0.1,172.16.0.0/12,10.0.0.0/8,173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32
+```
 
-**Por quê:** essas configurações são nativas — entram só em build novo, **não**
-via atualização OTA. App instalado de build antigo nunca abre o link direto.
+(loopback + redes docker do Traefik + ranges publicados da Cloudflare; a rede
+exata do Traefik sai de `docker network inspect coolify | grep Subnet`)
+
+### B. Traefik (Coolify → Servers → Proxy → Configuration)
+
+Sem isto o Traefik **descarta** o XFF vindo da CF e o reescreve com o IP dela
+— o rate limit ficaria por IP da Cloudflare (baldes compartilhados). Nas
+linhas `command:` do serviço traefik, adicionar (ajustar `http`/`https` para
+os nomes reais dos entrypoints do compose):
+
+```yaml
+- '--entrypoints.http.forwardedHeaders.trustedIPs=173.245.48.0/20,103.21.244.0/22,103.22.200.0/22,103.31.4.0/22,141.101.64.0/18,108.162.192.0/18,190.93.240.0/20,188.114.96.0/20,197.234.240.0/22,198.41.128.0/17,162.158.0.0/15,104.16.0.0/13,104.24.0.0/14,172.64.0.0/13,131.0.72.0/22,2400:cb00::/32,2606:4700::/32,2803:f800::/32,2405:b500::/32,2405:8100::/32,2a06:98c0::/29,2c0f:f248::/32'
+- '--entrypoints.https.forwardedHeaders.trustedIPs=<mesma lista>'
+```
+
+Salvar e **Restart Proxy**.
+
+### C. Redeploy e validação
+
+1. Redeploy da API (env só vale no restart).
+2. `curl ifconfig.me` (teu IP) → `curl https://api.clubber.social/health` →
+   conferir `remoteAddress` no log da API:
+   - ✅ teu IP público → cadeia certa
+   - ❌ `172.x`/`10.x` → env da API não pegou (passo A)
+   - ❌ IP da Cloudflare → Traefik descartando XFF (passo B)
+3. Repetir com `https://clubber.social/e/qualquer` (atravessa o Worker).
+
+**Manutenção:** a lista da CF é estável, mas publicada em
+<https://www.cloudflare.com/ips/> — se o rate limit "enlouquecer" sem mudança
+nossa, o primeiro suspeito é range novo fora da lista.
+
+## 8. Build nativo do app (clubber-app PR #128)
+
+Com o passo 7 feito e o CDN da Apple atualizado: merge do #128 e build novo
+via EAS (`associatedDomains` iOS + `intentFilters` Android). Configuração
+nativa **não** entra por OTA — build antigo nunca abre o link direto.
+
+O fluxo por custom scheme (`clubber://invites/<token>`) não depende de nada
+disso e já é testável em dev.
 
 ---
 
-## Estado atual (2026-08-25)
+## Estado (2026-08-25 ~05:30 UTC)
 
 | Item | Status |
 |---|---|
-| Código backend (link + accept) | ✅ PR #210 mergeado |
-| Landing + `.well-known` | 🟡 PR #212 aberto |
-| DNS/TLS/roteamento `clubber.social` | ❌ pendente (passos 1–3) |
-| `SHARE_BASE_URL` em produção | ❌ pendente (passo 4) |
-| App mobile (PR 3) | ❌ não iniciado — bloqueado pelo passo 5 |
+| Backend (link + accept + landing + `.well-known`) | ✅ #210 e #212 mergeados e **deployados** |
+| DNS/TLS do apex | ✅ |
+| Worker de proxy apex → API | ✅ institucional PR #2 deployado, **validado em produção** |
+| `SHARE_BASE_URL` | ✅ ativa |
+| Cache Rule de bypass na CF | ✅ ativa e confirmada (`DYNAMIC`) |
+| CDN da Apple | ✅ AASA no ar (verificado ~05:40 UTC) |
+| `TRUSTED_PROXIES` (API + Traefik) | ✅ validado com IP real fim a fim (06:02 UTC) |
+| App mobile | 🟡 PR #128 aberto — **build EAS totalmente destravado**; era o último gate |
+
+[Clubber-Labs/clubber-institucional]: https://github.com/Clubber-Labs/clubber-institucional
+[src/server.ts]: ../src/server.ts
