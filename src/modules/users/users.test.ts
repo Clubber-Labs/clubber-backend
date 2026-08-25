@@ -568,6 +568,99 @@ describe('GET /users/username-available', () => {
   })
 })
 
+describe('POST /users — formato do username', () => {
+  function payloadWith(username: string) {
+    return {
+      name: 'Novo',
+      lastname: 'Usuario',
+      username,
+      phone: '99999999991',
+      email: 'formato@exemplo.com',
+      password: 'senha12345',
+      birthdate: '2000-01-01T00:00:00.000Z',
+      preferredCategories: ['MUSIC', 'ART'],
+    }
+  }
+
+  it('aceita letras, números, ponto e underscore', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: payloadWith('neto.bonato_10'),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().user).toMatchObject({ username: 'neto.bonato_10' })
+  })
+
+  it('normaliza espaços das pontas e maiúsculas antes de validar', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: payloadWith('  NetoBonato  '),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().user).toMatchObject({ username: 'netobonato' })
+  })
+
+  it('retorna 400 quando o username contém espaço no meio', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/users',
+      payload: payloadWith('neto bonato'),
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 quando o username contém caracteres fora do padrão', async () => {
+    for (const username of ['joão123', 'neto!', 'neto-bonato', 'neto@ai']) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        payload: payloadWith(username),
+      })
+
+      expect(res.statusCode, username).toBe(400)
+    }
+  })
+
+  it('retorna 400 quando o ponto inicia, termina ou se repete', async () => {
+    for (const username of ['.neto', 'neto.', 'neto..bonato']) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/users',
+        payload: payloadWith(username),
+      })
+
+      expect(res.statusCode, username).toBe(400)
+    }
+  })
+
+  it('PUT /users/:id aplica as mesmas regras de formato', async () => {
+    const user = await makeUser({ username: 'valido' })
+
+    const res = await app.inject({
+      method: 'PUT',
+      url: `/users/${user.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      payload: { username: 'com espaco' },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('GET /users/username-available rejeita formato inválido com 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/username-available?username=com%20espaco',
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+})
+
 describe('POST /users — conflitos de unique constraint', () => {
   it('retorna 409 com mensagem nova quando email já está em uso', async () => {
     await makeUser({ email: 'duplicado@exemplo.com' })

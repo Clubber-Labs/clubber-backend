@@ -8,12 +8,22 @@ import { interestSchema } from '../../lib/subcategories'
 // disponibilidade precisam aceitar exatamente o mesmo conjunto de valores.
 // Minúsculo é a forma canônica da identidade (o índice único é sobre lower()):
 // normalizar aqui, e não no cliente, garante o formato venha de onde vier —
-// app antigo, web ou login social.
+// app antigo, web ou login social. Charset no padrão Instagram: letras,
+// números, ponto e underscore — ponto não inicia, não termina e não repete.
 export const usernameFieldSchema = z
   .string()
+  .trim()
+  .toLowerCase()
   .min(4, 'Seu nome de usuario deve ter no minimo 4 caracteres')
   .max(25, 'Seu nome de usuario deve ter no maximo 25 caracteres')
-  .toLowerCase()
+  .regex(
+    /^[a-z0-9._]+$/,
+    'Seu nome de usuario deve conter apenas letras, numeros, pontos e underscores, sem espacos',
+  )
+  .regex(
+    /^(?!\.)(?!.*\.\.)(?!.*\.$)/,
+    'Pontos nao podem iniciar, terminar ou se repetir no nome de usuario',
+  )
 
 export const createUserSchema = z.object({
   name: z
