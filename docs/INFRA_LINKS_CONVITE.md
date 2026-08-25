@@ -89,7 +89,14 @@ curl -s  "https://app-site-association.cdn-apple.com/a/v1/clubber.social" | head
 landing revogada anula a revogação, e log de proxy com o path entrega convites
 vigentes.
 
-## 7. TRUSTED_PROXIES — ❌ PENDENTE (último gate do backend)
+## 7. TRUSTED_PROXIES — ✅ FEITO (validado 2026-08-25 06:02 UTC)
+
+> Executado: env na API (passo A) + `forwardedHeaders.trustedIPs` nos dois
+> entrypoints do Traefik (passo B) + redeploy/restart. Validação: requests de
+> teste em `/health` e em `/e/*` **via Worker do apex** chegaram com
+> `remoteAddress` = IP público real do visitante (IPv6 inclusive) — a cadeia
+> completa `visitante → Worker → CF → Traefik → API` resolve o IP individual.
+> O passo a passo abaixo fica como referência de manutenção.
 
 A cadeia real é `visitante → Cloudflare (ou Worker) → Traefik → API`. O
 backend resolve `request.ip` (usado pelo rate limit) via `trustProxy` do
@@ -159,8 +166,8 @@ disso e já é testável em dev.
 | `SHARE_BASE_URL` | ✅ ativa |
 | Cache Rule de bypass na CF | ✅ ativa e confirmada (`DYNAMIC`) |
 | CDN da Apple | ✅ AASA no ar (verificado ~05:40 UTC) |
-| `TRUSTED_PROXIES` (API + Traefik) | ❌ **único gate restante do backend** — passo 7 |
-| App mobile | 🟡 PR #128 aberto; custom scheme testável já; build EAS após passo 7 + CDN Apple |
+| `TRUSTED_PROXIES` (API + Traefik) | ✅ validado com IP real fim a fim (06:02 UTC) |
+| App mobile | 🟡 PR #128 aberto — **build EAS totalmente destravado**; era o último gate |
 
 [Clubber-Labs/clubber-institucional]: https://github.com/Clubber-Labs/clubber-institucional
 [src/server.ts]: ../src/server.ts
