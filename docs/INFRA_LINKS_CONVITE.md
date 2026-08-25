@@ -118,18 +118,40 @@ entrega convites vigentes.
 
 ## 7. TRUSTED_PROXIES — ⚠️ PRÉ-REQUISITO (subiu de configuração fina)
 
-Com o rewrite do Next, **todo** request de `/e/*` e `/.well-known/*` chega à
-API com o IP de egress do servidor do site institucional — não o do visitante.
+O proxy do apex virou um **Worker da Cloudflare** (institucional PR #2): o
+site roda em Workers Builds servindo estático, `rewrites()` do Next não
+existem em runtime estático, e o Worker intercepta `/e/*` + os dois
+`.well-known` proxiando para `api.clubber.social`. Consequência: não há IP de
+egress fixo a descobrir — o tráfego proxiado sai da própria rede da
+Cloudflare, e `api.clubber.social` **já** está atrás do proxy laranja de
+qualquer forma.
 
-**O que fazer, antes de considerar o passo 5 verde:**
-1. Descobrir onde o site institucional roda e qual o IP (ou faixa) de egress.
-2. Confirmar que o Next/host repassa `X-Forwarded-For` com o IP real do
-   visitante.
-3. Cadastrar esse IP/CIDR em `TRUSTED_PROXIES` na API (Coolify).
+**Como o backend interpreta** (`src/server.ts`): `TRUSTED_PROXIES` (CSV de
+IPs/CIDRs) vai direto no `trustProxy` do Fastify, que resolve `request.ip`
+caminhando o `X-Forwarded-For` da direita para a esquerda e parando no
+primeiro IP não-confiável. O rate limit usa esse `request.ip`.
+
+**O que cadastrar no Coolify (dá para fazer já, não depende de deploy do
+institucional):**
+1. Os ranges IPv4 e IPv6 da Cloudflare (<https://www.cloudflare.com/ips/>).
+2. O IP/rede interna do Traefik do Coolify — a conexão TCP que o Fastify vê é
+   a do Traefik; sem ele na lista, o XFF inteiro é ignorado.
+3. Conferir no Traefik que `forwardedHeaders.trustedIPs` inclui os ranges da
+   Cloudflare (senão ele descarta/sobrescreve o XFF antes de chegar na API).
+
+**Fonte de verdade do IP do visitante: o `X-Forwarded-For` processado pelo
+`trustProxy` — nunca `cf-connecting-ip`.** No fluxo proxiado pelo Worker, o
+`cf-connecting-ip` que chega à API é o da requisição DO WORKER (rede CF), não
+o do visitante; o IP real vem no XFF que o Worker seta explicitamente. Com os
+ranges CF confiáveis, a cadeia `visitante, CF...` resolve para o visitante.
+
+**Validação:** depois de configurar, conferir no log de request da API
+(`remoteAddress`) que aparece o IP público do visitante — não `172.x`
+(Traefik) nem IP da Cloudflare.
 
 **Por quê:** o rate limit do preview/landing (60/min) e do accept (20/min) é
-por IP. Sem o egress do site em `TRUSTED_PROXIES`, todos os visitantes contam
-no MESMO balde (o IP do site) — a landing morre com pouco tráfego legítimo.
+por IP. Sem a cadeia confiável, todos os visitantes contam no MESMO balde — a
+landing morre com pouco tráfego legítimo.
 
 ## 8. Depois da infra: build nativo do app
 
@@ -149,7 +171,7 @@ de build antigo nunca abre o link direto.
 | Código backend (link + accept) | ✅ PR #210 mergeado |
 | Landing + `.well-known` | ✅ PR #212 mergeado e **deployado** (API validada 05:03 UTC) |
 | DNS/TLS do apex | ✅ Cloudflare, site institucional no ar |
-| Roteamento apex → API | 🟡 rewrites mergeados (institucional PR #1), aguardando deploy do site **+ purge CF** (404 cacheado no path do AASA) |
+| Roteamento apex → API | 🟡 Worker de proxy (institucional PR #2 — o rewrite do PR #1 não funciona em site estático), aguardando merge + build verde **+ purge CF** (404 cacheado no path do AASA) |
 | `SHARE_BASE_URL` em produção | ✅ ativa (deploy do #212) |
 | `TRUSTED_PROXIES` (egress do site) | ❌ pendente — **gate do passo 5** |
 | Cache Rule de bypass `/e/*` e `/.well-known/*` na CF | ❌ criar antes/junto do deploy do site |
