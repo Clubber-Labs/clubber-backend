@@ -89,6 +89,33 @@ export async function revokeInviteLink(
 
 type LinkWithEvent = NonNullable<Awaited<ReturnType<typeof findLinkByToken>>>
 
+export type InviteLinkState = 'ok' | 'event_canceled' | 'revoked' | 'expired'
+
+/**
+ * Classificação pura do estado do link — compartilhada com a landing web
+ * (módulo share), que precisa do estado sem o throw para escolher o template.
+ * Cancelamento vence revogação/expiração: é a informação mais relevante.
+ */
+export function classifyInviteLink(
+  link: {
+    revokedAt: Date | null
+    expiresAt: Date
+    event: { canceledAt: Date | null }
+  },
+  now: Date = new Date(),
+): InviteLinkState {
+  if (link.event.canceledAt) return 'event_canceled'
+  if (link.revokedAt) return 'revoked'
+  if (link.expiresAt <= now) return 'expired'
+  return 'ok'
+}
+
+const GONE_CODES = {
+  event_canceled: 'EVENT_CANCELED',
+  revoked: 'INVITE_LINK_REVOKED',
+  expired: 'INVITE_LINK_EXPIRED',
+} as const
+
 /**
  * Valida o token e devolve o link com o evento. Bloqueio entre viewer e autor
  * responde 404 (não 403) de propósito: um link vazado não deve confirmar a um
@@ -109,14 +136,9 @@ async function resolveLink(
   ) {
     throw new AppError(404, 'INVITE_LINK_NOT_FOUND')
   }
-  if (link.event.canceledAt) {
-    throw new AppError(410, 'EVENT_CANCELED')
-  }
-  if (link.revokedAt) {
-    throw new AppError(410, 'INVITE_LINK_REVOKED')
-  }
-  if (link.expiresAt <= new Date()) {
-    throw new AppError(410, 'INVITE_LINK_EXPIRED')
+  const state = classifyInviteLink(link)
+  if (state !== 'ok') {
+    throw new AppError(410, GONE_CODES[state])
   }
   return link
 }
