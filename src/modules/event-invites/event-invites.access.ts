@@ -1,5 +1,5 @@
 import { AppError } from '../../lib/errors/app-error'
-import { canViewAuthorContent } from '../../lib/profile-visibility'
+import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import { findEventAccess } from '../events/events.repository'
 import { findInvite } from './event-invites.repository'
 
@@ -20,8 +20,10 @@ export async function checkEventAccess(
     throw new AppError(401, 'AUTH_REQUIRED')
   }
 
-  const authorVisible = await canViewAuthorContent(event.authorId, requesterId)
-  if (!authorVisible) {
+  // O convite é concessão explícita do autor e vale por si — inclusive para
+  // quem não segue um autor privado (link compartilhável). Bloqueio em
+  // qualquer direção continua negando, mesmo com convite.
+  if (await isBlockedEitherWay(event.authorId, requesterId)) {
     throw new AppError(403, 'EVENT_ACCESS_DENIED')
   }
 
