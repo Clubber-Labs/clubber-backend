@@ -35,6 +35,9 @@ describe('GET /e/:token', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('text/html')
+    // Token revogável: nenhum cache intermediário pode servir a landing depois
+    // da revogação.
+    expect(res.headers['cache-control']).toBe('no-store')
     expect(res.body).toContain('og:title')
     expect(res.body).toContain('Festa na Cobertura')
     expect(res.body).toContain('https://cdn.test/capa.webp')
@@ -121,6 +124,7 @@ describe('GET /.well-known/apple-app-site-association', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toContain('application/json')
+    expect(res.headers['cache-control']).toBe('public, max-age=3600')
     const body = res.json()
     expect(body.applinks.details[0].appIDs).toEqual([
       'K238P4B9K4.com.netobonato.clubber',

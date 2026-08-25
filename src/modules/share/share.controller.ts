@@ -32,16 +32,26 @@ export async function getInviteLanding(
     )
 }
 
+// Conteúdo estático de config: 1h de cache segura os scrapers automáticos de
+// Apple/Google sem atrasar de forma relevante uma troca de fingerprint.
+const WELL_KNOWN_CACHE = 'public, max-age=3600'
+
 export async function getAppleAppSiteAssociation(
   _request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  return reply.type('application/json').send(buildAppleAppSiteAssociation())
+  return reply
+    .header('cache-control', WELL_KNOWN_CACHE)
+    .type('application/json')
+    .send(buildAppleAppSiteAssociation())
 }
 
 export async function getAssetLinks(
   _request: FastifyRequest,
   reply: FastifyReply,
 ) {
-  return reply.type('application/json').send(buildAssetLinks())
+  return reply
+    .header('cache-control', WELL_KNOWN_CACHE)
+    .type('application/json')
+    .send(buildAssetLinks())
 }
