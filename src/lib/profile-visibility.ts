@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client'
+import { areMutualFollowers } from '../modules/follows/follows.repository'
 import { prisma } from './prisma'
 
 /**
@@ -85,4 +86,28 @@ async function isBlockedBetween(a: string, b: string): Promise<boolean> {
     select: { id: true },
   })
   return found !== null
+}
+
+/**
+ * Alcançabilidade para CONVERSA (DM e grupo). Mais estrita que
+ * canViewAuthorContent de propósito: ver conteúdo público não pede vínculo
+ * nenhum, mas conversa é canal direto — perfil privado exige follow MÚTUO
+ * aceito, a mesma definição de "amigo" que os rolês privados já usam.
+ *
+ * NÃO checa bloqueio: quem chama (assertReachable) já barra antes, e com outro
+ * código de erro — juntar aqui apagaria a distinção.
+ *
+ * `targetIsPrivate` vem do chamador, que já carregou o alvo para checar
+ * existência/status — refazer a query aqui dobraria as idas ao banco por
+ * membro ao criar grupo.
+ */
+export async function canChatWith(
+  targetId: string,
+  viewerId: string,
+  targetIsPrivate: boolean,
+): Promise<boolean> {
+  if (viewerId === targetId) return true
+  if (!targetIsPrivate) return true
+
+  return areMutualFollowers(viewerId, targetId)
 }

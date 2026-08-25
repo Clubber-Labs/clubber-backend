@@ -12,6 +12,8 @@ import {
   findFollow,
   findFollowers,
   findFollowing,
+  findFollowStatusesByFollower,
+  findFollowStatusesByFollowing,
   findPendingRequests,
 } from './follows.repository'
 
@@ -120,6 +122,30 @@ async function ensureCanViewFollowList(userId: string, requesterId: string) {
   }
 }
 
+/**
+ * Anexa a relação do REQUISITANTE com cada usuário da lista, nos DOIS sentidos.
+ * É o que permite ao cliente decidir se pode abrir conversa sem tentar o POST:
+ * perfil privado exige follow mútuo (canChatWith), e um sentido só não responde.
+ * Definição única de `followStatus`/`followsYou` — busca e perfil (users.service)
+ * usam este helper para não divergir das listas de follows.
+ */
+export async function withViewerFollowInfo<T extends { id: string }>(
+  users: T[],
+  viewerId: string,
+) {
+  const otherIds = users.filter((u) => u.id !== viewerId).map((u) => u.id)
+  const [outgoing, incoming] = await Promise.all([
+    findFollowStatusesByFollower(viewerId, otherIds),
+    findFollowStatusesByFollowing(viewerId, otherIds),
+  ])
+
+  return users.map((u) => ({
+    ...u,
+    followStatus: u.id === viewerId ? null : (outgoing.get(u.id) ?? null),
+    followsYou: incoming.get(u.id) === 'ACCEPTED',
+  }))
+}
+
 export async function listFollowers(
   userId: string,
   requesterId: string,
@@ -129,7 +155,11 @@ export async function listFollowers(
   await ensureCanViewFollowList(userId, requesterId)
   const rows = await findFollowers(userId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
-  return { data: rows.map((r) => r.follower), nextCursor }
+  const data = await withViewerFollowInfo(
+    rows.map((r) => r.follower),
+    requesterId,
+  )
+  return { data, nextCursor }
 }
 
 export async function listFollowing(
@@ -141,7 +171,11 @@ export async function listFollowing(
   await ensureCanViewFollowList(userId, requesterId)
   const rows = await findFollowing(userId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
-  return { data: rows.map((r) => r.following), nextCursor }
+  const data = await withViewerFollowInfo(
+    rows.map((r) => r.following),
+    requesterId,
+  )
+  return { data, nextCursor }
 }
 
 export async function listPendingRequests(

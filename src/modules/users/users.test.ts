@@ -164,6 +164,52 @@ describe('GET /users/:id', () => {
     expect(res.json().followStatus).toBeNull()
   })
 
+  it('retorna followsYou true quando o alvo segue o viewer de volta', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ isPrivate: true })
+    await makeFollow(viewer.id, target.id)
+    await makeFollow(target.id, viewer.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      followStatus: 'ACCEPTED',
+      followsYou: true,
+    })
+  })
+
+  it('retorna followsYou false quando o follow é só num sentido', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser()
+    await makeFollow(viewer.id, target.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      followStatus: 'ACCEPTED',
+      followsYou: false,
+    })
+  })
+
+  it('retorna followsYou false quando não autenticado', async () => {
+    const target = await makeUser()
+
+    const res = await app.inject({ method: 'GET', url: `/users/${target.id}` })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().followsYou).toBe(false)
+  })
+
   it('retorna eventsCount correto', async () => {
     const user = await makeUser()
     await makeEvent(user.id)
@@ -1372,6 +1418,65 @@ describe('GET /users/search', () => {
     expect(found.isPrivate).toBe(true)
     expect(found).toHaveProperty('bio')
     expect(found).toHaveProperty('followersCount')
+  })
+
+  it('marca followsYou quando o encontrado segue o viewer de volta', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ username: 'mutual_priv', isPrivate: true })
+    await makeFollow(viewer.id, target.id)
+    await makeFollow(target.id, viewer.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=mutual_priv',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { id: string }) => u.id === target.id)
+    expect(found).toMatchObject({
+      kind: 'full',
+      followStatus: 'ACCEPTED',
+      followsYou: true,
+    })
+  })
+
+  it('followsYou false no card reduzido quando ninguém segue ninguém', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({
+      username: 'stranger_priv',
+      isPrivate: true,
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=stranger_priv',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { id: string }) => u.id === target.id)
+    expect(found).toMatchObject({ kind: 'reduced', followsYou: false })
+  })
+
+  it('followsYou true no card reduzido quando só o privado segue o viewer', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ username: 'fan_priv', isPrivate: true })
+    await makeFollow(target.id, viewer.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/users/search?q=fan_priv',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const found = res
+      .json()
+      .data.find((u: { id: string }) => u.id === target.id)
+    expect(found).toMatchObject({
+      kind: 'reduced',
+      followStatus: null,
+      followsYou: true,
+    })
   })
 
   it('o próprio viewer aparece com followStatus null e kind=full', async () => {

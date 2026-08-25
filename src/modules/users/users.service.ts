@@ -10,10 +10,7 @@ import {
   unlinkStripeCustomer,
 } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
-import {
-  findFollow,
-  findFollowStatusesByFollower,
-} from '../follows/follows.repository'
+import { withViewerFollowInfo } from '../follows/follows.service'
 import {
   anonymizeUserTx,
   clearExpiredSuspension,
@@ -79,18 +76,19 @@ export async function searchUsers(
   const users = await searchUsersRepo(q, limit, cursor)
   const nextCursor = users.length === limit ? users[users.length - 1].id : null
 
-  const otherIds = users.filter((u) => u.id !== viewerId).map((u) => u.id)
-  const statuses = await findFollowStatusesByFollower(viewerId, otherIds)
+  // Os dois sentidos: `followStatus` é viewer→usuário, `followsYou` é o inverso.
+  // O cliente precisa dos dois pra saber se pode abrir conversa (perfil privado
+  // exige follow mútuo — ver canChatWith).
+  const enriched = await withViewerFollowInfo(users, viewerId)
 
-  const data = users.map((u) => {
+  const data = enriched.map((u) => {
     const isSelf = u.id === viewerId
-    const followStatus = isSelf ? null : (statuses.get(u.id) ?? null)
 
     // Privacy gate só na BUSCA: privado sem follow ACCEPTED expõe card mínimo
     // (sem bio/counts). Divergência PROPOSITAL de getUserById (perfil), que
     // mostra os metadados estilo Instagram — a busca fica minimalista.
     // `kind` discrimina as variantes pro client sem heurística de campos.
-    const hidePrivate = u.isPrivate && !isSelf && followStatus !== 'ACCEPTED'
+    const hidePrivate = u.isPrivate && !isSelf && u.followStatus !== 'ACCEPTED'
     if (hidePrivate) {
       return {
         kind: 'reduced' as const,
@@ -100,11 +98,12 @@ export async function searchUsers(
         lastname: u.lastname,
         avatarUrl: u.avatarUrl,
         isPrivate: true as const,
-        followStatus,
+        followStatus: u.followStatus,
+        followsYou: u.followsYou,
       }
     }
 
-    return { kind: 'full' as const, ...u, followStatus }
+    return { kind: 'full' as const, ...u }
   })
 
   return { data, nextCursor }
@@ -117,8 +116,12 @@ export async function getUserById(id: string, viewerId?: string) {
   const { _count, ...rest } = user
 
   const isSelf = viewerId === id
-  const follow = viewerId && !isSelf ? await findFollow(viewerId, id) : null
-  const followStatus = follow?.status ?? null
+  // Os dois sentidos, mesmo motivo da busca: o botão de mensagem só libera se
+  // o perfil for público OU o follow for mútuo (canChatWith).
+  const { followStatus, followsYou } =
+    viewerId && !isSelf
+      ? (await withViewerFollowInfo([{ id }], viewerId))[0]
+      : { followStatus: null, followsYou: false }
 
   // Perfil completo mesmo p/ conta privada (estilo Instagram): a privacidade
   // real fica no conteúdo (authorVisibleWhere) e nas listas de seguidores
@@ -128,6 +131,7 @@ export async function getUserById(id: string, viewerId?: string) {
     ...withPreferredCategories(rest),
     eventsCount: _count.events,
     followStatus,
+    followsYou,
   }
 }
 

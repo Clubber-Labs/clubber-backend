@@ -1,5 +1,5 @@
 import { AppError } from '../../lib/errors/app-error'
-import { canViewAuthorContent } from '../../lib/profile-visibility'
+import { canChatWith } from '../../lib/profile-visibility'
 import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import {
   findActiveParticipant,
@@ -8,9 +8,9 @@ import {
 } from './chat.repository'
 
 /**
- * Garante que `viewer` pode iniciar/manter conversa com `target`:
- * não é ele mesmo, alvo existe, sem bloqueio em nenhuma direção e a
- * privacidade do alvo permite (público ou seguido) — espelha canViewAuthorContent.
+ * Garante que `viewer` pode iniciar/manter conversa com `target`: não é ele
+ * mesmo, alvo existe, sem bloqueio em nenhuma direção e a privacidade do alvo
+ * permite — público é livre, privado exige follow mútuo (ver canChatWith).
  */
 export async function assertReachable(viewerId: string, targetId: string) {
   if (targetId === viewerId) {
@@ -25,7 +25,7 @@ export async function assertReachable(viewerId: string, targetId: string) {
   if (await isBlockedEitherWay(viewerId, targetId)) {
     throw new AppError(403, 'CONVERSATION_FORBIDDEN')
   }
-  if (!(await canViewAuthorContent(targetId, viewerId))) {
+  if (!(await canChatWith(targetId, viewerId, target.isPrivate))) {
     throw new AppError(403, 'PRIVATE_PROFILE')
   }
   return target

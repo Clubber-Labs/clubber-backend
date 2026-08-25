@@ -188,10 +188,38 @@ describe('POST /conversations — DIRECT', () => {
     expect(res.statusCode).toBe(403)
   })
 
-  it('permite DM com perfil privado que o viewer segue (ACCEPTED)', async () => {
+  it('403 ao iniciar DM com perfil privado sem follow mútuo', async () => {
     const viewer = await makeUser()
     const target = await makeUser({ isPrivate: true })
     await makeFollow(viewer.id, target.id, 'ACCEPTED')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/conversations',
+      headers: auth(viewer.id),
+      body: { type: 'DIRECT', targetUserId: target.id },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('permite DM com perfil privado em follow mútuo', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser({ isPrivate: true })
+    await makeFollow(viewer.id, target.id, 'ACCEPTED')
+    await makeFollow(target.id, viewer.id, 'ACCEPTED')
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/conversations',
+      headers: auth(viewer.id),
+      body: { type: 'DIRECT', targetUserId: target.id },
+    })
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('permite DM com perfil público sem follow nenhum', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser()
 
     const res = await app.inject({
       method: 'POST',

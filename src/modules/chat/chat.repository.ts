@@ -112,11 +112,11 @@ export async function createConversationKey(
 }
 
 export async function findUserBrief(id: string) {
-  // accountStatus só aqui (não no userSelect compartilhado) para a checagem de
-  // alcançabilidade barrar contas inativas, sem alterar o shape de mensagens.
+  // accountStatus e isPrivate só aqui (não no userSelect compartilhado): a
+  // checagem de alcançabilidade precisa dos dois, sem alterar o shape de mensagens.
   return prisma.user.findUnique({
     where: { id },
-    select: { ...userSelect, accountStatus: true },
+    select: { ...userSelect, accountStatus: true, isPrivate: true },
   })
 }
 
