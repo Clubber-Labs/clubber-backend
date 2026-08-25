@@ -2,12 +2,17 @@ import type { FollowStatus } from '@prisma/client'
 import { activeUserWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
+// `isPrivate` vai junto porque o cliente precisa dele para saber, sem tentar o
+// POST, se dá para abrir conversa/grupo com a pessoa (privado exige follow
+// mútuo — ver canChatWith). Não é vazamento: a busca já expõe o campo e o
+// cadeado é visível no perfil.
 const followerSelect = {
   id: true,
   name: true,
   lastname: true,
   username: true,
   avatarUrl: true,
+  isPrivate: true,
 } as const
 
 /** IDs que o usuário segue com follow aceito — definição de "amigo" no app. */
@@ -120,6 +125,21 @@ export async function findFollowStatusesByFollower(
   })
 
   return new Map(rows.map((r) => [r.followingId, r.status]))
+}
+
+/** Espelho do anterior: status do follow de cada `followerId` PARA `followingId`. */
+export async function findFollowStatusesByFollowing(
+  followingId: string,
+  followerIds: string[],
+): Promise<Map<string, FollowStatus>> {
+  if (followerIds.length === 0) return new Map()
+
+  const rows = await prisma.follow.findMany({
+    where: { followingId, followerId: { in: followerIds } },
+    select: { followerId: true, status: true },
+  })
+
+  return new Map(rows.map((r) => [r.followerId, r.status]))
 }
 
 export async function findFollowers(

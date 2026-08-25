@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
+import { areMutualFollowers } from '../modules/follows/follows.repository'
 
 /**
  * Filtro Prisma para "eventos cujo autor é visível ao viewer".
@@ -85,4 +86,29 @@ async function isBlockedBetween(a: string, b: string): Promise<boolean> {
     select: { id: true },
   })
   return found !== null
+}
+
+/**
+ * Alcançabilidade para CONVERSA (DM e grupo). Mais estrita que
+ * canViewAuthorContent de propósito: ver conteúdo público não pede vínculo
+ * nenhum, mas conversa é canal direto — perfil privado exige follow MÚTUO
+ * aceito, a mesma definição de "amigo" que os rolês privados já usam.
+ *
+ * NÃO checa bloqueio: quem chama (assertReachable) já barra antes, e com outro
+ * código de erro — juntar aqui apagaria a distinção.
+ */
+export async function canChatWith(
+  targetId: string,
+  viewerId: string,
+): Promise<boolean> {
+  if (viewerId === targetId) return true
+
+  const target = await prisma.user.findUnique({
+    where: { id: targetId },
+    select: { isPrivate: true },
+  })
+  if (!target) return false
+  if (!target.isPrivate) return true
+
+  return areMutualFollowers(viewerId, targetId)
 }

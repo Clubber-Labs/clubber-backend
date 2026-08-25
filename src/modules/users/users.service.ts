@@ -13,6 +13,7 @@ import { getConsentSummary } from '../consent/consent.service'
 import {
   findFollow,
   findFollowStatusesByFollower,
+  findFollowStatusesByFollowing,
 } from '../follows/follows.repository'
 import {
   anonymizeUserTx,
@@ -80,11 +81,18 @@ export async function searchUsers(
   const nextCursor = users.length === limit ? users[users.length - 1].id : null
 
   const otherIds = users.filter((u) => u.id !== viewerId).map((u) => u.id)
-  const statuses = await findFollowStatusesByFollower(viewerId, otherIds)
+  // Os dois sentidos: `followStatus` é viewer→usuário, `followsYou` é o inverso.
+  // O cliente precisa dos dois pra saber se pode abrir conversa (perfil privado
+  // exige follow mútuo — ver canChatWith).
+  const [statuses, incoming] = await Promise.all([
+    findFollowStatusesByFollower(viewerId, otherIds),
+    findFollowStatusesByFollowing(viewerId, otherIds),
+  ])
 
   const data = users.map((u) => {
     const isSelf = u.id === viewerId
     const followStatus = isSelf ? null : (statuses.get(u.id) ?? null)
+    const followsYou = !isSelf && incoming.get(u.id) === 'ACCEPTED'
 
     // Privacy gate só na BUSCA: privado sem follow ACCEPTED expõe card mínimo
     // (sem bio/counts). Divergência PROPOSITAL de getUserById (perfil), que
@@ -101,10 +109,11 @@ export async function searchUsers(
         avatarUrl: u.avatarUrl,
         isPrivate: true as const,
         followStatus,
+        followsYou,
       }
     }
 
-    return { kind: 'full' as const, ...u, followStatus }
+    return { kind: 'full' as const, ...u, followStatus, followsYou }
   })
 
   return { data, nextCursor }
@@ -117,8 +126,14 @@ export async function getUserById(id: string, viewerId?: string) {
   const { _count, ...rest } = user
 
   const isSelf = viewerId === id
-  const follow = viewerId && !isSelf ? await findFollow(viewerId, id) : null
+  // Os dois sentidos, mesmo motivo da busca: o botão de mensagem só libera se
+  // o perfil for público OU o follow for mútuo (canChatWith).
+  const [follow, reverse] =
+    viewerId && !isSelf
+      ? await Promise.all([findFollow(viewerId, id), findFollow(id, viewerId)])
+      : [null, null]
   const followStatus = follow?.status ?? null
+  const followsYou = reverse?.status === 'ACCEPTED'
 
   // Perfil completo mesmo p/ conta privada (estilo Instagram): a privacidade
   // real fica no conteúdo (authorVisibleWhere) e nas listas de seguidores
@@ -128,6 +143,7 @@ export async function getUserById(id: string, viewerId?: string) {
     ...withPreferredCategories(rest),
     eventsCount: _count.events,
     followStatus,
+    followsYou,
   }
 }
 
