@@ -1,3 +1,4 @@
+import { STICKER_WORDMARK_URL } from '../../lib/brand-assets'
 import type { InviteLandingData } from './share.service'
 
 // Tudo que entra no HTML passa por aqui — título/descrição vêm do usuário.
@@ -79,8 +80,12 @@ const STORE_PICKER_SCRIPT = `<script>
   var ios = document.querySelector('[data-store="ios"]')
   var android = document.querySelector('[data-store="android"]')
   if (!ios || !android) return
-  if (/iPhone|iPad|iPod/i.test(navigator.userAgent)) android.style.display = 'none'
-  else if (/Android/i.test(navigator.userAgent)) ios.style.display = 'none'
+  var ua = navigator.userAgent
+  // iPadOS 13+ manda UA de Mac desktop; o toque (maxTouchPoints) o denuncia.
+  var isIos = /iPhone|iPad|iPod/i.test(ua) ||
+    (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)
+  if (isIos) android.style.display = 'none'
+  else if (/Android/i.test(ua)) ios.style.display = 'none'
 })()
 </script>`
 
@@ -106,10 +111,8 @@ ${og.imageUrl ? `<meta property="og:image" content="${esc(og.imageUrl)}">` : ''}
 </head>`
 }
 
-// Sticker oficial da marca — o MESMO asset do template de e-mail
-// (password-reset.email.ts), pra marca não divergir entre superfícies.
-const WORDMARK =
-  '<img class="brand" src="https://assets.clubber.social/sticker-wordmark.png" width="150" height="66" alt="clubber">'
+// Sticker oficial da marca — mesma fonte do template de e-mail.
+const WORDMARK = `<img class="brand" src="${STICKER_WORDMARK_URL}" width="150" height="66" alt="clubber">`
 
 export function renderInviteLanding(
   data: Extract<InviteLandingData, { kind: 'ok' }>,

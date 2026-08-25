@@ -3,10 +3,9 @@
 // Base clara de propósito: o dark mode do Gmail transforma cores à força (sem
 // opt-out) e inverte e-mails escuros; um e-mail claro só é escurecido com graça.
 
+import { BRAND_ASSETS_BASE_URL as ASSETS_BASE_URL } from '../../lib/brand-assets'
 import type { Locale } from '../../lib/i18n/locale'
 import { t } from '../../lib/i18n/translate'
-
-const ASSETS_BASE_URL = 'https://assets.clubber.social/'
 
 type PasswordResetEmailParams = {
   /** Primeiro nome de quem recebe. */
