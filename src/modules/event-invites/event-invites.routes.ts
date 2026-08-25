@@ -7,6 +7,7 @@ import {
 import { rateLimit } from '../../lib/rate-limit'
 import { getInvites, postInvite } from './event-invites.controller'
 import {
+  eventInviteListSchema,
   eventInviteParamSchema,
   inviteUsersBodySchema,
 } from './event-invites.schema'
@@ -35,7 +36,10 @@ export async function eventInvitesRoutes(app: FastifyInstance) {
   api.get(
     '/events/:eventId/invites',
     {
-      schema: { params: eventInviteParamSchema },
+      schema: {
+        params: eventInviteParamSchema,
+        response: { 200: eventInviteListSchema },
+      },
       onRequest: [app.authenticate],
     },
     getInvites,

@@ -206,6 +206,45 @@ describe('POST /events/:eventId/invites', () => {
     expect(res.json().code).toBe('NO_USERS_TO_INVITE')
   })
 
+  it('retorna 400 para evento cancelado', async () => {
+    const author = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, {
+      isPublic: true,
+      canceledAt: new Date(),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { userIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('EVENT_CANCELED')
+  })
+
+  it('retorna 400 para evento já encerrado', async () => {
+    const author = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, {
+      isPublic: false,
+      date: new Date(Date.now() - 2 * 86400000),
+      endDate: new Date(Date.now() - 86400000),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { userIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('EVENT_ENDED')
+  })
+
   it('segundo convidador não re-notifica quem já foi convidado', async () => {
     const author = await makeUser()
     const promoterA = await makeUser()
@@ -282,7 +321,22 @@ describe('GET /events/:eventId/invites', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toHaveLength(1)
+    const body = res.json()
+    expect(body).toHaveLength(1)
+    // Contrato consumido pelo app (usuário ANINHADO em `invited` — o mobile
+    // achata na fronteira dele; mudar este shape quebra clients via OTA).
+    expect(body[0]).toMatchObject({
+      eventId: event.id,
+      inviterId: author.id,
+      invitedId: guest.id,
+      invited: {
+        id: guest.id,
+        name: guest.name,
+        lastname: guest.lastname,
+        username: guest.username,
+      },
+    })
+    expect(typeof body[0].createdAt).toBe('string')
   })
 
   it('retorna 403 para não-autor', async () => {

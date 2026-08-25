@@ -14,3 +14,23 @@ export const inviteUsersBodySchema = z
   .optional()
 
 export type InviteUsersBody = z.infer<typeof inviteUsersBodySchema>
+
+// Contrato do GET: o usuário vem ANINHADO em `invited` e o app achata na
+// fronteira dele — mudar este shape quebra clients em produção via OTA. O
+// schema congela os campos e barra vazamento acidental de coluna nova.
+export const eventInviteListSchema = z.array(
+  z.object({
+    id: z.uuid(),
+    eventId: z.uuid(),
+    inviterId: z.uuid(),
+    invitedId: z.uuid(),
+    createdAt: z.date(),
+    invited: z.object({
+      id: z.uuid(),
+      name: z.string(),
+      lastname: z.string(),
+      username: z.string(),
+      avatarUrl: z.string().nullable(),
+    }),
+  }),
+)
