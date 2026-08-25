@@ -1,6 +1,5 @@
 import type { Prisma } from '@prisma/client'
 import { areMutualFollowers } from '../modules/follows/follows.repository'
-import { prisma } from './prisma'
 
 /**
  * Filtro Prisma para "eventos cujo autor é visível ao viewer".
@@ -42,57 +41,10 @@ export function authorVisibleWhere(viewerId?: string): Prisma.EventWhereInput {
 }
 
 /**
- * Resolve se o viewer pode ver o conteúdo do autor (eventos, posts etc.).
- * Equivalente em runtime ao filtro `authorVisibleWhere`, mas pra checagem
- * pontual (1 autor, 1 viewer) — usar quando não dá pra incluir em WHERE.
- */
-export async function canViewAuthorContent(
-  authorId: string,
-  viewerId?: string,
-): Promise<boolean> {
-  if (viewerId === authorId) return true
-
-  const author = await prisma.user.findUnique({
-    where: { id: authorId },
-    select: { isPrivate: true },
-  })
-  if (!author) return false
-
-  // Bloqueio em qualquer direção corta o acesso — inclusive a conteúdo público.
-  if (viewerId && (await isBlockedBetween(authorId, viewerId))) return false
-
-  if (!author.isPrivate) return true
-  if (!viewerId) return false
-
-  const follow = await prisma.follow.findUnique({
-    where: {
-      followerId_followingId: { followerId: viewerId, followingId: authorId },
-    },
-    select: { status: true },
-  })
-  return follow?.status === 'ACCEPTED'
-}
-
-// Consulta local (não importa do módulo blocks) para manter lib/ como folha,
-// sem depender de módulos de domínio. Block é apenas uma tabela.
-async function isBlockedBetween(a: string, b: string): Promise<boolean> {
-  const found = await prisma.block.findFirst({
-    where: {
-      OR: [
-        { blockerId: a, blockedId: b },
-        { blockerId: b, blockedId: a },
-      ],
-    },
-    select: { id: true },
-  })
-  return found !== null
-}
-
-/**
- * Alcançabilidade para CONVERSA (DM e grupo). Mais estrita que
- * canViewAuthorContent de propósito: ver conteúdo público não pede vínculo
- * nenhum, mas conversa é canal direto — perfil privado exige follow MÚTUO
- * aceito, a mesma definição de "amigo" que os rolês privados já usam.
+ * Alcançabilidade para CONVERSA (DM e grupo). Mais estrita que a visibilidade
+ * de conteúdo de propósito: ver conteúdo público não pede vínculo nenhum, mas
+ * conversa é canal direto — perfil privado exige follow MÚTUO aceito, a mesma
+ * definição de "amigo" que os rolês privados já usam.
  *
  * NÃO checa bloqueio: quem chama (assertReachable) já barra antes, e com outro
  * código de erro — juntar aqui apagaria a distinção.
