@@ -35,7 +35,10 @@ jobs:
         with:
           fetch-depth: 0
       - name: Revisão automática com Claude
-        uses: anthropics/claude-code-action@v1
+        # Pinada em versão exata: a tag móvel @v1 passou a servir uma release com
+        # regressão no instalador do binário nativo (runs morrendo no setup com
+        # "Claude Code native binary not found"). Voltar para @v1 quando estabilizar.
+        uses: anthropics/claude-code-action@v1.0.201
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Posta os comentários no PR (inline + resumo fixo)
