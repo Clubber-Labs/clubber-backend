@@ -130,3 +130,54 @@ export async function purgeEvidence(id: string) {
     },
   })
 }
+
+/**
+ * Pendentes de rewrap. Mesmo desenho do lado do chat: o predicado é o cursor, e
+ * a evidência já expurgada fica de fora porque `purgeEvidence` zerou a chave.
+ */
+export async function findEvidencesToRewrap(
+  activeVersion: number,
+  limit: number,
+) {
+  return prisma.reportEvidence.findMany({
+    where: {
+      kekVersion: { lt: activeVersion },
+      purgedAt: null,
+      // Blob vazio nunca vira rewrap: sem este filtro a linha ficaria
+      // presa no predicado e o lote a releria para sempre.
+      wrappedDek: { not: new Uint8Array(0) },
+    },
+    orderBy: [{ kekVersion: 'asc' }, { id: 'asc' }],
+    take: limit,
+    select: { id: true, reportId: true, wrappedDek: true, kekVersion: true },
+  })
+}
+
+export async function countEvidencesToRewrap(activeVersion: number) {
+  return prisma.reportEvidence.groupBy({
+    by: ['kekVersion'],
+    where: {
+      kekVersion: { lt: activeVersion },
+      purgedAt: null,
+      // Mesmo predicado do find acima: contagem e drenagem não podem divergir.
+      wrappedDek: { not: new Uint8Array(0) },
+    },
+    _count: { _all: true },
+  })
+}
+
+/** Compare-and-set em `kekVersion` — ver updateConversationKeyEnvelope. */
+export async function updateEvidenceEnvelope(
+  id: string,
+  fromKekVersion: number,
+  wrapped: { kekVersion: number; blob: Buffer },
+) {
+  const { count } = await prisma.reportEvidence.updateMany({
+    where: { id, kekVersion: fromKekVersion },
+    data: {
+      wrappedDek: new Uint8Array(wrapped.blob),
+      kekVersion: wrapped.kekVersion,
+    },
+  })
+  return count
+}

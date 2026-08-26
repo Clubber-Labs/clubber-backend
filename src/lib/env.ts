@@ -1,7 +1,7 @@
 import path from 'node:path'
 import { z } from 'zod'
+import { discoverChatKeks } from './crypto/chat-keks'
 
-// Envelope encryption do chat: uma KEK por versão, em base64 de 32 bytes.
 const PRIVATE_IPV4 =
   /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/
 
@@ -28,26 +28,9 @@ export function isInternalRedisHost(url: string): boolean {
   return !bare.includes('.')
 }
 
-const CHAT_KEK_BYTES = 32
-const CHAT_KEK_MAX_VERSION = 2
-
-type ChatKekSlots = {
-  CHAT_KEK_V1?: string
-  CHAT_KEK_V2?: string
-}
-
-function rawChatKek(slots: ChatKekSlots, version: number): string | undefined {
-  if (version === 1) return slots.CHAT_KEK_V1
-  if (version === 2) return slots.CHAT_KEK_V2
-  return undefined
-}
-
-/** Devolve null se ausente OU se não decodificar para exatamente 32 bytes. */
-function decodeChatKek(raw: string | undefined): Buffer | null {
-  if (!raw) return null
-  const key = Buffer.from(raw, 'base64')
-  return key.length === CHAT_KEK_BYTES ? key : null
-}
+// Lido uma vez, na carga: as KEKs não mudam em runtime, e os refines abaixo
+// precisam do resultado para decidir se o boot segue.
+const chatKeks = discoverChatKeks()
 
 const baseSchema = z.object({
   DATABASE_URL: z.url(),
@@ -322,20 +305,28 @@ const baseSchema = z.object({
     .positive()
     .default(1024 * 1024 * 1024),
   // Chaves mestras (KEK) do envelope encryption do chat: 32 bytes em base64.
-  // Slots explícitos em vez de CSV porque z.object não aceita chave dinâmica e a
-  // convenção deste arquivo é cada var aparecer estaticamente — adicionar a V3 é
-  // uma linha aqui, uma em CHAT_KEK_SLOTS e uma no re-export.
+  // Única família de vars do projeto que NÃO aparece estaticamente aqui: cada
+  // rotação acrescenta uma `CHAT_KEK_V<n>`, então quem as descobre é
+  // `discoverChatKeks` (src/lib/crypto/chat-keks.ts) e quem as documenta é o
+  // DEPLOY.md. Sem teto de versão — o teto anterior fazia a 2ª rotação exigir
+  // mudança de código.
   //
   // A rotação mantém as DUAS no ambiente: a antiga continua desembrulhando o que
-  // o reconciler ainda não reembrulhou. Só sai depois que os pendentes zeram.
-  CHAT_KEK_V1: z.string().optional(),
-  CHAT_KEK_V2: z.string().optional(),
-  CHAT_KEK_ACTIVE_VERSION: z.coerce
+  // o reconciler de rewrap ainda não reembrulhou. Só sai depois que os pendentes
+  // zeram (chat_kek_rewrap_pending em /metrics).
+  CHAT_KEK_ACTIVE_VERSION: z.coerce.number().int().min(1).default(1),
+  // Reconciler que reembrulha as DEKs na KEK ativa. Desligar CONGELA a rotação:
+  // o que já está na versão antiga fica lá, e a KEK antiga não pode sair do
+  // ambiente.
+  CHAT_KEK_REWRAP_INTERVAL_MS: z.coerce
     .number()
     .int()
-    .min(1)
-    .max(CHAT_KEK_MAX_VERSION)
-    .default(1),
+    .positive()
+    .default(3600000),
+  CHAT_KEK_REWRAP_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
   // O preview do push carrega o texto DECIFRADO da mensagem para APNs/FCM, que
   // estão fora do nosso perímetro. Desligar faz o worker nem decifrar: o push
   // vira só "nova mensagem". É o botão para cortar esse vazamento sem deploy.
@@ -556,24 +547,17 @@ const parsed = baseSchema
   // mensagem pode ser cifrada nem lida. Falhar no boot é infinitamente melhor do
   // que subir e gravar conteúdo em claro — ou, pior, gravar cifrado com uma
   // chave que ninguém tem.
-  .refine((v) => decodeChatKek(rawChatKek(v, v.CHAT_KEK_ACTIVE_VERSION)), {
+  .refine((v) => chatKeks.keks.has(v.CHAT_KEK_ACTIVE_VERSION), {
     path: ['CHAT_KEK_ACTIVE_VERSION'],
     message:
       'CHAT_KEK_V<n> é obrigatório para a CHAT_KEK_ACTIVE_VERSION escolhida (32 bytes em base64). Gere com: openssl rand -base64 32',
   })
   // As versões INATIVAS também precisam ser válidas: uma KEK antiga corrompida
   // só apareceria ao tentar ler uma mensagem velha, em produção, tarde demais.
-  .refine(
-    (v) =>
-      Array.from({ length: CHAT_KEK_MAX_VERSION }, (_, i) =>
-        rawChatKek(v, i + 1),
-      ).every((raw) => raw === undefined || decodeChatKek(raw) !== null),
-    {
-      path: ['CHAT_KEK_V1'],
-      message:
-        'Toda CHAT_KEK_V<n> definida precisa decodificar para exatamente 32 bytes em base64.',
-    },
-  )
+  .refine(() => chatKeks.invalid.length === 0, {
+    path: [chatKeks.invalid[0] ?? 'CHAT_KEK_V1'],
+    message: `Não decodificam para 32 bytes em base64: ${chatKeks.invalid.join(', ')}`,
+  })
   .parse(process.env)
 
 const STORAGE_DRIVER: 'local' | 'r2' = parsed.STORAGE_DRIVER ?? 'r2'
@@ -758,14 +742,9 @@ export const env = {
   CHAT_EVIDENCE_CLEANUP_ENABLED: parsed.CHAT_EVIDENCE_CLEANUP_ENABLED,
   // Mapa versão → KEK já decodificada. Os refines acima garantem que toda chave
   // presente tem 32 bytes e que a ativa existe, então aqui não há caso de erro.
-  CHAT_KEKS: ((): ReadonlyMap<number, Buffer> => {
-    const keks = new Map<number, Buffer>()
-    for (let version = 1; version <= CHAT_KEK_MAX_VERSION; version++) {
-      const key = decodeChatKek(rawChatKek(parsed, version))
-      if (key) keks.set(version, key)
-    }
-    return keks
-  })(),
+  CHAT_KEKS: chatKeks.keks,
+  CHAT_KEK_REWRAP_INTERVAL_MS: parsed.CHAT_KEK_REWRAP_INTERVAL_MS,
+  CHAT_KEK_REWRAP_ENABLED: parsed.CHAT_KEK_REWRAP_ENABLED,
   ACCOUNT_DELETION_GRACE_DAYS: parsed.ACCOUNT_DELETION_GRACE_DAYS,
   ACCOUNT_DELETION_INTERVAL_MS: parsed.ACCOUNT_DELETION_INTERVAL_MS,
   ACCOUNT_DELETION_ENABLED: parsed.ACCOUNT_DELETION_ENABLED,

@@ -21,6 +21,7 @@ import {
 } from 'fastify-type-provider-zod'
 import { shutdownInstrumentation } from './instrumentation'
 import { registerAuthDecorators } from './lib/auth-decorators'
+import { startKekRewrapReconciler } from './lib/crypto/kek-rewrap.reconciler'
 import { env } from './lib/env'
 import { errorHandler } from './lib/error-handler'
 import { buildLoggerOptions } from './lib/logger'
@@ -38,6 +39,7 @@ import { startBillingRetentionReconciler } from './modules/billing/billing-reten
 import { startBillingSyncReconciler } from './modules/billing/billing-sync.reconciler'
 import { blocksRoutes } from './modules/blocks/blocks.routes'
 import { categoriesRoutes } from './modules/categories/categories.routes'
+import { conversationKeyRewrapSource } from './modules/chat/chat.crypto'
 import { chatGateway } from './modules/chat/chat.gateway'
 import { chatRoutes } from './modules/chat/chat.routes'
 import { commentsRoutes } from './modules/comments/comments.routes'
@@ -69,6 +71,7 @@ import { postsRoutes } from './modules/posts/posts.routes'
 import { reactionsRoutes } from './modules/reactions/reactions.routes'
 import { startRecurringEventsReconciler } from './modules/recurring-events/recurring-events.reconciler'
 import { recurringEventsRoutes } from './modules/recurring-events/recurring-events.routes'
+import { reportEvidenceRewrapSource } from './modules/reports/report-evidence.crypto'
 import { startReportEvidenceReconciler } from './modules/reports/report-evidence.reconciler'
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { shareRoutes } from './modules/share/share.routes'
@@ -287,6 +290,14 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
   }
   if (env.NODE_ENV !== 'test' && env.SUSPENSION_RECONCILE_ENABLED) {
     startSuspensionReconciler(env.SUSPENSION_RECONCILE_INTERVAL_MS)
+  }
+  if (env.NODE_ENV !== 'test' && env.CHAT_KEK_REWRAP_ENABLED) {
+    // As fontes são injetadas daqui porque o reconciler é cross-module e vive em
+    // lib/: importar modules/ de dentro de lib/ inverteria a camada.
+    startKekRewrapReconciler(env.CHAT_KEK_REWRAP_INTERVAL_MS, [
+      conversationKeyRewrapSource,
+      reportEvidenceRewrapSource,
+    ])
   }
   if (env.NODE_ENV !== 'test' && env.CHAT_EVIDENCE_CLEANUP_ENABLED) {
     startReportEvidenceReconciler(env.CHAT_EVIDENCE_CLEANUP_INTERVAL_MS)

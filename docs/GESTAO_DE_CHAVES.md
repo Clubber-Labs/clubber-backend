@@ -36,7 +36,7 @@ falhar na primeira escrita seria pior que não subir.
 > ativa. O unwrap usa a versão **gravada** no registro, não a ativa
 > (`src/lib/crypto/env-key-provider.service.ts`). Remover uma KEK antiga do
 > ambiente antes de reembrulhar tudo que aponta para ela tem o mesmo efeito de
-> perdê-la.
+> perdê-la — a seção 5 mostra como saber que não sobrou nada apontando para ela.
 
 ### 1.2. Recuperável com dano — perda visível ao usuário
 
@@ -152,45 +152,60 @@ mecanismo é teatro.
 
 ---
 
-## 5. Rotação da KEK — hoje é de mão única
+## 5. Rotação da KEK
 
-O procedimento previsto:
+O procedimento, em quatro passos:
 
-1. Gerar a `CHAT_KEK_V2` e cadastrá-la **mantendo a V1 no ambiente**.
-2. `CHAT_KEK_ACTIVE_VERSION=2` e deploy. Toda DEK nova nasce na v2; as antigas
-   seguem legíveis pela v1, porque o unwrap usa a versão gravada.
-3. Rodar o reconciler de rewrap até zerar os pendentes.
-4. Só então remover a V1 do ambiente.
+1. Gerar a `CHAT_KEK_V<n+1>` e cadastrá-la **mantendo a anterior no ambiente**.
+2. `CHAT_KEK_ACTIVE_VERSION=<n+1>` e deploy. Toda DEK nova nasce na versão nova;
+   as antigas seguem legíveis, porque o unwrap usa a versão **gravada** em cada
+   registro.
+3. Deixar o reconciler de rewrap drenar. Ele reembrulha em lote as DEKs que
+   ficaram para trás, sem tocar em nenhum ciphertext de mensagem.
+4. **Só então** remover a versão antiga do ambiente.
 
-**O passo 3 não existe.** O reconciler de rewrap é a fase 7 do plano de
-criptografia e ainda não foi implementado — os `@@index([kekVersion])` das três
-tabelas já estão no schema esperando por ele. Na prática, hoje:
+O sinal que autoriza o passo 4 é a métrica `chat_kek_rewrap_pending` em
+`/metrics` (protegida por `METRICS_TOKEN`):
 
-- dá para promover a V2 e passar a escrever com ela;
-- **não** dá para aposentar a V1, nunca, porque nada reembrulha o que já existe;
-- `CHAT_KEK_MAX_VERSION = 2` (`src/lib/env.ts`) é teto de código — uma terceira
-  rotação exige mudança em três pontos, listados no comentário do próprio
-  arquivo.
+```
+chat_kek_rewrap_pending{source="conversation_keys",kek_version="1"} 0
+chat_kek_rewrap_pending{source="report_evidences",kek_version="1"}  0
+```
 
-Consequência a assumir: **enquanto a fase 7 não entrar, a rotação da KEK é
-incompleta por construção.** Não prometa rotação periódica de chave a auditoria
-ou cliente antes disso.
+**Zerado em todas as fontes e `chat_kek_rewrap_total{result="failed"}` parado.**
+Enquanto houver pendente, remover a KEK antiga torna aquele material ilegível.
+`failed` subindo é exatamente o alarme de que alguém a removeu cedo demais.
+
+Não há teto de versão: as `CHAT_KEK_V<n>` são descobertas no ambiente por
+`discoverChatKeks` (`src/lib/crypto/chat-keks.ts`), então a enésima rotação não
+exige mudança de código.
+
+> **Anexos ficam de fora por enquanto.** `message_attachments.dekWrapped` tem
+> índice por `kekVersion` mas ainda não é escrito por ninguém — a cifra de mídia
+> é fase posterior. Quando entrar, é uma entrada a mais na lista de fontes do
+> reconciler (`src/server.ts`), não um mecanismo novo.
 
 ---
 
 ## 6. Incidente: KEK suspeita de vazamento
 
-O que dá e o que não dá para fazer hoje:
+O que dá para fazer:
 
 | | |
 |---|---|
-| ✅ | Promover uma V2 protege tudo que for **escrito daí em diante** |
-| ❌ | O histórico continua envelopado pela chave vazada, porque não há rewrap |
-| ❌ | Remover a V1 do ambiente para "cortar o acesso" **destrói o histórico** |
+| ✅ | Promover uma versão nova protege tudo que for **escrito daí em diante** |
+| ✅ | O rewrap reembrulha o histórico, então a chave vazada deixa de abri-lo |
+| ✅ | Remover a versão vazada do ambiente, **depois** de os pendentes zerarem |
+| ❌ | Invalidar backups antigos — ver a ressalva abaixo |
 
-Ou seja: a resposta completa a um vazamento de KEK depende da fase 7. Antes
-dela, o que resta é promover a V2, tratar o histórico como comprometido e
-priorizar o rewrap.
+Resposta ao incidente: promover a versão nova, acompanhar
+`chat_kek_rewrap_pending` até zerar, remover a vazada do ambiente e do cofre.
+
+**A ressalva que não se resolve rotacionando:** todo backup de banco tirado
+*antes* do rewrap guarda os envelopes antigos, e a chave vazada continua abrindo
+aqueles dumps. Rotação protege o banco vivo, não cópias já feitas. Para um
+vazamento confirmado, o ciclo só fecha quando os backups do período anterior
+saírem da retenção — mais um motivo para a retenção ser conhecida e curta.
 
 Vale lembrar o que a cifra promete e o que não promete: a KEK vive no ambiente
 do servidor, então quem tiver **ao mesmo tempo** o dump do banco e a env lê

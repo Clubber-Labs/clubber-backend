@@ -102,3 +102,23 @@ export const adultVenueFilteredTotal = new Counter({
   help: 'Candidatos descartados por conteúdo adulto no nome',
   registers: [registry],
 })
+
+// Quantas DEKs ainda estão envelopadas numa KEK antiga, por fonte e versão. É o
+// número que autoriza o último passo da rotação: só se pode remover a KEK antiga
+// do ambiente quando isto zera em TODAS as fontes. Gauge (e não contador) porque
+// a pergunta é "quanto falta agora", não "quanto já passou".
+export const chatKekRewrapPending = new Gauge({
+  name: 'chat_kek_rewrap_pending',
+  help: 'DEKs pendentes de rewrap na KEK ativa, por fonte e versão de KEK',
+  labelNames: ['source', 'kek_version'],
+  registers: [registry],
+})
+
+// `failed` subindo é o alarme de KEK antiga removida do ambiente cedo demais —
+// o material fica ilegível e o rewrap não tem como avançar.
+export const chatKekRewrapTotal = new Counter({
+  name: 'chat_kek_rewrap_total',
+  help: 'Resultado do rewrap de DEKs por fonte (rewrapped|skipped|failed)',
+  labelNames: ['source', 'result'],
+  registers: [registry],
+})
