@@ -45,7 +45,7 @@ devem ficar expostos à internet.
 | `STRIPE_PREMIUM_PRICE_ID` | ID do Price recorrente do plano premium (`price_...`). |
 | `STRIPE_CHECKOUT_SUCCESS_URL` | URL de retorno de sucesso do checkout web. |
 | `STRIPE_CHECKOUT_CANCEL_URL` | URL de retorno de cancelamento do checkout web. |
-| `CHAT_KEK_V1` | Chave mestra (KEK) do envelope encryption do chat: 32 bytes em base64 (`openssl rand -base64 32`). Um `.refine()` exige a KEK da versão ativa **em todo ambiente**, sem gate por `NODE_ENV` — sem ela o boot falha de propósito, porque nenhuma mensagem poderia ser escrita nem lida. |
+| `CHAT_KEK_V<n>` | Chave mestra (KEK) do envelope encryption do chat: 32 bytes em base64 (`openssl rand -base64 32`). Família de variáveis, uma por versão (`CHAT_KEK_V1`, `CHAT_KEK_V2`, …) — descobertas no ambiente, sem teto de versão no código. Um `.refine()` exige a KEK da versão ativa **em todo ambiente**, sem gate por `NODE_ENV` — sem ela o boot falha de propósito, porque nenhuma mensagem poderia ser escrita nem lida. Toda versão presente precisa decodificar para 32 bytes, ativa ou não: uma KEK antiga corrompida só apareceria ao ler uma mensagem velha, tarde demais. |
 
 > As cinco variáveis de Stripe são obrigatórias no schema base (`z.string()`
 > sem `.optional()`/`.default()`), não têm gate por `NODE_ENV` — o boot falha
@@ -64,7 +64,15 @@ devem ficar expostos à internet.
 >
 > Rotação: gere a `CHAT_KEK_V2`, **mantenha a V1 no ambiente**, aponte
 > `CHAT_KEK_ACTIVE_VERSION=2` e só remova a V1 quando o reconciler de rewrap
-> zerar os pendentes — as DEKs antigas seguem envelopadas pela V1 até lá.
+> zerar os pendentes — as DEKs antigas seguem envelopadas pela V1 até lá. O
+> pendente é observável em `chat_kek_rewrap_pending` no `/metrics`; o passo a
+> passo está na seção 5 de [docs/GESTAO_DE_CHAVES.md](docs/GESTAO_DE_CHAVES.md).
+
+| Variável | Para quê |
+|---|---|
+| `CHAT_KEK_ACTIVE_VERSION` | Versão da KEK em que toda DEK nova é envelopada. Default `1`. |
+| `CHAT_KEK_REWRAP_ENABLED` | Liga o reconciler que reembrulha as DEKs na KEK ativa. Default `true`. Desligar **congela a rotação**: o que está na versão antiga fica lá, e a KEK antiga não pode sair do ambiente. |
+| `CHAT_KEK_REWRAP_INTERVAL_MS` | Intervalo entre passadas do reconciler. Default `3600000` (1h). Numa janela de rotação, baixar acelera a drenagem. |
 
 ### 1.2. Obrigatórias condicionalmente em produção (`NODE_ENV=production`)
 

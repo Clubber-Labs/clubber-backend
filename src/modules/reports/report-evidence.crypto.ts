@@ -1,5 +1,11 @@
 import { getKeyProvider } from '../../lib/crypto'
 import { AEAD_ALG, open, randomDek, seal } from '../../lib/crypto/aead'
+import type { RewrapSource } from '../../lib/crypto/rewrap'
+import {
+  countEvidencesToRewrap,
+  findEvidencesToRewrap,
+  updateEvidenceEnvelope,
+} from './report-evidence.repository'
 
 // Cifra da evidência de denúncia. Espelha chat.crypto.ts: o SERVICE chama isto,
 // o REPOSITORY só persiste bytes opacos.
@@ -71,4 +77,31 @@ export async function openEvidence<T>(
     aad,
   )
   return JSON.parse(plaintext.toString('utf8')) as T
+}
+
+/**
+ * Fonte de rewrap das evidências — espelha a do chat, e pelo mesmo motivo mora
+ * ao lado da `evidenceAad` em vez de exportá-la.
+ */
+export const reportEvidenceRewrapSource: RewrapSource = {
+  name: 'report_evidences',
+  async countPending(activeVersion) {
+    const rows = await countEvidencesToRewrap(activeVersion)
+    return rows.map((row) => ({
+      kekVersion: row.kekVersion,
+      pending: row._count._all,
+    }))
+  },
+  async findPending(activeVersion, limit) {
+    const rows = await findEvidencesToRewrap(activeVersion, limit)
+    return rows.map((row) => ({
+      id: row.id,
+      aad: evidenceAad(row.reportId),
+      wrappedDek: row.wrappedDek,
+      kekVersion: row.kekVersion,
+    }))
+  },
+  persist(id, fromKekVersion, wrapped) {
+    return updateEvidenceEnvelope(id, fromKekVersion, wrapped)
+  },
 }

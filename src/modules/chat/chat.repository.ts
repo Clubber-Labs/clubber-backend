@@ -111,6 +111,67 @@ export async function createConversationKey(
   })
 }
 
+/**
+ * Pendentes de rewrap: o predicado `kekVersion < ativa` é o próprio cursor — a
+ * linha sai do conjunto ao ser reembrulhada, então o varredor é idempotente e
+ * retomável sem estado. Chave APOSENTADA entra (ainda decifra histórico); só a
+ * shreddada fica de fora, porque não há segredo para reembrulhar.
+ */
+export async function findConversationKeysToRewrap(
+  activeVersion: number,
+  limit: number,
+) {
+  return prisma.conversationKey.findMany({
+    where: {
+      kekVersion: { lt: activeVersion },
+      shreddedAt: null,
+      // Blob vazio nunca vira rewrap: sem este filtro a linha ficaria
+      // presa no predicado e o lote a releria para sempre.
+      wrappedDek: { not: new Uint8Array(0) },
+    },
+    orderBy: [{ kekVersion: 'asc' }, { id: 'asc' }],
+    take: limit,
+    select: {
+      id: true,
+      conversationId: true,
+      wrappedDek: true,
+      kekVersion: true,
+    },
+  })
+}
+
+export async function countConversationKeysToRewrap(activeVersion: number) {
+  return prisma.conversationKey.groupBy({
+    by: ['kekVersion'],
+    where: {
+      kekVersion: { lt: activeVersion },
+      shreddedAt: null,
+      // Mesmo predicado do find acima: contagem e drenagem não podem divergir.
+      wrappedDek: { not: new Uint8Array(0) },
+    },
+    _count: { _all: true },
+  })
+}
+
+/**
+ * Envelope e versão gravam JUNTOS, e o `kekVersion` no WHERE é o compare-and-set
+ * que torna seguro rodar o reconciler em N réplicas sem lock distribuído.
+ */
+export async function updateConversationKeyEnvelope(
+  id: string,
+  fromKekVersion: number,
+  wrapped: { kekVersion: number; blob: Buffer },
+) {
+  const { count } = await prisma.conversationKey.updateMany({
+    where: { id, kekVersion: fromKekVersion },
+    data: {
+      wrappedDek: new Uint8Array(wrapped.blob),
+      kekVersion: wrapped.kekVersion,
+    },
+  })
+  return count
+}
+
 export async function findUserBrief(id: string) {
   // accountStatus e isPrivate só aqui (não no userSelect compartilhado): a
   // checagem de alcançabilidade precisa dos dois, sem alterar o shape de mensagens.

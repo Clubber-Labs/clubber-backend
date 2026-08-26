@@ -11,12 +11,16 @@ import {
   getCachedDek,
   setCachedDek,
 } from '../../lib/crypto/dek-cache'
+import type { RewrapSource } from '../../lib/crypto/rewrap'
 import { logger } from '../../lib/logger'
 import { isUniqueViolation } from '../../lib/prisma-errors'
 import {
+  countConversationKeysToRewrap,
   createConversationKey,
   findActiveConversationKey,
   findConversationKey,
+  findConversationKeysToRewrap,
+  updateConversationKeyEnvelope,
 } from './chat.repository'
 
 // Camada de cifra do chat: o SERVICE chama isto, o REPOSITORY só persiste bytes
@@ -224,4 +228,38 @@ export async function hydrateMessage<T extends HydratableMessage>(
 ): Promise<T> {
   const [hydrated] = await hydrateMessages([row])
   return hydrated
+}
+
+// ── Rotação da KEK ───────────────────────────────────────────────────────────
+
+/**
+ * Fonte de rewrap das chaves de conversa. Mora AQUI, e não num arquivo próprio,
+ * para `dekAad` continuar privada: ela é o contrato mais perigoso do sistema e
+ * exportá-la alargaria quem pode errá-la.
+ *
+ * O `dek-cache` NÃO é invalidado de propósito: o rewrap troca só o envelope, o
+ * DEK em claro segue byte-a-byte o mesmo e a chave do cache é
+ * `conv:<id>:<version da ConversationKey>`, que não muda.
+ */
+export const conversationKeyRewrapSource: RewrapSource = {
+  name: 'conversation_keys',
+  async countPending(activeVersion) {
+    const rows = await countConversationKeysToRewrap(activeVersion)
+    return rows.map((row) => ({
+      kekVersion: row.kekVersion,
+      pending: row._count._all,
+    }))
+  },
+  async findPending(activeVersion, limit) {
+    const rows = await findConversationKeysToRewrap(activeVersion, limit)
+    return rows.map((row) => ({
+      id: row.id,
+      aad: dekAad(row.conversationId),
+      wrappedDek: row.wrappedDek,
+      kekVersion: row.kekVersion,
+    }))
+  },
+  persist(id, fromKekVersion, wrapped) {
+    return updateConversationKeyEnvelope(id, fromKekVersion, wrapped)
+  },
 }
