@@ -72,7 +72,11 @@ function toApiUser<
     spotifyTopArtistVisible?: boolean
     spotifyWindowVisible?: boolean
     spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
-    spotifyTasteSnapshots?: { timeRange: string; artists: unknown }[]
+    spotifyTasteSnapshots?: {
+      timeRange: string
+      artists: unknown
+      genreKeys?: string[]
+    }[]
   },
 >(user: T, opts: { own?: boolean } = {}) {
   const {
@@ -111,12 +115,28 @@ function toApiUser<
 
   const visible = artistsIn(DEFAULT_TIME_RANGE)
 
+  const interests = (subcategoryPreferences ?? []).map((p) => p.subcategory)
+
+  // Só a janela padrão: a marca qualifica o perfil, que é um só, então trocar
+  // de janela no seletor não pode acender e apagar interesse.
+  const confirmed = new Set(
+    showArtists
+      ? ((spotifyTasteSnapshots ?? []).find(
+          (s) => s.timeRange === DEFAULT_TIME_RANGE,
+        )?.genreKeys ?? [])
+      : [],
+  )
+
   return {
     ...rest,
     preferredCategories: (categoryPreferences ?? []).map((p) => p.category),
-    preferredSubcategories: (subcategoryPreferences ?? []).map(
-      (p) => p.subcategory,
-    ),
+    preferredSubcategories: interests,
+    // Quais dos interesses declarados o gosto real sustenta. Interseção, nunca
+    // união: o que o Spotify tem e o perfil não declara fica de fora, senão a
+    // marca viraria um segundo canal publicando gosto que ninguém escolheu
+    // mostrar. Filtra na ordem do perfil pro cliente marcar os chips sem
+    // reordenar.
+    spotifyConfirmedInterests: interests.filter((key) => confirmed.has(key)),
     // A preferência em si só volta pro dono (é o estado do toggle dele); em
     // perfil de terceiro nem revelamos que alguém escondeu algo.
     ...(opts.own
