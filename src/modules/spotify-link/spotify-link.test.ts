@@ -284,7 +284,7 @@ describe('DELETE /spotify/link', () => {
       await testPrisma.spotifyLink.findUnique({ where: { userId: user.id } }),
     ).toBeNull()
     expect(
-      await testPrisma.spotifyTasteSnapshot.findUnique({
+      await testPrisma.spotifyTasteSnapshot.findFirst({
         where: { userId: user.id },
       }),
     ).toBeNull()
@@ -526,7 +526,7 @@ describe('LGPD', () => {
       await testPrisma.spotifyLink.findUnique({ where: { userId: user.id } }),
     ).toBeNull()
     expect(
-      await testPrisma.spotifyTasteSnapshot.findUnique({
+      await testPrisma.spotifyTasteSnapshot.findFirst({
         where: { userId: user.id },
       }),
     ).toBeNull()
@@ -548,7 +548,9 @@ describe('LGPD', () => {
       spotifyUserId: 'spotify_do_neto',
       status: 'ACTIVE',
     })
-    expect(res.json().spotify.snapshot).toMatchObject({
+    // Portabilidade traz as três janelas, não só a padrão.
+    expect(res.json().spotify.snapshots).toHaveLength(1)
+    expect(res.json().spotify.snapshots[0]).toMatchObject({
       timeRange: 'medium_term',
     })
     expect(res.payload).not.toContain('refreshToken')

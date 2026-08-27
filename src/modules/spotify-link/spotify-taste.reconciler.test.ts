@@ -28,7 +28,7 @@ describe('reconcileSpotifyTaste', () => {
     const result = await reconcileSpotifyTaste(DAY_MS)
 
     expect(result).toMatchObject({ due: 1, synced: 1, revoked: 0, failed: 0 })
-    const snapshot = await testPrisma.spotifyTasteSnapshot.findUnique({
+    const snapshot = await testPrisma.spotifyTasteSnapshot.findFirst({
       where: { userId: user.id },
     })
     expect(snapshot?.genreKeys).toEqual([
@@ -92,7 +92,7 @@ describe('reconcileSpotifyTaste', () => {
     expect(link?.lastSyncError).toBe('invalid_grant')
     // O outro seguiu normalmente.
     expect(
-      await testPrisma.spotifyTasteSnapshot.findUnique({
+      await testPrisma.spotifyTasteSnapshot.findFirst({
         where: { userId: ok.id },
       }),
     ).not.toBeNull()

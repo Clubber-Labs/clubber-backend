@@ -82,6 +82,7 @@ export const userPreferencesResponseSchema = z.object({
   analytics: z.boolean(),
   spotifyArtistsVisible: z.boolean(),
   spotifyTopArtistVisible: z.boolean(),
+  spotifyWindowVisible: z.boolean(),
 })
 
 /** Shape de uma entrada do audit log */
@@ -132,14 +133,15 @@ export const exportResponseSchema = z.object({
       hiddenArtistIds: z.array(z.string()),
       lastSyncedAt: z.date().nullable(),
       createdAt: z.date(),
-      snapshot: z
-        .object({
+      // As TRÊS janelas: portabilidade é do dado inteiro, não de um recorte.
+      snapshots: z.array(
+        z.object({
           timeRange: z.string(),
           artists: z.unknown(),
           genreKeys: z.array(z.string()),
           syncedAt: z.date(),
-        })
-        .nullable(),
+        }),
+      ),
     })
     .nullable(),
   history: z.array(auditLogEntrySchema),
@@ -178,6 +180,7 @@ export const USER_PREFERENCE_FIELDS = [
   'analytics',
   'spotifyArtistsVisible',
   'spotifyTopArtistVisible',
+  'spotifyWindowVisible',
 ] as const
 
 export type UserPreferenceField = (typeof USER_PREFERENCE_FIELDS)[number]

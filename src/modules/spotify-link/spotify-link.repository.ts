@@ -1,5 +1,7 @@
 import type { Prisma, SpotifyLink } from '@prisma/client'
 import { prisma } from '../../lib/prisma'
+import type { SpotifyTimeRange } from '../../lib/spotify'
+import { DEFAULT_TIME_RANGE } from './spotify-link.schema'
 
 export function findLinkByUserId(userId: string) {
   return prisma.spotifyLink.findUnique({ where: { userId } })
@@ -9,8 +11,17 @@ export function findLinkBySpotifyUserId(spotifyUserId: string) {
   return prisma.spotifyLink.findUnique({ where: { spotifyUserId } })
 }
 
-export function findSnapshotByUserId(userId: string) {
-  return prisma.spotifyTasteSnapshot.findUnique({ where: { userId } })
+export function findSnapshotByUserId(
+  userId: string,
+  timeRange: SpotifyTimeRange = DEFAULT_TIME_RANGE,
+) {
+  return prisma.spotifyTasteSnapshot.findUnique({
+    where: { userId_timeRange: { userId, timeRange } },
+  })
+}
+
+export function findSnapshotsByUserId(userId: string) {
+  return prisma.spotifyTasteSnapshot.findMany({ where: { userId } })
 }
 
 /**
@@ -19,10 +30,17 @@ export function findSnapshotByUserId(userId: string) {
  * reconectar —, mas o dado congelou no momento em que o acesso foi retirado,
  * e cruzar dado velho é pior que não cruzar. A regra fica na query para não
  * depender de cada chamador lembrar dela.
+ *
+ * Cruza sempre a janela padrão: comparar o "agora" de um com o "sempre" de
+ * outro produziria uma interseção que não quer dizer nada.
  */
 export function findActiveSnapshotByUserId(userId: string) {
   return prisma.spotifyTasteSnapshot.findFirst({
-    where: { userId, user: { spotifyLink: { status: 'ACTIVE' } } },
+    where: {
+      userId,
+      timeRange: DEFAULT_TIME_RANGE,
+      user: { spotifyLink: { status: 'ACTIVE' } },
+    },
   })
 }
 
@@ -108,10 +126,10 @@ export function upsertSnapshot(data: {
   unmappedGenres: string[]
   syncedAt: Date
 }) {
-  const { userId, ...rest } = data
+  const { userId, timeRange, ...rest } = data
   return prisma.spotifyTasteSnapshot.upsert({
-    where: { userId },
-    create: { userId, ...rest },
+    where: { userId_timeRange: { userId, timeRange } },
+    create: { userId, timeRange, ...rest },
     update: rest,
   })
 }
