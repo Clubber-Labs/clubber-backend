@@ -66,8 +66,46 @@ export async function findConsentByUserId(userId: string) {
 export async function findUserPreferences(userId: string) {
   return prisma.user.findUnique({
     where: { id: userId },
-    select: { socialFeed: true, socialVisibility: true, analytics: true },
+    select: {
+      socialFeed: true,
+      socialVisibility: true,
+      analytics: true,
+      spotifyArtistsVisible: true,
+    },
   })
+}
+
+/**
+ * Recorte do Spotify para a portabilidade (Art. 18, V). O refreshToken fica de
+ * fora de propósito: é credencial de acesso a outro serviço, não dado do
+ * titular — exportá-lo entregaria a chave junto com a cópia.
+ */
+export async function findSpotifyExportData(userId: string) {
+  const [link, snapshot] = await Promise.all([
+    prisma.spotifyLink.findUnique({
+      where: { userId },
+      select: {
+        spotifyUserId: true,
+        displayName: true,
+        scopes: true,
+        status: true,
+        hiddenArtistIds: true,
+        lastSyncedAt: true,
+        createdAt: true,
+      },
+    }),
+    prisma.spotifyTasteSnapshot.findUnique({
+      where: { userId },
+      select: {
+        timeRange: true,
+        artists: true,
+        genreKeys: true,
+        syncedAt: true,
+      },
+    }),
+  ])
+  if (!link) return null
+  return { ...link, snapshot }
 }
 
 export async function findTermsAcceptances(userId: string) {

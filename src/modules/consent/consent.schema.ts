@@ -24,6 +24,9 @@ export const deviceMirrorFieldsSchema = z.object({
 export const consentFieldsSchema = z.object({
   marketing: z.boolean(), // Comunicações de marketing
   surveys: z.boolean(), // Participação em pesquisas
+  // Gosto musical do Spotify. Concedido/revogado pelo próprio vínculo, não por
+  // um toggle solto: o tratamento existe enquanto a conta estiver vinculada.
+  spotifyData: z.boolean(),
 })
 
 const allConsentFieldsSchema = deviceMirrorFieldsSchema.extend(
@@ -48,6 +51,7 @@ export const consentResponseSchema = z.object({
   pushNotifications: z.boolean(),
   marketing: z.boolean(),
   surveys: z.boolean(),
+  spotifyData: z.boolean(),
   consentVersion: z.string(),
   collectedAt: z.date(),
   updatedAt: z.date(),
@@ -59,6 +63,7 @@ export const userPreferencesResponseSchema = z.object({
   socialFeed: z.boolean(),
   socialVisibility: z.boolean(),
   analytics: z.boolean(),
+  spotifyArtistsVisible: z.boolean(),
 })
 
 /** Shape de uma entrada do audit log */
@@ -98,6 +103,27 @@ export const exportResponseSchema = z.object({
       acceptedAt: z.date(),
     }),
   ),
+  // null quando não há conta vinculada. Sem o refresh token: é credencial de
+  // acesso a outro serviço, não dado do titular.
+  spotify: z
+    .object({
+      spotifyUserId: z.string(),
+      displayName: z.string().nullable(),
+      scopes: z.array(z.string()),
+      status: z.enum(['ACTIVE', 'REVOKED']),
+      hiddenArtistIds: z.array(z.string()),
+      lastSyncedAt: z.date().nullable(),
+      createdAt: z.date(),
+      snapshot: z
+        .object({
+          timeRange: z.string(),
+          artists: z.unknown(),
+          genreKeys: z.array(z.string()),
+          syncedAt: z.date(),
+        })
+        .nullable(),
+    })
+    .nullable(),
   history: z.array(auditLogEntrySchema),
 })
 
@@ -128,6 +154,7 @@ export const USER_PREFERENCE_FIELDS = [
   'socialFeed',
   'socialVisibility',
   'analytics',
+  'spotifyArtistsVisible',
 ] as const
 
 export type UserPreferenceField = (typeof USER_PREFERENCE_FIELDS)[number]

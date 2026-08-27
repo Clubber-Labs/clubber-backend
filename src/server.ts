@@ -76,6 +76,7 @@ import { startReportEvidenceReconciler } from './modules/reports/report-evidence
 import { reportsRoutes } from './modules/reports/reports.routes'
 import { shareRoutes } from './modules/share/share.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
+import { spotifyLinkRoutes } from './modules/spotify-link/spotify-link.routes'
 import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { startSuspensionReconciler } from './modules/users/suspension.reconciler'
@@ -215,6 +216,7 @@ if (env.NODE_ENV !== 'production') {
 app.register(healthRoutes)
 app.register(authRoutes)
 app.register(socialAuthRoutes)
+app.register(spotifyLinkRoutes)
 app.register(passwordResetRoutes)
 app.register(categoriesRoutes)
 app.register(eventsRoutes)

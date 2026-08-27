@@ -1,11 +1,13 @@
 import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
+import { deleteLinkAndSnapshot as deleteSpotifyLinkAndSnapshot } from '../spotify-link/spotify-link.repository'
 import { clearUserLocation } from '../users/users.repository'
 import {
   createExportAuditLog,
   findAuditLogsByUserId,
   findConsentAndLogs,
   findConsentByUserId,
+  findSpotifyExportData,
   findTermsAcceptances,
   findUserPreferences,
   revokeConsentWithAudit,
@@ -58,6 +60,22 @@ async function clearLocationOnRevoke(userId: string) {
     logger.warn(
       { err, userId },
       'falha ao limpar localização na revogação de consentimento',
+    )
+  }
+}
+
+/**
+ * Apaga o vínculo do Spotify na revogação do Art. 18. Best-effort pelo mesmo
+ * motivo da localização: a revogação do consentimento não pode falhar por causa
+ * de um efeito colateral.
+ */
+async function deleteSpotifyLinkOnRevoke(userId: string) {
+  try {
+    await deleteSpotifyLinkAndSnapshot(userId)
+  } catch (err) {
+    logger.warn(
+      { err, userId },
+      'falha ao apagar vínculo do Spotify na revogação de consentimento',
     )
   }
 }
@@ -143,14 +161,19 @@ export async function revokeAllConsents(userId: string, meta: RequestMeta) {
     consentVersion: existing.consentVersion,
   })
   await clearLocationOnRevoke(userId)
+  // O gosto musical é tratado sob consentimento: revogar tem de apagar o
+  // vínculo e o snapshot, senão a revogação seria só de fachada.
+  await deleteSpotifyLinkOnRevoke(userId)
 }
 
 export async function exportConsentData(userId: string, meta: RequestMeta) {
-  const [[consent, logs], preferences, acceptances] = await Promise.all([
-    findConsentAndLogs(userId),
-    findUserPreferences(userId),
-    findTermsAcceptances(userId),
-  ])
+  const [[consent, logs], preferences, acceptances, spotify] =
+    await Promise.all([
+      findConsentAndLogs(userId),
+      findUserPreferences(userId),
+      findTermsAcceptances(userId),
+      findSpotifyExportData(userId),
+    ])
 
   // #1: retorna 404 se o usuário nunca deu consentimento; não cria log EXPORTED fantasma
   if (!consent) {
@@ -171,6 +194,7 @@ export async function exportConsentData(userId: string, meta: RequestMeta) {
     // direito ao conjunto — exportar só a tabela devolveria um retrato parcial.
     preferences,
     termsAcceptances: acceptances,
+    spotify,
     history: logs,
   }
 }

@@ -646,6 +646,10 @@ export async function anonymizeUserTx(
     // Vínculos sociais e consentimento. Bloqueios FEITOS pelo usuário somem;
     // bloqueios CONTRA ele ficam (listBlocks mostra "Usuário Excluído").
     await tx.socialAccount.deleteMany({ where: { userId } })
+    // Vínculo com o Spotify: o token abre a conta do titular em outro serviço e
+    // o snapshot é gosto musical — não podem sobreviver à anonimização.
+    await tx.spotifyTasteSnapshot.deleteMany({ where: { userId } })
+    await tx.spotifyLink.deleteMany({ where: { userId } })
     await tx.userConsent.deleteMany({ where: { userId } })
     // Notificações in-app e tokens de push: dado pessoal do destinatário, somem
     // na anonimização (o token de push re-identifica o device).
@@ -724,6 +728,36 @@ export async function findUserPreferredCategories(
  * Explícito-only (v1): sem inferência por histórico — eventos legados não têm
  * subcategoria. Ordenado por afinidade (createdAt).
  */
+/**
+ * Acrescenta interesses (e categorias) SEM apagar os que já existem — o oposto
+ * do replace do PUT /users/:id. É o que a importação do Spotify usa: o
+ * `createdAt` dos interesses escolhidos à mão continua mais antigo, e como o
+ * ranking do feed só considera os primeiros, a escolha manual mantém a
+ * prioridade sobre o que veio importado.
+ */
+export async function addUserPreferences(
+  userId: string,
+  prefs: { categories?: EventCategory[]; subcategories?: string[] },
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    if (prefs.categories?.length) {
+      await tx.userCategoryPreference.createMany({
+        data: prefs.categories.map((category) => ({ userId, category })),
+        skipDuplicates: true,
+      })
+    }
+    if (prefs.subcategories?.length) {
+      await tx.userSubcategoryPreference.createMany({
+        data: prefs.subcategories.map((subcategory) => ({
+          userId,
+          subcategory,
+        })),
+        skipDuplicates: true,
+      })
+    }
+  })
+}
+
 export async function findUserPreferredSubcategories(
   userId: string,
 ): Promise<string[]> {
