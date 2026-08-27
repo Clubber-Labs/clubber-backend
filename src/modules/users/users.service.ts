@@ -11,6 +11,7 @@ import {
 } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
 import { withViewerFollowInfo } from '../follows/follows.service'
+import { mapSpotifyGenres } from '../spotify-link/spotify-link.mapping'
 import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
 import {
   DEFAULT_TIME_RANGE,
@@ -139,12 +140,30 @@ function toApiUser<
 
   const visible = artistsIn(DEFAULT_TIME_RANGE)
 
+  const interests = (subcategoryPreferences ?? []).map((p) => p.subcategory)
+
+  // Refaz o de-para sobre `visible` em vez de ler o `genreKeys` gravado: a
+  // coluna é calculada no sync, sobre TODOS os artistas buscados, e nunca
+  // recalculada quando alguém oculta um artista depois. Lida crua, ela
+  // acenderia o gênero que só o artista oculto sustenta — contando justamente
+  // o que a pessoa tirou da fileira. `visible` já é a janela padrão filtrada
+  // pelas duas regras, então a marca herda ambas de graça.
+  // `Set<string>` e não `Set<GenreKey>`: o interesse vem como texto cru da
+  // tabela de preferências, e é ele quem manda no que a marca compara.
+  const confirmed = new Set<string>(
+    showArtists ? mapSpotifyGenres(visible).genreKeys : [],
+  )
+
   return {
     ...rest,
     preferredCategories: (categoryPreferences ?? []).map((p) => p.category),
-    preferredSubcategories: (subcategoryPreferences ?? []).map(
-      (p) => p.subcategory,
-    ),
+    preferredSubcategories: interests,
+    // Quais dos interesses declarados o gosto real sustenta. Interseção, nunca
+    // união: o que o Spotify tem e o perfil não declara fica de fora, senão a
+    // marca viraria um segundo canal publicando gosto que ninguém escolheu
+    // mostrar. Filtra na ordem do perfil pro cliente marcar os chips sem
+    // reordenar.
+    spotifyConfirmedInterests: interests.filter((key) => confirmed.has(key)),
     // A preferência em si só volta pro dono (é o estado do toggle dele); em
     // perfil de terceiro nem revelamos que alguém escondeu algo.
     ...(opts.own
