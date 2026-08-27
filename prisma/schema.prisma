@@ -95,6 +95,9 @@ model User {
   // avisa e leva ao toggle). Esconder tudo é aqui; esconder artista a artista
   // é o hiddenArtistIds do SpotifyLink.
   spotifyArtistsVisible Boolean @default(true)
+  // Destacar o primeiro colocado acima da fileira. Só tem efeito quando a
+  // fileira aparece — é escolha de layout, não uma segunda camada de privacidade.
+  spotifyTopArtistVisible Boolean @default(true)
 
   // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
