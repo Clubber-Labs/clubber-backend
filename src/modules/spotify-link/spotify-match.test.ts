@@ -44,7 +44,10 @@ describe('matchArtists', () => {
     const mine = [artist('a'), artist('b'), artist('c'), artist('d')]
     const theirs = [artist('b'), artist('c'), artist('d'), artist('e')]
 
-    const result = matchArtists(mine, theirs, { revealNames: true })
+    const result = matchArtists(mine, theirs, {
+      revealNames: true,
+      hiddenArtistIds: [],
+    })
 
     expect(result?.count).toBe(3)
     expect(result?.named.map((a) => a.id)).toEqual(['b', 'c', 'd'])
@@ -54,7 +57,10 @@ describe('matchArtists', () => {
     const ids = ['a', 'b', 'c', 'd', 'e']
     const artists = ids.map((id) => artist(id))
 
-    const result = matchArtists(artists, artists, { revealNames: true })
+    const result = matchArtists(artists, artists, {
+      revealNames: true,
+      hiddenArtistIds: [],
+    })
 
     expect(result?.count).toBe(5)
     expect(result?.named).toHaveLength(3)
@@ -63,35 +69,79 @@ describe('matchArtists', () => {
   it('omite os nomes quando o dono escondeu a fileira', () => {
     const artists = [artist('a'), artist('b')]
 
-    const result = matchArtists(artists, artists, { revealNames: false })
+    const result = matchArtists(artists, artists, {
+      revealNames: false,
+      hiddenArtistIds: [],
+    })
 
     expect(result?.count).toBe(2)
     expect(result?.named).toEqual([])
+  })
+
+  it('descarta o artista ocultado individualmente antes de contar', () => {
+    const artists = [artist('a'), artist('b'), artist('c')]
+
+    const result = matchArtists(artists, artists, {
+      revealNames: true,
+      hiddenArtistIds: ['b'],
+    })
+
+    // Some da lista E do total: contar seria vazar pela porta dos fundos.
+    expect(result?.count).toBe(2)
+    expect(result?.named.map((a) => a.id)).toEqual(['a', 'c'])
+  })
+
+  it('devolve null quando o único em comum estava ocultado', () => {
+    const result = matchArtists([artist('a')], [artist('a')], {
+      revealNames: true,
+      hiddenArtistIds: ['a'],
+    })
+
+    expect(result).toBeNull()
   })
 
   it('usa a ordem do dono do perfil, não a do visitante', () => {
     const mine = [artist('z'), artist('y')]
     const theirs = [artist('y'), artist('z')]
 
-    const result = matchArtists(mine, theirs, { revealNames: true })
+    const result = matchArtists(mine, theirs, {
+      revealNames: true,
+      hiddenArtistIds: [],
+    })
 
     expect(result?.named.map((a) => a.id)).toEqual(['y', 'z'])
   })
 
   it('devolve null sem interseção', () => {
     expect(
-      matchArtists([artist('a')], [artist('b')], { revealNames: true }),
+      matchArtists([artist('a')], [artist('b')], {
+        revealNames: true,
+        hiddenArtistIds: [],
+      }),
     ).toBeNull()
   })
 
   it('devolve null quando um dos dois não tem snapshot', () => {
-    expect(matchArtists([], [artist('a')], { revealNames: true })).toBeNull()
-    expect(matchArtists([artist('a')], [], { revealNames: true })).toBeNull()
+    expect(
+      matchArtists([], [artist('a')], {
+        revealNames: true,
+        hiddenArtistIds: [],
+      }),
+    ).toBeNull()
+    expect(
+      matchArtists([artist('a')], [], {
+        revealNames: true,
+        hiddenArtistIds: [],
+      }),
+    ).toBeNull()
   })
 
   it('devolve null para Json inválido em vez de quebrar', () => {
     expect(
-      matchArtists('lixo', [artist('a')], { revealNames: true }),
+      matchArtists('lixo', [artist('a')], {
+        revealNames: true,
+        hiddenArtistIds: [],
+      }),
     ).toBeNull()
   })
 })
@@ -166,6 +216,48 @@ describe('GET /users/:id — artistas em comum', () => {
       data: { status: 'REVOKED' },
     })
     const visitante = await userComGosto(['alok'])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${dono.id}`,
+      headers: auth(visitante.id),
+    })
+
+    expect(res.json().artistMatch).toBeNull()
+  })
+
+  it('não vaza artista que o dono ocultou individualmente', async () => {
+    const dono = await userComGosto(['alok', 'anitta', 'bk'])
+    await testPrisma.spotifyLink.update({
+      where: { userId: dono.id },
+      data: { hiddenArtistIds: ['anitta'] },
+    })
+    const visitante = await userComGosto(['alok', 'anitta', 'bk'])
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${dono.id}`,
+      headers: auth(visitante.id),
+    })
+
+    // A fileira segue visível, mas o artista ocultado sai do match inteiro —
+    // nome, foto e contagem.
+    expect(res.json().artistMatch.count).toBe(2)
+    expect(
+      res.json().artistMatch.named.map((a: { id: string }) => a.id),
+    ).toEqual(['alok', 'bk'])
+    expect(res.payload).not.toContain('anitta')
+  })
+
+  it('devolve null quando o vínculo do VISITANTE foi revogado', async () => {
+    const dono = await userComGosto(['alok'])
+    const visitante = await userComGosto(['alok'])
+    // Revogar não apaga o snapshot: sem a checagem dos dois lados, o match
+    // sairia do dado congelado do visitante.
+    await testPrisma.spotifyLink.update({
+      where: { userId: visitante.id },
+      data: { status: 'REVOKED' },
+    })
 
     const res = await app.inject({
       method: 'GET',

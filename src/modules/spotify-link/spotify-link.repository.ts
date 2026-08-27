@@ -14,6 +14,19 @@ export function findSnapshotByUserId(userId: string) {
 }
 
 /**
+ * Snapshot que ainda pode ser cruzado com o de outra pessoa. Revogar o vínculo
+ * NÃO apaga o snapshot — o dono continua vendo o próprio gosto e podendo
+ * reconectar —, mas o dado congelou no momento em que o acesso foi retirado,
+ * e cruzar dado velho é pior que não cruzar. A regra fica na query para não
+ * depender de cada chamador lembrar dela.
+ */
+export function findActiveSnapshotByUserId(userId: string) {
+  return prisma.spotifyTasteSnapshot.findFirst({
+    where: { userId, user: { spotifyLink: { status: 'ACTIVE' } } },
+  })
+}
+
+/**
  * Cria ou atualiza o vínculo. Revincular (inclusive trocando de conta Spotify)
  * limpa o estado de revogação e o erro do último sync.
  */

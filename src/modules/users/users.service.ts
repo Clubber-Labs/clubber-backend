@@ -11,7 +11,7 @@ import {
 } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
 import { withViewerFollowInfo } from '../follows/follows.service'
-import { findSnapshotByUserId } from '../spotify-link/spotify-link.repository'
+import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
 import {
   readSnapshotArtists,
   spotifyArtistUrl,
@@ -192,20 +192,24 @@ async function resolveArtistMatch(
   viewerId: string,
   target: {
     spotifyArtistsVisible?: boolean
-    spotifyLink?: { status: string } | null
+    spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
     spotifyTasteSnapshot?: { artists: unknown } | null
   },
 ) {
-  // Vínculo revogado tem dado congelado; não vale cruzar com ele.
+  // Vínculo revogado tem dado congelado dos DOIS lados: o do dono sai daqui, o
+  // do visitante sai da própria query do snapshot.
   if (target.spotifyLink?.status !== 'ACTIVE') return null
 
-  const viewerSnapshot = await findSnapshotByUserId(viewerId)
+  const viewerSnapshot = await findActiveSnapshotByUserId(viewerId)
   if (!viewerSnapshot) return null
 
   return matchArtists(
     viewerSnapshot.artists,
     target.spotifyTasteSnapshot?.artists,
-    { revealNames: target.spotifyArtistsVisible !== false },
+    {
+      revealNames: target.spotifyArtistsVisible !== false,
+      hiddenArtistIds: target.spotifyLink.hiddenArtistIds,
+    },
   )
 }
 

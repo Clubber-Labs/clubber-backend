@@ -30,10 +30,18 @@ export type ArtistMatch = {
 export function matchArtists(
   viewerArtists: unknown,
   targetArtists: unknown,
-  opts: { revealNames: boolean },
+  // Ambos obrigatórios: são as duas regras de visibilidade do dono, e um
+  // opcional aqui seria um convite a esquecer uma delas no próximo chamador.
+  opts: { revealNames: boolean; hiddenArtistIds: string[] },
 ): ArtistMatch | null {
   const mine = readSnapshotArtists(viewerArtists)
-  const theirs = readSnapshotArtists(targetArtists)
+  const hidden = new Set(opts.hiddenArtistIds)
+  // Artista ocultado individualmente sai ANTES da interseção: entrar aqui o
+  // faria vazar nome e foto, e ainda contaria no total de quem só pode ver o
+  // número.
+  const theirs = readSnapshotArtists(targetArtists).filter(
+    (a) => !hidden.has(a.id),
+  )
   if (mine.length === 0 || theirs.length === 0) return null
 
   const mineIds = new Set(mine.map((a) => a.id))
