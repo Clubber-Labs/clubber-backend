@@ -12,6 +12,8 @@ import {
 } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { timezoneForLocation } from '../src/lib/i18n/timezone'
+import { encryptRefreshToken } from '../src/lib/spotify/crypto'
+import { mapSpotifyGenres } from '../src/modules/spotify-link/spotify-link.mapping'
 
 const prisma = new PrismaClient()
 
@@ -213,6 +215,51 @@ const SPOTS = [
   { title: 'Skate no Largo da Ordem', categories: ['SPORTS', 'ART'] },
 ] as const
 
+/**
+ * Artistas reais, com id no formato do Spotify (base62 de 22) e os gêneros
+ * crus que a API devolve — são eles que exercitam o de-para pra taxonomia.
+ *
+ * A lista é dividida em três blocos de propósito: NÚCLEO entra em todo mundo,
+ * o que faz o "artistas em comum" ter o que mostrar entre quaisquer dois
+ * perfis semeados. Sem sobreposição garantida, a feature mais difícil de
+ * testar à mão só apareceria por sorte.
+ */
+const SPOTIFY_CORE_ARTISTS = [
+  {
+    id: '0EmeFodog0BfCgMzAIvKQp',
+    name: 'RÜFÜS DU SOL',
+    genres: ['melodic house', 'indie dance'],
+  },
+  {
+    id: '1lJhME1ZpzsEa5M0wW6Mso',
+    name: 'Vintage Culture',
+    genres: ['brazilian bass', 'deep house'],
+  },
+  {
+    id: '4RnBFZRiMLRyZy0AzzTg2C',
+    name: 'Charlotte de Witte',
+    genres: ['techno', 'melodic techno'],
+  },
+] as const
+
+const SPOTIFY_ELETRONICA = [
+  { id: '6VuMaDnrHyPL1p4EHjYLi7', name: 'Alok', genres: ['brazilian bass'] },
+  { id: '2CIMQHirSU0MQqyYHq0eOx', name: 'deadmau5', genres: ['edm', 'house'] },
+  { id: '1Kt2Xkc9TIWvGwCiC0LTGN', name: 'Boris Brejcha', genres: ['techno'] },
+  { id: '2xKlsG9UZ0zLcCjkPtGWTA', name: 'ANNA', genres: ['techno'] },
+] as const
+
+const SPOTIFY_NACIONAL = [
+  { id: '1uNFoZAHBGtllmzznpCI3s', name: 'Anitta', genres: ['funk carioca'] },
+  { id: '5Ac0GcAJRyOTEwTTNMkkP1', name: 'BK', genres: ['rap', 'trap'] },
+  {
+    id: '5NHm4TU2tCEwe5S8pyTbLo',
+    name: 'Charlie Brown Jr.',
+    genres: ['rock', 'rap'],
+  },
+  { id: '3QLIchMRlKAtEwXi9455hR', name: 'Projota', genres: ['rap'] },
+] as const
+
 const SPOT_MESSAGES = [
   'Bora? já tô a caminho',
   'Cheguei, tô na entrada',
@@ -353,6 +400,8 @@ async function main() {
   // eventSeries depois de event (seriesId é SetNull) e antes de user (RESTRICT).
   await prisma.eventSeries.deleteMany()
   await prisma.follow.deleteMany()
+  await prisma.spotifyTasteSnapshot.deleteMany()
+  await prisma.spotifyLink.deleteMany()
   await prisma.user.deleteMany()
 
   console.log('👤 Criando usuários...')
@@ -1584,6 +1633,89 @@ async function main() {
       `${users.length * 2} aceites de documento`,
   )
 
+  // ── Spotify ────────────────────────────────────────────────────────────────
+  console.log('🎧 Vinculando contas do Spotify...')
+
+  // Metade dos usuários: a feature é aditiva, e o perfil de quem NÃO vinculou
+  // precisa aparecer no seed tanto quanto o de quem vinculou.
+  const spotifyUsers = users.filter((_, i) => i % 2 === 0)
+  const spotifySnapshotRows: Prisma.SpotifyTasteSnapshotCreateManyInput[] = []
+  const syncedAt = new Date()
+
+  for (const [i, user] of spotifyUsers.entries()) {
+    // 1 em 7 revogado: exercita o "reconectar" no card e o dado congelado, que
+    // some do perfil e do match.
+    const revoked = i % 7 === 6
+
+    await prisma.spotifyLink.create({
+      data: {
+        userId: user.id,
+        spotifyUserId: `spotify_seed_${user.username}`,
+        displayName: user.name,
+        // Cifrado com a chave real: o sync do reconciler consegue decifrar e
+        // seguir daqui, em vez de estourar em token inválido.
+        refreshTokenEncrypted: encryptRefreshToken(`seed_refresh_${user.id}`),
+        scopes: ['user-top-read', 'user-follow-read', 'playlist-read-private'],
+        status: revoked ? 'REVOKED' : 'ACTIVE',
+        lastSyncError: revoked ? 'invalid_grant' : null,
+        // 1 em 5 esconde o primeiro colocado: é o caso em que o destaque tem
+        // de promover o próximo, e o artista some até da contagem do match.
+        hiddenArtistIds: i % 5 === 0 ? [SPOTIFY_CORE_ARTISTS[0].id] : [],
+        lastSyncedAt: syncedAt,
+      },
+    })
+
+    // O núcleo entra em todos e o resto varia por usuário: é o que garante
+    // interseção entre quaisquer dois perfis sem torná-los idênticos.
+    const flavor = i % 2 === 0 ? SPOTIFY_ELETRONICA : SPOTIFY_NACIONAL
+    const other = i % 2 === 0 ? SPOTIFY_NACIONAL : SPOTIFY_ELETRONICA
+
+    for (const [timeRange, extra] of [
+      ['short_term', flavor],
+      ['medium_term', [...flavor.slice(0, 2), ...other.slice(0, 2)]],
+      ['long_term', other],
+    ] as const) {
+      const artists = [...SPOTIFY_CORE_ARTISTS, ...extra].map((a, rank) => ({
+        id: a.id,
+        name: a.name,
+        imageUrl: null,
+        genres: [...a.genres],
+        rank,
+      }))
+      spotifySnapshotRows.push({
+        userId: user.id,
+        timeRange,
+        artists,
+        genreKeys: mapSpotifyGenres(artists).genreKeys,
+        unmappedGenres: mapSpotifyGenres(artists).unmapped,
+        syncedAt,
+      })
+    }
+  }
+
+  await prisma.spotifyTasteSnapshot.createMany({ data: spotifySnapshotRows })
+
+  // Preferências de exibição variadas, pra tela de Configurações ter todos os
+  // estados sem ninguém precisar clicar.
+  await Promise.all(
+    spotifyUsers.map((user, i) =>
+      prisma.user.update({
+        where: { id: user.id },
+        data: {
+          spotifyArtistsVisible: i % 6 !== 5, // 1 em 6 esconde a fileira
+          spotifyTopArtistVisible: i % 4 !== 3, // 1 em 4 sem destaque
+          spotifyWindowVisible: i % 3 === 0, // 1 em 3 libera o seletor
+          // Consentimento derivado acompanha o vínculo, como no fluxo real.
+          consent: { update: { spotifyData: true } },
+        },
+      }),
+    ),
+  )
+
+  console.log(
+    `   ✓ ${spotifyUsers.length} vínculos, ${spotifySnapshotRows.length} snapshots (3 janelas cada)`,
+  )
+
   const featuredCount = promotionUsage.reduce((s, u) => s + u.count, 0)
 
   console.log('\n✅ Seed concluído!')
@@ -1603,6 +1735,9 @@ async function main() {
   console.log(`   🚫 Bloqueios:     ${blockPairs.length}`)
   console.log(`   🔔 Notificações:  ${notifications.length}`)
   console.log(`   🔐 Consentimentos: ${consentRows.length}`)
+  console.log(
+    `   🎧 Spotify:       ${spotifyUsers.length} vínculos / ${spotifySnapshotRows.length} snapshots`,
+  )
   console.log('\n   🔑 Senha de todos os usuários: senha123')
   console.log('   📋 Usuários criados:')
   for (const u of users.slice(0, 5))
