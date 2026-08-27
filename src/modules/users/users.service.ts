@@ -54,9 +54,6 @@ import type {
 
 type Logger = { error: (msg: string) => void }
 
-/** Quantos artistas o perfil exibe — a fileira é um resumo, não a lista toda. */
-const PROFILE_ARTIST_LIMIT = 5
-
 /** Abaixo disso não há o que escolher, e o seletor viraria enfeite. */
 const MIN_WINDOWS_TO_OFFER = 2
 
@@ -73,15 +70,13 @@ function buildArtistWindows(
     (timeRange) =>
       [
         timeRange,
-        artistsIn(timeRange)
-          .slice(0, PROFILE_ARTIST_LIMIT)
-          .map((a) => ({
-            id: a.id,
-            name: a.name,
-            imageUrl: a.imageUrl,
-            spotifyUrl: spotifyArtistUrl(a.id),
-            genres: a.genres,
-          })),
+        artistsIn(timeRange).map((a) => ({
+          id: a.id,
+          name: a.name,
+          imageUrl: a.imageUrl,
+          spotifyUrl: spotifyArtistUrl(a.id),
+          genres: a.genres,
+        })),
       ] as const,
   ).filter(([, artists]) => artists.length > 0)
 
@@ -159,7 +154,9 @@ function toApiUser<
           spotifyWindowVisible: spotifyWindowVisible === true,
         }
       : {}),
-    topArtists: visible.slice(0, PROFILE_ARTIST_LIMIT).map((a) => ({
+    // Sem corte: a fileira rola na horizontal e o snapshot já limita a 20.
+    // Dois tetos pro mesmo dado só criariam chance de divergir.
+    topArtists: visible.map((a) => ({
       id: a.id,
       name: a.name,
       imageUrl: a.imageUrl,
