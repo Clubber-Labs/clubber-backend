@@ -79,6 +79,8 @@ afterEach(async () => {
     testPrisma.eventSeries.deleteMany(),
     testPrisma.follow.deleteMany(),
     testPrisma.socialAccount.deleteMany(),
+    testPrisma.spotifyTasteSnapshot.deleteMany(),
+    testPrisma.spotifyLink.deleteMany(),
     testPrisma.passwordResetCode.deleteMany(),
     testPrisma.user.deleteMany(),
   ])

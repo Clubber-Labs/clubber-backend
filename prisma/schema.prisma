@@ -91,6 +91,10 @@ model User {
   socialFeed       Boolean @default(true)
   socialVisibility Boolean @default(true)
   analytics        Boolean @default(true)
+  // Vincular o Spotify já expõe os top artistas no perfil (a tela de vínculo
+  // avisa e leva ao toggle). Esconder tudo é aqui; esconder artista a artista
+  // é o hiddenArtistIds do SpotifyLink.
+  spotifyArtistsVisible Boolean @default(true)
 
   // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
@@ -118,6 +122,8 @@ model User {
   socialAccounts       SocialAccount[]
   passwordResetCodes   PasswordResetCode[]
   refreshTokens        RefreshToken[]
+  spotifyLink          SpotifyLink?
+  spotifyTasteSnapshot SpotifyTasteSnapshot?
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
@@ -498,6 +504,70 @@ model SocialAccount {
   @@unique([provider, providerUserId])
   @@index([userId])
   @@map("social_accounts")
+}
+
+enum SpotifyLinkStatus {
+  ACTIVE
+  REVOKED // invalid_grant no refresh: revogado em spotify.com/account/apps
+}
+
+/// Conta do Spotify VINCULADA (nunca login — a identidade continua sendo a do
+/// Clubber). Guarda só o material de longa duração: o access token é efêmero e
+/// nunca é persistido.
+model SpotifyLink {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Único: a mesma conta do Spotify não pode alimentar dois perfis Clubber.
+  spotifyUserId String  @unique
+  displayName   String?
+
+  /// AES-256-GCM ("iv.tag.ct") com chave derivada do JWT_SECRET — ver
+  /// src/lib/spotify/crypto.ts.
+  refreshTokenEncrypted String
+  /// Escopos concedidos no consentimento: é o gate de fases futuras
+  /// (line-up, playlist) sem precisar pedir autorização de novo.
+  scopes                String[]          @default([])
+  status                SpotifyLinkStatus @default(ACTIVE)
+  /// Artistas que o usuário tirou do próprio perfil. Mora no link (é escolha
+  /// dele) e não no snapshot, que o sync substitui inteiro.
+  hiddenArtistIds       String[]          @default([])
+
+  lastSyncedAt  DateTime?
+  lastSyncError String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  /// Predicado do reconciler: ACTIVE com sync vencido (ou nunca sincronizado).
+  @@index([status, lastSyncedAt])
+  @@map("spotify_links")
+}
+
+/// Gosto musical derivado do Spotify. Dado DERIVADO, não histórico: o sync
+/// substitui a linha inteira. Por contrato com o Spotify, nada aqui pode
+/// alimentar publicidade, revenda ou treino de modelo — só personalização
+/// dentro do app.
+model SpotifyTasteSnapshot {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Janela do /me/top/artists ('short_term' | 'medium_term' | 'long_term').
+  timeRange String
+  /// [{ id, name, imageUrl, genres, rank }] — top artistas já ordenados.
+  artists   Json
+
+  /// Chaves GENRE_* da nossa taxonomia, ordenadas por afinidade (a ordem vira
+  /// prioridade no ranking do feed, que só conta os primeiros interesses).
+  genreKeys      String[] @default([])
+  /// Gêneros crus do Spotify sem de-para: é a fila de curadoria do mapeamento.
+  unmappedGenres String[] @default([])
+
+  syncedAt  DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("spotify_taste_snapshots")
 }
 
 enum FollowStatus {
@@ -1024,6 +1094,9 @@ model UserConsent {
   // Consentimento no sentido estrito: opt-in explícito, default false.
   marketing Boolean @default(false) // Comunicações de marketing
   surveys   Boolean @default(false) // Participação em pesquisas
+  // Gosto musical importado do Spotify. Concedido ao vincular a conta e
+  // revogado ao desvincular — o tratamento existe enquanto o vínculo existir.
+  spotifyData Boolean @default(false)
 
   consentVersion String    @default("1.0")
   ipAddress      String?

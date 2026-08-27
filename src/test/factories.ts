@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto'
-import type { Prisma, SocialProvider } from '@prisma/client'
+import type { Prisma, SocialProvider, SpotifyLinkStatus } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import type { EventCategory } from '../lib/event-categories'
 import { timezoneForLocation } from '../lib/i18n/timezone'
+import { encryptRefreshToken } from '../lib/spotify/crypto'
 import {
   encryptContent,
   ensureConversationDek,
@@ -139,6 +140,78 @@ export async function makeSocialAccount(
       providerUserId:
         overrides.providerUserId ?? `${provider.toLowerCase()}_${id}`,
       email: overrides.email === undefined ? null : overrides.email,
+    },
+  })
+}
+
+/**
+ * Vínculo com o Spotify. O refresh token entra CIFRADO pelo helper real — os
+ * testes exercitam o mesmo caminho de decrypt que o sync usa em produção.
+ */
+export async function makeSpotifyLink(
+  userId: string,
+  overrides: {
+    spotifyUserId?: string
+    displayName?: string | null
+    refreshToken?: string
+    scopes?: string[]
+    status?: SpotifyLinkStatus
+    hiddenArtistIds?: string[]
+    lastSyncedAt?: Date | null
+    lastSyncError?: string | null
+  } = {},
+) {
+  const id = uid()
+  return testPrisma.spotifyLink.create({
+    data: {
+      userId,
+      spotifyUserId: overrides.spotifyUserId ?? `spotify_${id}`,
+      displayName:
+        overrides.displayName === undefined
+          ? `Spotify ${id}`
+          : overrides.displayName,
+      refreshTokenEncrypted: encryptRefreshToken(
+        overrides.refreshToken ?? `refresh_${id}`,
+      ),
+      scopes: overrides.scopes ?? [
+        'user-top-read',
+        'user-follow-read',
+        'playlist-read-private',
+      ],
+      status: overrides.status ?? 'ACTIVE',
+      hiddenArtistIds: overrides.hiddenArtistIds ?? [],
+      lastSyncedAt: overrides.lastSyncedAt ?? null,
+      lastSyncError: overrides.lastSyncError ?? null,
+    },
+  })
+}
+
+export async function makeSpotifyTasteSnapshot(
+  userId: string,
+  overrides: {
+    timeRange?: string
+    artists?: Prisma.InputJsonValue
+    genreKeys?: string[]
+    unmappedGenres?: string[]
+    syncedAt?: Date
+  } = {},
+) {
+  return testPrisma.spotifyTasteSnapshot.create({
+    data: {
+      userId,
+      timeRange: overrides.timeRange ?? 'medium_term',
+      artists: overrides.artists ?? [
+        {
+          id: '0EmeFodog0BfCgMzAIvKQp',
+          name: 'Artista Teste',
+          imageUrl: null,
+          genres: ['brazilian bass'],
+          rank: 0,
+        },
+      ],
+      genreKeys: overrides.genreKeys ?? ['GENRE_HOUSE'],
+      unmappedGenres: overrides.unmappedGenres ?? [],
+      ...(overrides.syncedAt && { syncedAt: overrides.syncedAt }),
     },
   })
 }

@@ -151,6 +151,19 @@ const baseSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Spotify — conta VINCULADA (não é login). Diferente do Google/Apple, aqui há
+  // troca de code por token, então o secret é server-side. Sem o par, as rotas
+  // de /spotify respondem 500 e a feature fica desligada.
+  SPOTIFY_CLIENT_ID: z.string().optional(),
+  SPOTIFY_CLIENT_SECRET: z.string().optional(),
+  // Precisa bater EXATAMENTE com o registrado no Spotify Dashboard. Nunca vem
+  // do cliente: o backend usa este valor na troca do code.
+  SPOTIFY_REDIRECT_URI: z.string().min(1).default('clubber://spotify-callback'),
+  // Janela do /me/top/artists. 'medium_term' (~6 meses) equilibra atual e
+  // estável; 'short_term' oscila demais pra virar identidade de perfil.
+  SPOTIFY_TOP_TIME_RANGE: z
+    .enum(['short_term', 'medium_term', 'long_term'])
+    .default('medium_term'),
   // Audience do identityToken do "Sign in with Apple" (bundle id do app iOS).
   // Sem secret: a verificação usa o JWKS público da Apple.
   APPLE_BUNDLE_ID: z.string().default('com.netobonato.clubber'),
@@ -271,6 +284,14 @@ const baseSchema = z.object({
     .positive()
     .default(6 * 3600000),
   BILLING_SYNC_ENABLED: z
+    .enum(['true', 'false', '1', '0'])
+    .default('true')
+    .transform((v) => v === 'true' || v === '1'),
+  // Sync do gosto musical: tick de hora em hora, mas cada vínculo só "vence"
+  // depois de MAX_AGE — assim a carga se espalha em vez de estourar de uma vez.
+  SPOTIFY_SYNC_INTERVAL_MS: z.coerce.number().int().positive().default(3600000),
+  SPOTIFY_SYNC_MAX_AGE_MS: z.coerce.number().int().positive().default(86400000),
+  SPOTIFY_SYNC_ENABLED: z
     .enum(['true', 'false', '1', '0'])
     .default('true')
     .transform((v) => v === 'true' || v === '1'),
@@ -526,6 +547,14 @@ const parsed = baseSchema
   // Boot falha em vez de abrir CORS pra qualquer origem em produção: refletir a
   // Origin com `credentials: true` é configuração frouxa. Em prod exigimos uma
   // allowlist explícita. Em dev/test segue permissivo (sem a var) por conveniência.
+  // Meio par não serve pra nada: com só o id a troca do code falha no Spotify,
+  // com só o secret nem dá pra montar o authorize. Falhar no boot evita
+  // descobrir isso no primeiro usuário que tentar vincular.
+  .refine((v) => !!v.SPOTIFY_CLIENT_ID === !!v.SPOTIFY_CLIENT_SECRET, {
+    path: ['SPOTIFY_CLIENT_SECRET'],
+    message:
+      'SPOTIFY_CLIENT_ID e SPOTIFY_CLIENT_SECRET andam juntos: defina os dois ou nenhum.',
+  })
   .refine((v) => !(v.NODE_ENV === 'production' && !v.CORS_ALLOWED_ORIGINS), {
     path: ['CORS_ALLOWED_ORIGINS'],
     message:
@@ -688,6 +717,13 @@ export const env = {
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
   GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
   ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY,
+  SPOTIFY_CLIENT_ID: parsed.SPOTIFY_CLIENT_ID,
+  SPOTIFY_CLIENT_SECRET: parsed.SPOTIFY_CLIENT_SECRET,
+  SPOTIFY_REDIRECT_URI: parsed.SPOTIFY_REDIRECT_URI,
+  SPOTIFY_TOP_TIME_RANGE: parsed.SPOTIFY_TOP_TIME_RANGE,
+  SPOTIFY_SYNC_INTERVAL_MS: parsed.SPOTIFY_SYNC_INTERVAL_MS,
+  SPOTIFY_SYNC_MAX_AGE_MS: parsed.SPOTIFY_SYNC_MAX_AGE_MS,
+  SPOTIFY_SYNC_ENABLED: parsed.SPOTIFY_SYNC_ENABLED,
   APPLE_BUNDLE_ID: parsed.APPLE_BUNDLE_ID,
   APPLE_TEAM_ID: parsed.APPLE_TEAM_ID,
   ANDROID_PACKAGE_NAME: parsed.ANDROID_PACKAGE_NAME,
