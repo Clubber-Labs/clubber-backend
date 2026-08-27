@@ -31,6 +31,11 @@ const userPublicProfileSelect = {
   ...userPublicListSelect,
   categoryPreferences: { select: { category: true } },
   subcategoryPreferences: { select: { subcategory: true } },
+  // Base dos top artistas no perfil. Vem cru daqui (com a lista de ocultos) e o
+  // service monta a versão exibível — estes três campos NUNCA são serializados.
+  spotifyArtistsVisible: true,
+  spotifyLink: { select: { status: true, hiddenArtistIds: true } },
+  spotifyTasteSnapshot: { select: { artists: true } },
 } as const
 
 const userPrivateProfileSelect = {

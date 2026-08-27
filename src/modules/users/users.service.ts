@@ -12,6 +12,10 @@ import {
 import { getConsentSummary } from '../consent/consent.service'
 import { withViewerFollowInfo } from '../follows/follows.service'
 import {
+  readSnapshotArtists,
+  spotifyArtistUrl,
+} from '../spotify-link/spotify-link.service'
+import {
   anonymizeUserTx,
   clearExpiredSuspension,
   createUser,
@@ -43,23 +47,63 @@ import type {
 
 type Logger = { error: (msg: string) => void }
 
+/** Quantos artistas o perfil exibe — a fileira é um resumo, não a lista toda. */
+const PROFILE_ARTIST_LIMIT = 5
+
 /**
- * Achata `categoryPreferences: [{ category }]` (shape do Prisma) em
- * `preferredCategories: string[]` para a resposta da API.
+ * Converte o shape do Prisma no shape da API: achata as preferências
+ * (`categoryPreferences: [{ category }]` → `preferredCategories: string[]`) e
+ * resolve os top artistas do Spotify.
+ *
+ * Ponto ÚNICO dessa conversão — é o que garante que os campos crus do vínculo
+ * (com a lista de ocultos) nunca cheguem à resposta por nenhum caminho.
  */
-function withPreferredCategories<
+function toApiUser<
   T extends {
     categoryPreferences?: { category: string }[]
     subcategoryPreferences?: { subcategory: string }[]
+    spotifyArtistsVisible?: boolean
+    spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
+    spotifyTasteSnapshot?: { artists: unknown } | null
   },
->(user: T) {
-  const { categoryPreferences, subcategoryPreferences, ...rest } = user
+>(user: T, opts: { own?: boolean } = {}) {
+  const {
+    categoryPreferences,
+    subcategoryPreferences,
+    spotifyArtistsVisible,
+    spotifyLink,
+    spotifyTasteSnapshot,
+    ...rest
+  } = user
+
+  // Vínculo revogado não mostra artistas: o dado está velho e o usuário já
+  // desautorizou o Clubber do lado do Spotify.
+  const showArtists =
+    spotifyArtistsVisible !== false && spotifyLink?.status === 'ACTIVE'
+  const hidden = new Set(spotifyLink?.hiddenArtistIds ?? [])
+
   return {
     ...rest,
     preferredCategories: (categoryPreferences ?? []).map((p) => p.category),
     preferredSubcategories: (subcategoryPreferences ?? []).map(
       (p) => p.subcategory,
     ),
+    // A preferência em si só volta pro dono (é o estado do toggle dele); em
+    // perfil de terceiro nem revelamos que alguém escondeu algo.
+    ...(opts.own
+      ? { spotifyArtistsVisible: spotifyArtistsVisible ?? true }
+      : {}),
+    topArtists: showArtists
+      ? readSnapshotArtists(spotifyTasteSnapshot?.artists)
+          .filter((a) => !hidden.has(a.id))
+          .slice(0, PROFILE_ARTIST_LIMIT)
+          .map((a) => ({
+            id: a.id,
+            name: a.name,
+            imageUrl: a.imageUrl,
+            spotifyUrl: spotifyArtistUrl(a.id),
+          }))
+      : [],
   }
 }
 
@@ -128,7 +172,7 @@ export async function getUserById(id: string, viewerId?: string) {
   // (ensureCanViewFollowList) — aqui só metadados agregados, não identidades.
   return {
     kind: 'full' as const,
-    ...withPreferredCategories(rest),
+    ...toApiUser(rest),
     eventsCount: _count.events,
     followStatus,
     followsYou,
@@ -150,7 +194,7 @@ export async function getMe(userId: string) {
   const { _count, password, ...rest } = user
   // Paralelo: evita round-trip sequencial ao banco
   const [preferredUser, consent] = await Promise.all([
-    Promise.resolve(withPreferredCategories(rest)),
+    Promise.resolve(toApiUser(rest, { own: true })),
     getConsentSummary(userId),
   ])
   return {
@@ -198,7 +242,7 @@ export async function registerUser(
     { ...data, password: passwordHash, ...(deviceLocale && { deviceLocale }) },
     meta,
   )
-  return withPreferredCategories(user)
+  return toApiUser(user, { own: true })
 }
 
 export async function editUser(id: string, data: UpdateUserBody) {
@@ -220,7 +264,7 @@ export async function editUser(id: string, data: UpdateUserBody) {
           subcategories: preferredSubcategories,
         })
       : await updateUser(id, rest)
-  return withPreferredCategories(updated)
+  return toApiUser(updated, { own: true })
 }
 
 /**
@@ -396,7 +440,7 @@ export async function changeUserAvatar(
     if (current.avatarKey) {
       await deleteUploaded(current.avatarKey, logger)
     }
-    return withPreferredCategories(updated)
+    return toApiUser(updated, { own: true })
   } catch (err) {
     await deleteUploaded(uploaded.key, logger)
     throw err
