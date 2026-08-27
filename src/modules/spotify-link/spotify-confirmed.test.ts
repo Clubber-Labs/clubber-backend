@@ -15,12 +15,31 @@ function auth(userId: string) {
   return { authorization: `Bearer ${app.jwt.sign({ sub: userId })}` }
 }
 
+/** Id no formato real do Spotify (base62 de 22), pra passar na validação. */
+function artist(seed: string, genres: string[], rank = 0) {
+  return {
+    id: seed.padEnd(22, '0'),
+    name: `Artista ${seed}`,
+    imageUrl: null,
+    genres,
+    rank,
+  }
+}
+
+/**
+ * Os artistas é que dirigem estes testes, nunca o `genreKeys` gravado: a marca
+ * sai do de-para sobre a lista já filtrada, e passar a coluna crua esconderia
+ * justamente a diferença entre as duas bases.
+ */
+const TECHNO = artist('techno1', ['techno'], 0)
+const HOUSE = artist('house1', ['brazilian bass'], 1)
+
 /**
  * Perfil com quatro interesses declarados, dos quais o Spotify sustenta dois.
  * Os outros dois existem pra provar que a marca é interseção, não "tem vínculo
  * então marca tudo".
  */
-async function donoComInteresses(genreKeys = ['GENRE_TECHNO', 'GENRE_HOUSE']) {
+async function donoComInteresses(artists = [TECHNO, HOUSE]) {
   const user = await makeUser()
   for (const key of [
     'GENRE_TECHNO',
@@ -31,7 +50,7 @@ async function donoComInteresses(genreKeys = ['GENRE_TECHNO', 'GENRE_HOUSE']) {
     await makeUserSubcategoryPreference(user.id, key)
   }
   await makeSpotifyLink(user.id)
-  await makeSpotifyTasteSnapshot(user.id, { genreKeys })
+  await makeSpotifyTasteSnapshot(user.id, { artists })
   return user
 }
 
@@ -66,7 +85,10 @@ describe('GET /users/:id — interesses que o Spotify confirma', () => {
   })
 
   it('ignora o gênero que o Spotify tem mas o perfil não declara', async () => {
-    const dono = await donoComInteresses(['GENRE_TECHNO', 'GENRE_DNB'])
+    const dono = await donoComInteresses([
+      TECHNO,
+      artist('psy1', ['psytrance'], 1),
+    ])
     const visitante = await makeUser()
 
     // A marca qualifica o que já está no perfil; não é um segundo canal pra
@@ -75,7 +97,10 @@ describe('GET /users/:id — interesses que o Spotify confirma', () => {
   })
 
   it('segue a ordem do perfil, não a da afinidade do Spotify', async () => {
-    const dono = await donoComInteresses(['GENRE_HOUSE', 'GENRE_TECHNO'])
+    const dono = await donoComInteresses([
+      artist('house1', ['brazilian bass'], 0),
+      artist('techno1', ['techno'], 1),
+    ])
     const visitante = await makeUser()
 
     // O cliente marca os chips na ordem em que os desenha; devolver na ordem
@@ -97,6 +122,40 @@ describe('GET /users/:id — interesses que o Spotify confirma', () => {
     // Quem escondeu a música escondeu o que dela se deduz: a marca revelaria
     // tanto o vínculo quanto os gêneros que ele ouve.
     expect(await confirmados(visitante.id, dono.id)).toEqual([])
+  })
+
+  it('apaga a marca do gênero que só o artista oculto sustentava', async () => {
+    const dono = await donoComInteresses()
+    await testPrisma.spotifyLink.update({
+      where: { userId: dono.id },
+      data: { hiddenArtistIds: [HOUSE.id] },
+    })
+    const visitante = await makeUser()
+
+    // Ocultar artista é curadoria sobre a evidência de escuta, e o selo É
+    // evidência de escuta: deixá-lo aceso contaria justamente o que a pessoa
+    // acabou de tirar da fileira. Mesma regra que o match já segue.
+    expect(await confirmados(visitante.id, dono.id)).toEqual(['GENRE_TECHNO'])
+  })
+
+  it('mantém a marca quando outro artista visível sustenta o mesmo gênero', async () => {
+    const dono = await donoComInteresses([
+      TECHNO,
+      HOUSE,
+      artist('house2', ['house'], 2),
+    ])
+    await testPrisma.spotifyLink.update({
+      where: { userId: dono.id },
+      data: { hiddenArtistIds: [HOUSE.id] },
+    })
+    const visitante = await makeUser()
+
+    // A marca segue a evidência, não o ato de ocultar: sobrando quem sustente
+    // o gênero, ele continua confirmado.
+    expect(await confirmados(visitante.id, dono.id)).toEqual([
+      'GENRE_TECHNO',
+      'GENRE_HOUSE',
+    ])
   })
 
   it('não marca nada com o vínculo revogado', async () => {
@@ -134,11 +193,11 @@ describe('GET /users/:id — interesses que o Spotify confirma', () => {
     await makeSpotifyLink(dono.id)
     await makeSpotifyTasteSnapshot(dono.id, {
       timeRange: 'medium_term',
-      genreKeys: [],
+      artists: [],
     })
     await makeSpotifyTasteSnapshot(dono.id, {
       timeRange: 'short_term',
-      genreKeys: ['GENRE_TECHNO'],
+      artists: [TECHNO],
     })
     const visitante = await makeUser()
 

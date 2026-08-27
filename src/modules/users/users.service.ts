@@ -11,6 +11,7 @@ import {
 } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
 import { withViewerFollowInfo } from '../follows/follows.service'
+import { mapSpotifyGenres } from '../spotify-link/spotify-link.mapping'
 import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
 import {
   DEFAULT_TIME_RANGE,
@@ -72,11 +73,7 @@ function toApiUser<
     spotifyTopArtistVisible?: boolean
     spotifyWindowVisible?: boolean
     spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
-    spotifyTasteSnapshots?: {
-      timeRange: string
-      artists: unknown
-      genreKeys?: string[]
-    }[]
+    spotifyTasteSnapshots?: { timeRange: string; artists: unknown }[]
   },
 >(user: T, opts: { own?: boolean } = {}) {
   const {
@@ -117,14 +114,16 @@ function toApiUser<
 
   const interests = (subcategoryPreferences ?? []).map((p) => p.subcategory)
 
-  // Só a janela padrão: a marca qualifica o perfil, que é um só, então trocar
-  // de janela no seletor não pode acender e apagar interesse.
-  const confirmed = new Set(
-    showArtists
-      ? ((spotifyTasteSnapshots ?? []).find(
-          (s) => s.timeRange === DEFAULT_TIME_RANGE,
-        )?.genreKeys ?? [])
-      : [],
+  // Refaz o de-para sobre `visible` em vez de ler o `genreKeys` gravado: a
+  // coluna é calculada no sync, sobre TODOS os artistas buscados, e nunca
+  // recalculada quando alguém oculta um artista depois. Lida crua, ela
+  // acenderia o gênero que só o artista oculto sustenta — contando justamente
+  // o que a pessoa tirou da fileira. `visible` já é a janela padrão filtrada
+  // pelas duas regras, então a marca herda ambas de graça.
+  // `Set<string>` e não `Set<GenreKey>`: o interesse vem como texto cru da
+  // tabela de preferências, e é ele quem manda no que a marca compara.
+  const confirmed = new Set<string>(
+    showArtists ? mapSpotifyGenres(visible).genreKeys : [],
   )
 
   return {

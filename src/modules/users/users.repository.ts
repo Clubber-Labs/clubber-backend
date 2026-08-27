@@ -39,9 +39,7 @@ const userPublicProfileSelect = {
   spotifyLink: { select: { status: true, hiddenArtistIds: true } },
   // As três janelas de uma vez: são poucas linhas, e buscar sob demanda faria
   // o serviço decidir antes de saber se o seletor está ligado.
-  spotifyTasteSnapshots: {
-    select: { timeRange: true, artists: true, genreKeys: true },
-  },
+  spotifyTasteSnapshots: { select: { timeRange: true, artists: true } },
 } as const
 
 const userPrivateProfileSelect = {
