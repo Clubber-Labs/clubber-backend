@@ -14,6 +14,7 @@ import { withViewerFollowInfo } from '../follows/follows.service'
 import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
 import {
   DEFAULT_TIME_RANGE,
+  type SnapshotArtist,
   SPOTIFY_TIME_RANGES,
 } from '../spotify-link/spotify-link.schema'
 import {
@@ -53,8 +54,35 @@ import type {
 
 type Logger = { error: (msg: string) => void }
 
-/** Quantos artistas o perfil exibe — a fileira é um resumo, não a lista toda. */
-const PROFILE_ARTIST_LIMIT = 5
+/** Abaixo disso não há o que escolher, e o seletor viraria enfeite. */
+const MIN_WINDOWS_TO_OFFER = 2
+
+/**
+ * As janelas que têm o que mostrar. Janela vazia fica de FORA em vez de vir
+ * como lista vazia: o Spotify não tem histórico de um ano pra conta nova, e
+ * oferecer uma aba que não mostra nada parece defeito. Com menos de duas
+ * sobrando, o seletor inteiro some — não há escolha a fazer.
+ */
+function buildArtistWindows(
+  artistsIn: (timeRange: string) => SnapshotArtist[],
+): Record<string, unknown[]> | null {
+  const windows = SPOTIFY_TIME_RANGES.map(
+    (timeRange) =>
+      [
+        timeRange,
+        artistsIn(timeRange).map((a) => ({
+          id: a.id,
+          name: a.name,
+          imageUrl: a.imageUrl,
+          spotifyUrl: spotifyArtistUrl(a.id),
+          genres: a.genres,
+        })),
+      ] as const,
+  ).filter(([, artists]) => artists.length > 0)
+
+  if (windows.length < MIN_WINDOWS_TO_OFFER) return null
+  return Object.fromEntries(windows)
+}
 
 /**
  * Converte o shape do Prisma no shape da API: achata as preferências
@@ -126,7 +154,9 @@ function toApiUser<
           spotifyWindowVisible: spotifyWindowVisible === true,
         }
       : {}),
-    topArtists: visible.slice(0, PROFILE_ARTIST_LIMIT).map((a) => ({
+    // Sem corte: a fileira rola na horizontal e o snapshot já limita a 20.
+    // Dois tetos pro mesmo dado só criariam chance de divergir.
+    topArtists: visible.map((a) => ({
       id: a.id,
       name: a.name,
       imageUrl: a.imageUrl,
@@ -151,20 +181,7 @@ function toApiUser<
     // deixaria o dado no aparelho de quem não devia tê-lo.
     artistWindows:
       spotifyWindowVisible === true && showArtists
-        ? Object.fromEntries(
-            SPOTIFY_TIME_RANGES.map((timeRange) => [
-              timeRange,
-              artistsIn(timeRange)
-                .slice(0, PROFILE_ARTIST_LIMIT)
-                .map((a) => ({
-                  id: a.id,
-                  name: a.name,
-                  imageUrl: a.imageUrl,
-                  spotifyUrl: spotifyArtistUrl(a.id),
-                  genres: a.genres,
-                })),
-            ]),
-          )
+        ? buildArtistWindows(artistsIn)
         : null,
   }
 }
