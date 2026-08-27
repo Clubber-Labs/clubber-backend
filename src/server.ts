@@ -77,6 +77,7 @@ import { reportsRoutes } from './modules/reports/reports.routes'
 import { shareRoutes } from './modules/share/share.routes'
 import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { spotifyLinkRoutes } from './modules/spotify-link/spotify-link.routes'
+import { startSpotifyTasteReconciler } from './modules/spotify-link/spotify-taste.reconciler'
 import { spotsRoutes } from './modules/spots/spots.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { startSuspensionReconciler } from './modules/users/suspension.reconciler'
@@ -322,6 +323,18 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
     startBillingSyncReconciler(
       env.BILLING_SYNC_INTERVAL_MS,
       env.BILLING_SYNC_GRACE_MS,
+    )
+  }
+  // Gate composto: sem credencial do Spotify o sync só produziria erro a cada
+  // tick — a feature inteira fica desligada até o app existir no Dashboard.
+  if (
+    env.NODE_ENV !== 'test' &&
+    env.SPOTIFY_SYNC_ENABLED &&
+    env.SPOTIFY_CLIENT_ID
+  ) {
+    startSpotifyTasteReconciler(
+      env.SPOTIFY_SYNC_INTERVAL_MS,
+      env.SPOTIFY_SYNC_MAX_AGE_MS,
     )
   }
   if (env.NODE_ENV !== 'test' && env.PASSWORD_RESET_CLEANUP_ENABLED) {
