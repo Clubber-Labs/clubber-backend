@@ -89,10 +89,14 @@ function toApiUser<
   // Lista já filtrada pelas duas regras de visibilidade. A fileira e o
   // destaque saem daqui para não poderem divergir: o destaque nunca pode ser
   // alguém que a fileira esconde.
+  //
+  // Ordena por `rank` em vez de confiar na posição do array: "o mais ouvido" é
+  // definido pelo rank, e depender da ordem de gravação faria uma escrita
+  // futura fora de ordem trocar o destaque em silêncio.
   const visible = showArtists
-    ? readSnapshotArtists(spotifyTasteSnapshot?.artists).filter(
-        (a) => !hidden.has(a.id),
-      )
+    ? readSnapshotArtists(spotifyTasteSnapshot?.artists)
+        .filter((a) => !hidden.has(a.id))
+        .sort((a, b) => a.rank - b.rank)
     : []
 
   return {

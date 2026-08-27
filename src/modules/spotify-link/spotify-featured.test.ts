@@ -125,6 +125,43 @@ describe('GET /users/:id — artista em destaque', () => {
     expect(res.payload).not.toContain('RÜFÜS')
   })
 
+  it('destaca pelo rank, não pela posição no array', async () => {
+    const dono = await makeUser()
+    await makeSpotifyLink(dono.id)
+    // Gravado fora de ordem de propósito: quem manda é o rank.
+    await makeSpotifyTasteSnapshot(dono.id, {
+      artists: [
+        {
+          id: 'segundo',
+          name: 'Segundo',
+          imageUrl: null,
+          genres: [],
+          rank: 1,
+        },
+        {
+          id: 'primeiro',
+          name: 'Primeiro',
+          imageUrl: null,
+          genres: [],
+          rank: 0,
+        },
+      ],
+    })
+    const visitante = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${dono.id}`,
+      headers: auth(visitante.id),
+    })
+
+    expect(res.json().featuredArtist.name).toBe('Primeiro')
+    expect(res.json().topArtists.map((a: { name: string }) => a.name)).toEqual([
+      'Primeiro',
+      'Segundo',
+    ])
+  })
+
   it('devolve null quando não há vínculo', async () => {
     const dono = await makeUser()
     const visitante = await makeUser()
