@@ -73,6 +73,7 @@ export async function findUserPreferences(userId: string) {
       analytics: true,
       spotifyArtistsVisible: true,
       spotifyTopArtistVisible: true,
+      spotifyWindowVisible: true,
     },
   })
 }
@@ -83,7 +84,7 @@ export async function findUserPreferences(userId: string) {
  * titular — exportá-lo entregaria a chave junto com a cópia.
  */
 export async function findSpotifyExportData(userId: string) {
-  const [link, snapshot] = await Promise.all([
+  const [link, snapshots] = await Promise.all([
     prisma.spotifyLink.findUnique({
       where: { userId },
       select: {
@@ -96,8 +97,9 @@ export async function findSpotifyExportData(userId: string) {
         createdAt: true,
       },
     }),
-    prisma.spotifyTasteSnapshot.findUnique({
+    prisma.spotifyTasteSnapshot.findMany({
       where: { userId },
+      orderBy: { timeRange: 'asc' },
       select: {
         timeRange: true,
         artists: true,
@@ -107,7 +109,7 @@ export async function findSpotifyExportData(userId: string) {
     }),
   ])
   if (!link) return null
-  return { ...link, snapshot }
+  return { ...link, snapshots }
 }
 
 export async function findTermsAcceptances(userId: string) {

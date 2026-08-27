@@ -35,8 +35,11 @@ const userPublicProfileSelect = {
   // service monta a versão exibível — estes três campos NUNCA são serializados.
   spotifyArtistsVisible: true,
   spotifyTopArtistVisible: true,
+  spotifyWindowVisible: true,
   spotifyLink: { select: { status: true, hiddenArtistIds: true } },
-  spotifyTasteSnapshot: { select: { artists: true } },
+  // As três janelas de uma vez: são poucas linhas, e buscar sob demanda faria
+  // o serviço decidir antes de saber se o seletor está ligado.
+  spotifyTasteSnapshots: { select: { timeRange: true, artists: true } },
 } as const
 
 const userPrivateProfileSelect = {

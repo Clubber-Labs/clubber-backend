@@ -13,6 +13,10 @@ import { getConsentSummary } from '../consent/consent.service'
 import { withViewerFollowInfo } from '../follows/follows.service'
 import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
 import {
+  DEFAULT_TIME_RANGE,
+  SPOTIFY_TIME_RANGES,
+} from '../spotify-link/spotify-link.schema'
+import {
   readSnapshotArtists,
   spotifyArtistUrl,
 } from '../spotify-link/spotify-link.service'
@@ -66,8 +70,9 @@ function toApiUser<
     subcategoryPreferences?: { subcategory: string }[]
     spotifyArtistsVisible?: boolean
     spotifyTopArtistVisible?: boolean
+    spotifyWindowVisible?: boolean
     spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
-    spotifyTasteSnapshot?: { artists: unknown } | null
+    spotifyTasteSnapshots?: { timeRange: string; artists: unknown }[]
   },
 >(user: T, opts: { own?: boolean } = {}) {
   const {
@@ -75,8 +80,9 @@ function toApiUser<
     subcategoryPreferences,
     spotifyArtistsVisible,
     spotifyTopArtistVisible,
+    spotifyWindowVisible,
     spotifyLink,
-    spotifyTasteSnapshot,
+    spotifyTasteSnapshots,
     ...rest
   } = user
 
@@ -93,11 +99,17 @@ function toApiUser<
   // Ordena por `rank` em vez de confiar na posição do array: "o mais ouvido" é
   // definido pelo rank, e depender da ordem de gravação faria uma escrita
   // futura fora de ordem trocar o destaque em silêncio.
-  const visible = showArtists
-    ? readSnapshotArtists(spotifyTasteSnapshot?.artists)
-        .filter((a) => !hidden.has(a.id))
-        .sort((a, b) => a.rank - b.rank)
-    : []
+  const artistsIn = (timeRange: string) =>
+    showArtists
+      ? readSnapshotArtists(
+          (spotifyTasteSnapshots ?? []).find((s) => s.timeRange === timeRange)
+            ?.artists,
+        )
+          .filter((a) => !hidden.has(a.id))
+          .sort((a, b) => a.rank - b.rank)
+      : []
+
+  const visible = artistsIn(DEFAULT_TIME_RANGE)
 
   return {
     ...rest,
@@ -111,6 +123,7 @@ function toApiUser<
       ? {
           spotifyArtistsVisible: spotifyArtistsVisible ?? true,
           spotifyTopArtistVisible: spotifyTopArtistVisible ?? true,
+          spotifyWindowVisible: spotifyWindowVisible === true,
         }
       : {}),
     topArtists: visible.slice(0, PROFILE_ARTIST_LIMIT).map((a) => ({
@@ -132,6 +145,26 @@ function toApiUser<
             spotifyUrl: spotifyArtistUrl(visible[0].id),
             genres: visible[0].genres,
           }
+        : null,
+    // As três janelas só quando o dono ligou o seletor. Desligado vem `null`,
+    // e o app nem desenha a escolha — em vez de receber tudo e esconder, que
+    // deixaria o dado no aparelho de quem não devia tê-lo.
+    artistWindows:
+      spotifyWindowVisible === true && showArtists
+        ? Object.fromEntries(
+            SPOTIFY_TIME_RANGES.map((timeRange) => [
+              timeRange,
+              artistsIn(timeRange)
+                .slice(0, PROFILE_ARTIST_LIMIT)
+                .map((a) => ({
+                  id: a.id,
+                  name: a.name,
+                  imageUrl: a.imageUrl,
+                  spotifyUrl: spotifyArtistUrl(a.id),
+                  genres: a.genres,
+                })),
+            ]),
+          )
         : null,
   }
 }
@@ -220,7 +253,7 @@ async function resolveArtistMatch(
   target: {
     spotifyArtistsVisible?: boolean
     spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
-    spotifyTasteSnapshot?: { artists: unknown } | null
+    spotifyTasteSnapshots?: { timeRange: string; artists: unknown }[]
   },
 ) {
   // Vínculo revogado tem dado congelado dos DOIS lados: o do dono sai daqui, o
@@ -232,7 +265,9 @@ async function resolveArtistMatch(
 
   return matchArtists(
     viewerSnapshot.artists,
-    target.spotifyTasteSnapshot?.artists,
+    (target.spotifyTasteSnapshots ?? []).find(
+      (s) => s.timeRange === DEFAULT_TIME_RANGE,
+    )?.artists,
     {
       revealNames: target.spotifyArtistsVisible !== false,
       hiddenArtistIds: target.spotifyLink.hiddenArtistIds,

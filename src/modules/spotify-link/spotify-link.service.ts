@@ -6,11 +6,7 @@ import { GENRES } from '../../lib/genres'
 import { logger } from '../../lib/logger'
 import { spotifySyncTotal } from '../../lib/metrics'
 import { prisma } from '../../lib/prisma'
-import {
-  getSpotifyClient,
-  type SpotifyArtist,
-  type SpotifyTimeRange,
-} from '../../lib/spotify'
+import { getSpotifyClient, type SpotifyArtist } from '../../lib/spotify'
 import {
   decryptRefreshToken,
   encryptRefreshToken,
@@ -26,6 +22,7 @@ import {
   findLinkBySpotifyUserId,
   findLinkByUserId,
   findSnapshotByUserId,
+  findSnapshotsByUserId,
   markLinkRevoked,
   setHiddenArtists as persistHiddenArtists,
   touchLinkSynced,
@@ -35,8 +32,10 @@ import {
 } from './spotify-link.repository'
 import {
   type ApplyGenresBody,
+  DEFAULT_TIME_RANGE,
   type LinkSpotifyBody,
   type SnapshotArtist,
+  SPOTIFY_TIME_RANGES,
   snapshotArtistsSchema,
 } from './spotify-link.schema'
 
@@ -180,10 +179,11 @@ export async function setHiddenArtists(
   const link = await findLinkByUserId(userId)
   if (!link) throw new AppError(404, 'SPOTIFY_NOT_LINKED')
 
-  const snapshot = await findSnapshotByUserId(userId)
-  const known = new Set(readSnapshotArtists(snapshot?.artists).map((a) => a.id))
-  // Esconder um artista que não está no snapshot não é um pedido possível:
-  // recusamos em vez de guardar lixo que nunca seria filtrado.
+  // Contra TODAS as janelas: um artista pode estar só no "Atualmente" e ainda
+  // assim aparecer no perfil de quem ligou o seletor.
+  const known = new Set((await allKnownArtists(userId)).map((a) => a.id))
+  // Esconder um artista que não está em nenhuma janela não é um pedido
+  // possível: recusamos em vez de guardar lixo que nunca seria filtrado.
   if (hiddenArtistIds.some((id) => !known.has(id))) {
     throw new AppError(422, 'VALIDATION_ERROR', 'hiddenArtistIds')
   }
@@ -236,32 +236,41 @@ export async function syncTasteForLink(
   return { outcome: 'ok' }
 }
 
-/** Busca o top de artistas e regrava o snapshot inteiro (dado derivado). */
+/**
+ * Regrava as três janelas (dado derivado, substituído por inteiro). Uma chamada
+ * por janela — é o mesmo endpoint com outro parâmetro, e sem elas o perfil só
+ * saberia responder "o que ele sempre ouviu".
+ *
+ * Sequencial de propósito: em paralelo, um lote de 50 vínculos dispararia 150
+ * chamadas simultâneas e convidaria o 429 que o reconciler evita.
+ */
 async function syncTasteWithToken(
   userId: string,
   accessToken: string,
   now: Date,
 ) {
-  const timeRange = env.SPOTIFY_TOP_TIME_RANGE as SpotifyTimeRange
-  const artists = await getSpotifyClient().getTopArtists(
-    accessToken,
-    timeRange,
-    TOP_ARTISTS_FETCH_LIMIT,
-  )
+  for (const timeRange of SPOTIFY_TIME_RANGES) {
+    const artists = await getSpotifyClient().getTopArtists(
+      accessToken,
+      timeRange,
+      TOP_ARTISTS_FETCH_LIMIT,
+    )
 
-  const { genreKeys, unmapped } = mapSpotifyGenres(artists)
-  if (unmapped.length > 0) {
-    log.info({ userId, unmapped }, 'gêneros do Spotify sem de-para')
+    const { genreKeys, unmapped } = mapSpotifyGenres(artists)
+    if (unmapped.length > 0 && timeRange === DEFAULT_TIME_RANGE) {
+      log.info({ userId, unmapped }, 'gêneros do Spotify sem de-para')
+    }
+
+    await upsertSnapshot({
+      userId,
+      timeRange,
+      artists: toSnapshotArtists(artists),
+      genreKeys,
+      unmappedGenres: unmapped,
+      syncedAt: now,
+    })
   }
 
-  await upsertSnapshot({
-    userId,
-    timeRange,
-    artists: toSnapshotArtists(artists),
-    genreKeys,
-    unmappedGenres: unmapped,
-    syncedAt: now,
-  })
   await touchLinkSynced(userId, now)
   spotifySyncTotal.inc({ outcome: 'ok' })
 }
@@ -286,6 +295,23 @@ export function spotifyArtistUrl(artistId: string): string {
   return `https://open.spotify.com/artist/${artistId}`
 }
 
+/**
+ * Todos os artistas que o perfil pode exibir, de qualquer janela, sem repetir.
+ * Ordena pela melhor posição que o artista alcançou: quem é primeiro no
+ * "Atualmente" merece vir antes de quem é décimo no "Sempre".
+ */
+async function allKnownArtists(userId: string): Promise<SnapshotArtist[]> {
+  const snapshots = await findSnapshotsByUserId(userId)
+  const best = new Map<string, SnapshotArtist>()
+  for (const snapshot of snapshots) {
+    for (const artist of readSnapshotArtists(snapshot.artists)) {
+      const seen = best.get(artist.id)
+      if (!seen || artist.rank < seen.rank) best.set(artist.id, artist)
+    }
+  }
+  return [...best.values()].sort((a, b) => a.rank - b.rank)
+}
+
 async function buildProfileState(userId: string, link: SpotifyLink | null) {
   if (!link) {
     const user = await prisma.user.findUnique({
@@ -303,8 +329,11 @@ async function buildProfileState(userId: string, link: SpotifyLink | null) {
     }
   }
 
-  const [snapshot, user] = await Promise.all([
+  const [snapshot, artists, user] = await Promise.all([
     findSnapshotByUserId(userId),
+    // A grade de gestão lista TODAS as janelas: esconder alguém que só aparece
+    // no "Atualmente" precisa ser possível a partir daqui.
+    allKnownArtists(userId),
     prisma.user.findUnique({
       where: { id: userId },
       select: { spotifyArtistsVisible: true },
@@ -318,9 +347,10 @@ async function buildProfileState(userId: string, link: SpotifyLink | null) {
     displayName: link.displayName,
     lastSyncedAt: link.lastSyncedAt,
     artistsVisible: user?.spotifyArtistsVisible ?? true,
+    // Gêneros da janela padrão: é ela que alimenta a importação.
     genres: snapshot?.genreKeys ?? [],
     // O dono vê tudo, com a marca do que está oculto — é a tela de gestão.
-    artists: readSnapshotArtists(snapshot?.artists).map((a) => ({
+    artists: artists.map((a) => ({
       id: a.id,
       name: a.name,
       imageUrl: a.imageUrl,

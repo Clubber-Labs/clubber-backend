@@ -1,5 +1,26 @@
 import { z } from 'zod'
+import { env } from '../../lib/env'
 import { GENRE_KEYS } from '../../lib/genres'
+import type { SpotifyTimeRange } from '../../lib/spotify'
+
+/**
+ * As três janelas do /me/top/artists, da mais recente para a mais longa. "O que
+ * ouço agora" e "o que sempre ouvi" são perguntas diferentes, e a mesma chamada
+ * responde as duas — só muda o parâmetro.
+ */
+export const SPOTIFY_TIME_RANGES = [
+  'short_term',
+  'medium_term',
+  'long_term',
+] as const satisfies readonly SpotifyTimeRange[]
+
+/**
+ * Janela que responde por "o gosto" quando não há escolha: alimenta os gêneros
+ * importados, o match entre perfis e o perfil de quem não ligou o seletor.
+ * Seis meses equilibra atual e estável — o curto oscila demais pra virar
+ * identidade.
+ */
+export const DEFAULT_TIME_RANGE = env.SPOTIFY_TOP_TIME_RANGE as SpotifyTimeRange
 
 /**
  * O app manda só o que o fluxo PKCE produziu. `redirectUri` NÃO vem do cliente:

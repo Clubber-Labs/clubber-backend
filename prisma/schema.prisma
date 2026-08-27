@@ -98,6 +98,8 @@ model User {
   // Destacar o primeiro colocado acima da fileira. Só tem efeito quando a
   // fileira aparece — é escolha de layout, não uma segunda camada de privacidade.
   spotifyTopArtistVisible Boolean @default(true)
+  // Seletor de período no perfil. Desligado, o visitante vê só a janela padrão.
+  spotifyWindowVisible    Boolean @default(false)
 
   // Ciclo de vida da conta. accountStatus é a fonte da verdade do estado;
   // os timestamps abaixo são marcadores. deactivatedAt = momento em que a conta
@@ -126,7 +128,7 @@ model User {
   passwordResetCodes   PasswordResetCode[]
   refreshTokens        RefreshToken[]
   spotifyLink          SpotifyLink?
-  spotifyTasteSnapshot SpotifyTasteSnapshot?
+  spotifyTasteSnapshots SpotifyTasteSnapshot[]
 
   // Relacionamentos para o sistema de follow
   following Follow[] @relation("follower")
@@ -553,10 +555,12 @@ model SpotifyLink {
 /// dentro do app.
 model SpotifyTasteSnapshot {
   id     String @id @default(uuid())
-  userId String @unique
+  userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Janela do /me/top/artists ('short_term' | 'medium_term' | 'long_term').
+  /// Uma linha por janela: "o que ouço agora" e "o que sempre ouvi" são
+  /// perguntas diferentes, e a mesma chamada responde as duas.
   timeRange String
   /// [{ id, name, imageUrl, genres, rank }] — top artistas já ordenados.
   artists   Json
@@ -570,6 +574,7 @@ model SpotifyTasteSnapshot {
   syncedAt  DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([userId, timeRange])
   @@map("spotify_taste_snapshots")
 }
 

@@ -84,6 +84,8 @@ export const userPreferencesSchema = z.object({
   spotifyArtistsVisible: z.boolean(),
   // Destacar o mais ouvido acima da fileira.
   spotifyTopArtistVisible: z.boolean(),
+  // Seletor de período no perfil público.
+  spotifyWindowVisible: z.boolean(),
 })
 
 export const updateUserSchema = createUserSchema
