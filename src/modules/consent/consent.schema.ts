@@ -24,16 +24,33 @@ export const deviceMirrorFieldsSchema = z.object({
 export const consentFieldsSchema = z.object({
   marketing: z.boolean(), // Comunicações de marketing
   surveys: z.boolean(), // Participação em pesquisas
-  // Gosto musical do Spotify. Concedido/revogado pelo próprio vínculo, não por
-  // um toggle solto: o tratamento existe enquanto a conta estiver vinculada.
-  spotifyData: z.boolean(),
 })
 
-const allConsentFieldsSchema = deviceMirrorFieldsSchema.extend(
+/**
+ * Consentimento DERIVADO de outra entidade: vale enquanto o vínculo existir, e
+ * quem o escreve é o módulo dono. Terceira categoria de propósito — fica fora
+ * do PATCH (ligar não é ação isolada do titular, e aceitar do cliente deixaria
+ * o registro divergir do vínculo real) e fora do STRICT, porque vincular uma
+ * conta não é reconsentir a marketing. Entra no ALL: a revogação zera junto.
+ */
+export const derivedConsentFieldsSchema = z.object({
+  spotifyData: z.boolean(), // Gosto musical importado do Spotify
+})
+
+/** O que o titular edita direto no PATCH /consent. */
+const userEditableFieldsSchema = deviceMirrorFieldsSchema.extend(
   consentFieldsSchema.shape,
 )
 
-export const updateConsentSchema = allConsentFieldsSchema.partial()
+const allConsentFieldsSchema = userEditableFieldsSchema.extend(
+  derivedConsentFieldsSchema.shape,
+)
+
+export const updateConsentSchema = userEditableFieldsSchema
+  .partial()
+  // Recusa em vez de ignorar em silêncio: um cliente mandando spotifyData está
+  // com a expectativa errada, e engolir o campo esconderia isso.
+  .strict()
 
 export const consentActionSchema = z.enum([
   'GRANTED',
@@ -145,6 +162,10 @@ export const STRICT_CONSENT_FIELDS = Object.keys(
 export const ALL_CONSENT_FIELDS = Object.keys(
   allConsentFieldsSchema.shape,
 ) as ConsentField[]
+
+export type DerivedConsentField = keyof z.infer<
+  typeof derivedConsentFieldsSchema
+>
 
 /**
  * Preferências de produto que vivem no User mas são desligadas junto na

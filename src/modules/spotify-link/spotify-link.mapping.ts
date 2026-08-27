@@ -51,9 +51,9 @@ const EXACT: Record<string, GenreKey> = {
 
 /**
  * Regras por palavra-chave, ORDENADAS POR ESPECIFICIDADE — a ordem é o
- * algoritmo. "tech house" tem de ser testado antes de "house", e as vertentes
- * de drum and bass antes de qualquer regra com "funk" (senão "liquid funk"
- * viraria funk carioca).
+ * algoritmo: "tech house" tem de ser testado antes de "house", e "liquid funk"
+ * antes de "funk". (Não há regra de "funk" aqui de propósito: o funk carioca é
+ * só correspondência exata, porque "funk" solto é o americano.)
  */
 const KEYWORD_RULES: { match: string[]; key: GenreKey }[] = [
   {

@@ -4,6 +4,7 @@ import {
   ALL_CONSENT_FIELDS,
   CURRENT_CONSENT_VERSION,
   CURRENT_DOCUMENT_VERSIONS,
+  type DerivedConsentField,
 } from './consent.schema'
 
 type ConsentAction = 'GRANTED' | 'UPDATED' | 'REVOKED' | 'EXPORTED'
@@ -142,6 +143,40 @@ export async function updateConsentFields(data: {
         changedFields: data.auditEntries,
         ipAddress: data.auditIpAddress,
         userAgent: data.auditUserAgent ?? null,
+        consentVersion: data.consentVersion,
+      },
+    }),
+  ])
+  return updated
+}
+
+/**
+ * Grava um consentimento DERIVADO (que espelha outra entidade) com trilha de
+ * auditoria. Diferente do updateConsentFields, NUNCA mexe em `revokedAt`:
+ * vincular uma conta não é reconsentir ao que o titular revogou no Art. 18 —
+ * só o PATCH explícito dele reativa.
+ */
+export async function setDerivedConsentField(data: {
+  userId: string
+  field: DerivedConsentField
+  granted: boolean
+  auditEntry: AuditEntry
+  ipAddress: string | null
+  userAgent: string | null | undefined
+  consentVersion: string
+}) {
+  const [updated] = await prisma.$transaction([
+    prisma.userConsent.update({
+      where: { userId: data.userId },
+      data: { [data.field]: data.granted },
+    }),
+    prisma.consentAuditLog.create({
+      data: {
+        userId: data.userId,
+        action: 'UPDATED' satisfies ConsentAction,
+        changedFields: [data.auditEntry],
+        ipAddress: data.ipAddress,
+        userAgent: data.userAgent ?? null,
         consentVersion: data.consentVersion,
       },
     }),

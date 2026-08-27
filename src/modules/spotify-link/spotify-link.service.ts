@@ -15,7 +15,7 @@ import {
   decryptRefreshToken,
   encryptRefreshToken,
 } from '../../lib/spotify/crypto'
-import { updateConsent } from '../consent/consent.service'
+import { setDerivedConsent } from '../consent/consent.service'
 import {
   addUserPreferences,
   findUserPreferredSubcategories,
@@ -102,7 +102,7 @@ export async function linkSpotifyAccount(
   // app já recebe os gêneros para oferecer a importação na mesma tela.
   await syncTasteWithToken(userId, grant.accessToken, now)
 
-  await updateConsent(userId, { spotifyData: true }, meta)
+  await setDerivedConsent(userId, 'spotifyData', true, meta)
 
   return buildProfileState(userId, link)
 }
@@ -116,7 +116,7 @@ export async function unlinkSpotifyAccount(userId: string, meta: RequestMeta) {
   // spotify.com/account/apps. Os interesses já aplicados ficam — no momento do
   // apply viraram escolha do usuário, indistintos dos que ele marcou à mão.
   await deleteLinkAndSnapshot(userId)
-  await updateConsent(userId, { spotifyData: false }, meta)
+  await setDerivedConsent(userId, 'spotifyData', false, meta)
 }
 
 export async function getSpotifyProfileState(userId: string) {

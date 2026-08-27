@@ -11,6 +11,7 @@ import {
   findTermsAcceptances,
   findUserPreferences,
   revokeConsentWithAudit,
+  setDerivedConsentField,
   updateConsentFields,
 } from './consent.repository'
 import {
@@ -18,6 +19,7 @@ import {
   type AuditQuery,
   type ConsentField,
   CURRENT_CONSENT_VERSION,
+  type DerivedConsentField,
   STRICT_CONSENT_FIELDS,
   type UpdateConsentBody,
   USER_PREFERENCE_FIELDS,
@@ -124,6 +126,36 @@ export async function updateConsent(
       (entry) =>
         entry.to && STRICT_CONSENT_FIELDS.includes(entry.field as ConsentField),
     ),
+  })
+}
+
+/**
+ * Registra um consentimento DERIVADO — o que existe enquanto um vínculo
+ * existir. Chamado pelo módulo dono do vínculo (nunca pelo PATCH /consent), e
+ * de propósito FORA do updateConsent: lá, ligar um campo estrito reativa a
+ * revogação do Art. 18 inteira, o que faz sentido para um toggle que o titular
+ * aciona, mas não para efeito colateral de vincular uma conta.
+ */
+export async function setDerivedConsent(
+  userId: string,
+  field: DerivedConsentField,
+  granted: boolean,
+  meta: RequestMeta,
+) {
+  const existing = await findConsentByUserId(userId)
+  if (!existing) throw new AppError(404, 'CONSENT_NOT_FOUND')
+
+  const from = existing[field]
+  if (from === granted) return existing
+
+  return setDerivedConsentField({
+    userId,
+    field,
+    granted,
+    auditEntry: { field, from, to: granted },
+    ipAddress: meta.ipAddress ?? null,
+    userAgent: meta.userAgent,
+    consentVersion: existing.consentVersion,
   })
 }
 

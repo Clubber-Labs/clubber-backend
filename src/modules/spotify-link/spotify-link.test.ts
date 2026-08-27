@@ -108,6 +108,40 @@ describe('POST /spotify/link', () => {
     expect(consent?.spotifyData).toBe(true)
   })
 
+  it('não reativa consentimento revogado no Art. 18', async () => {
+    const user = await makeUser()
+    await app.inject({
+      method: 'DELETE',
+      url: '/consent',
+      headers: auth(user.id),
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spotify/link',
+      headers: auth(user.id),
+      body: { code: 'code-1', codeVerifier: 'v'.repeat(43) },
+    })
+
+    expect(res.statusCode).toBe(201)
+    const consent = await testPrisma.userConsent.findUnique({
+      where: { userId: user.id },
+    })
+    // Vincular uma conta não é reconsentir a marketing/pesquisas: a revogação
+    // continua de pé e só um PATCH explícito do titular a desfaz.
+    expect(consent?.revokedAt).not.toBeNull()
+    expect(consent?.marketing).toBe(false)
+    expect(consent?.surveys).toBe(false)
+    expect(consent?.spotifyData).toBe(true)
+
+    const me = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: auth(user.id),
+    })
+    expect(me.json().consent).toMatchObject({ given: false })
+  })
+
   it('recusa quando o usuário não concedeu o escopo de top artists', async () => {
     const user = await makeUser()
     fakeSpotify.exchangeOverride = (code) => ({
@@ -519,6 +553,48 @@ describe('LGPD', () => {
     })
     expect(res.payload).not.toContain('refreshToken')
     expect(res.payload).not.toContain('refresh_')
+  })
+
+  it('não deixa o cliente mexer no consentimento derivado pelo PATCH', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/consent',
+      headers: auth(user.id),
+      body: { spotifyData: true },
+    })
+
+    // Sem vínculo não há tratamento: o campo espelha o vínculo e só o módulo
+    // do Spotify o escreve. Aceitar aqui criaria consentimento fantasma.
+    expect(res.statusCode).toBe(400)
+    const consent = await testPrisma.userConsent.findUnique({
+      where: { userId: user.id },
+    })
+    expect(consent?.spotifyData).toBe(false)
+  })
+
+  it('não deixa desligar o consentimento com o vínculo ativo', async () => {
+    const user = await makeUser()
+    await makeSpotifyLink(user.id)
+    await testPrisma.userConsent.update({
+      where: { userId: user.id },
+      data: { spotifyData: true },
+    })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/consent',
+      headers: auth(user.id),
+      body: { spotifyData: false },
+    })
+
+    expect(res.statusCode).toBe(400)
+    // Divergir aqui deixaria o sync rodando com o registro dizendo o contrário.
+    const consent = await testPrisma.userConsent.findUnique({
+      where: { userId: user.id },
+    })
+    expect(consent?.spotifyData).toBe(true)
   })
 
   it('exporta spotify null para quem não vinculou', async () => {
