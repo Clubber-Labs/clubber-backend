@@ -1,6 +1,11 @@
 # Integração Spotify — gosto musical real no Clubber
 
-Plano de implementação (2026-08-25, não iniciado). Objetivo: o usuário vincula
+> **Status (2026-08-26):** backend das fases 1 e 2 implementado no PR #218 —
+> vínculo, sync diário, importação de gêneros e artistas no perfil. Falta o
+> app mobile e o passo do Spotify Developer Dashboard (abaixo), sem o qual
+> nada é testável de ponta a ponta.
+
+Plano de implementação (2026-08-25). Objetivo: o usuário vincula
 a conta do Spotify e o Clubber passa a conhecer o gosto musical REAL dele —
 top artistas e gêneros — alimentando personalização, matching de eventos por
 line-up e identidade cultural no perfil. Conta **vinculada**, nunca login: a
@@ -54,14 +59,33 @@ Seguindo o padrão dos módulos existentes (`social-auth` é a referência de
 provider OAuth):
 
 ```
+src/lib/spotify/                → cliente HTTP (DI, fake em src/test) + cifra
 src/modules/spotify-link/
 ├── spotify-link.routes.ts      → POST /spotify/link · DELETE /spotify/link
-│                                 GET /spotify/profile (estado + top artists)
+│                                 GET /spotify/profile · POST /spotify/apply-genres
+│                                 PATCH /spotify/hidden-artists
 ├── spotify-link.service.ts     → troca de code, refresh, orquestra sync
 ├── spotify-link.repository.ts  → tokens (criptografados) + snapshot de gosto
-├── spotify-link.sync.ts        → job periódico: top artists/genres → snapshot
+├── spotify-taste.reconciler.ts → job periódico: top artists/genres → snapshot
 └── spotify-link.mapping.ts     → de-para gêneros Spotify → taxonomia Clubber
 ```
+
+### Decisões da implementação (2026-08-26)
+
+- **O ganho no algoritmo sai de graça**: os gêneros importados são gravados em
+  `user_subcategory_preferences`, a mesma tabela dos interesses manuais — feed
+  (pool de descoberta e `subcategorySignal`) e fan-out de proximidade passam a
+  usar gosto real sem mudança no ranker.
+- **Merge aditivo com teto de 5**: o ranking só considera os primeiros
+  interesses, e o merge preserva o `createdAt` dos manuais — a escolha à mão
+  mantém a prioridade. Desvincular NÃO remove os interesses aplicados: no apply
+  eles viraram escolha do usuário.
+- **Nada do Spotify vem do cliente**: redirect URI é o da env; os gêneros do
+  apply e os artistas a ocultar têm de existir no snapshot do servidor.
+- **Revogação é desfecho, não erro** (refresh devolve união); 429 aborta o lote
+  do sync em vez de queimar a cota item a item.
+- **Perfil filtra no servidor**: terceiro nunca recebe `hiddenArtistIds` nem o
+  vínculo cru. Conversão em ponto único (`toApiUser` no users.service).
 
 - **Prisma**: `SpotifyLink` (userId único, refreshToken cifrado, scopes,
   syncedAt) e `SpotifyTasteSnapshot` (artistas top com id/nome/imagem/genres,
@@ -75,9 +99,11 @@ src/modules/spotify-link/
   honesta (substring/keywords + curadoria) — começar pelos ~50 gêneros mais
   comuns do público-alvo e logar os não-mapeados pra iterar. É trabalho de
   produto tanto quanto de código.
-- **LGPD**: gosto musical é dado pessoal — registrar propósito no módulo de
-  consent existente, incluir no export de dados e no delete em cascata da
-  conta.
+- **LGPD**: gosto musical é dado pessoal — consentimento próprio
+  (`spotifyData`) concedido no vínculo e revogado ao desvincular, recorte no
+  export do Art. 18 (sem o refresh token, que é credencial e não dado do
+  titular), exclusão na revogação e na anonimização da conta — onde o cascade
+  não basta, porque a conta nunca é deletada, só anonimizada.
 
 ## Mobile
 
