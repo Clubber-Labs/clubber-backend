@@ -148,6 +148,64 @@ describe('GET /users/:id — seletor de período', () => {
     ])
   })
 
+  it('omite a janela sem artistas em vez de mandar lista vazia', async () => {
+    const dono = await makeUser()
+    await makeSpotifyLink(dono.id)
+    // Conta sem histórico longo: o Spotify devolve vazio pro long_term.
+    for (const [timeRange, ids] of [
+      ['short_term', ['agora1']],
+      ['medium_term', ['meio1']],
+      ['long_term', []],
+    ] as const) {
+      await makeSpotifyTasteSnapshot(dono.id, {
+        timeRange,
+        artists: ids.map((id, i) => artist(id, i)),
+      })
+    }
+    await testPrisma.user.update({
+      where: { id: dono.id },
+      data: { spotifyWindowVisible: true },
+    })
+    const visitante = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${dono.id}`,
+      headers: auth(visitante.id),
+    })
+
+    // Aba que não mostra nada parece defeito — melhor não existir.
+    expect(Object.keys(res.json().artistWindows)).toEqual([
+      'short_term',
+      'medium_term',
+    ])
+  })
+
+  it('não oferece seletor com uma janela só', async () => {
+    const dono = await makeUser()
+    await makeSpotifyLink(dono.id)
+    // É o estado de quem vinculou antes do sync de três janelas existir.
+    await makeSpotifyTasteSnapshot(dono.id, {
+      timeRange: 'medium_term',
+      artists: [artist('meio1')],
+    })
+    await testPrisma.user.update({
+      where: { id: dono.id },
+      data: { spotifyWindowVisible: true },
+    })
+    const visitante = await makeUser()
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${dono.id}`,
+      headers: auth(visitante.id),
+    })
+
+    // Sem escolha a fazer, o seletor seria enfeite.
+    expect(res.json().artistWindows).toBeNull()
+    expect(res.json().topArtists).toHaveLength(1)
+  })
+
   it('respeita o artista ocultado em todas as janelas', async () => {
     const dono = await donoComTresJanelas()
     await testPrisma.user.update({
