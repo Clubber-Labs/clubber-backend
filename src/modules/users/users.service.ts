@@ -11,10 +11,12 @@ import {
 } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
 import { withViewerFollowInfo } from '../follows/follows.service'
+import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
 import {
   readSnapshotArtists,
   spotifyArtistUrl,
 } from '../spotify-link/spotify-link.service'
+import { matchArtists } from '../spotify-link/spotify-match'
 import {
   anonymizeUserTx,
   clearExpiredSuspension,
@@ -176,7 +178,39 @@ export async function getUserById(id: string, viewerId?: string) {
     eventsCount: _count.events,
     followStatus,
     followsYou,
+    artistMatch:
+      viewerId && !isSelf ? await resolveArtistMatch(viewerId, rest) : null,
   }
+}
+
+/**
+ * Artistas que o visitante e o dono do perfil ouvem em comum. Quem escondeu a
+ * fileira aparece só na contagem: o gancho social sobrevive sem entregar os
+ * nomes que a pessoa optou por não mostrar.
+ */
+async function resolveArtistMatch(
+  viewerId: string,
+  target: {
+    spotifyArtistsVisible?: boolean
+    spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
+    spotifyTasteSnapshot?: { artists: unknown } | null
+  },
+) {
+  // Vínculo revogado tem dado congelado dos DOIS lados: o do dono sai daqui, o
+  // do visitante sai da própria query do snapshot.
+  if (target.spotifyLink?.status !== 'ACTIVE') return null
+
+  const viewerSnapshot = await findActiveSnapshotByUserId(viewerId)
+  if (!viewerSnapshot) return null
+
+  return matchArtists(
+    viewerSnapshot.artists,
+    target.spotifyTasteSnapshot?.artists,
+    {
+      revealNames: target.spotifyArtistsVisible !== false,
+      hiddenArtistIds: target.spotifyLink.hiddenArtistIds,
+    },
+  )
 }
 
 export async function getMe(userId: string) {
