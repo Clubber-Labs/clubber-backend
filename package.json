@@ -14,7 +14,7 @@
     "db:migrate": "prisma migrate deploy && prisma generate",
     "db:studio": "prisma studio",
     "db:generate": "prisma generate",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:seed": "tsx --env-file=.env.local prisma/seed.ts",
     "db:test:migrate": "tsx prisma/migrate-test.ts",
     "pretest": "pnpm db:test:migrate",
     "test": "vitest run",

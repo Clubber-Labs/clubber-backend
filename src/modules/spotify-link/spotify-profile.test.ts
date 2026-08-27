@@ -158,7 +158,7 @@ describe('GET /users/:id — top artistas', () => {
     expect(res.json().topArtists).toEqual([])
   })
 
-  it('limita a fileira a 5 artistas', async () => {
+  it('devolve a fileira inteira, sem corte próprio', async () => {
     const user = await makeUser()
     await makeSpotifyLink(user.id)
     await makeSpotifyTasteSnapshot(user.id, {
@@ -178,7 +178,9 @@ describe('GET /users/:id — top artistas', () => {
       headers: auth(visitante.id),
     })
 
-    expect(res.json().topArtists).toHaveLength(5)
+    // Quem limita é o snapshot (20); a fileira rola na horizontal. Um teto
+    // aqui seria um segundo número pro mesmo dado.
+    expect(res.json().topArtists).toHaveLength(12)
   })
 })
 
