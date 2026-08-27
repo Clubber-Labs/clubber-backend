@@ -26,11 +26,31 @@ export const consentFieldsSchema = z.object({
   surveys: z.boolean(), // Participação em pesquisas
 })
 
-const allConsentFieldsSchema = deviceMirrorFieldsSchema.extend(
+/**
+ * Consentimento DERIVADO de outra entidade: vale enquanto o vínculo existir, e
+ * quem o escreve é o módulo dono. Terceira categoria de propósito — fica fora
+ * do PATCH (ligar não é ação isolada do titular, e aceitar do cliente deixaria
+ * o registro divergir do vínculo real) e fora do STRICT, porque vincular uma
+ * conta não é reconsentir a marketing. Entra no ALL: a revogação zera junto.
+ */
+export const derivedConsentFieldsSchema = z.object({
+  spotifyData: z.boolean(), // Gosto musical importado do Spotify
+})
+
+/** O que o titular edita direto no PATCH /consent. */
+const userEditableFieldsSchema = deviceMirrorFieldsSchema.extend(
   consentFieldsSchema.shape,
 )
 
-export const updateConsentSchema = allConsentFieldsSchema.partial()
+const allConsentFieldsSchema = userEditableFieldsSchema.extend(
+  derivedConsentFieldsSchema.shape,
+)
+
+export const updateConsentSchema = userEditableFieldsSchema
+  .partial()
+  // Recusa em vez de ignorar em silêncio: um cliente mandando spotifyData está
+  // com a expectativa errada, e engolir o campo esconderia isso.
+  .strict()
 
 export const consentActionSchema = z.enum([
   'GRANTED',
@@ -48,6 +68,7 @@ export const consentResponseSchema = z.object({
   pushNotifications: z.boolean(),
   marketing: z.boolean(),
   surveys: z.boolean(),
+  spotifyData: z.boolean(),
   consentVersion: z.string(),
   collectedAt: z.date(),
   updatedAt: z.date(),
@@ -59,6 +80,7 @@ export const userPreferencesResponseSchema = z.object({
   socialFeed: z.boolean(),
   socialVisibility: z.boolean(),
   analytics: z.boolean(),
+  spotifyArtistsVisible: z.boolean(),
 })
 
 /** Shape de uma entrada do audit log */
@@ -98,6 +120,27 @@ export const exportResponseSchema = z.object({
       acceptedAt: z.date(),
     }),
   ),
+  // null quando não há conta vinculada. Sem o refresh token: é credencial de
+  // acesso a outro serviço, não dado do titular.
+  spotify: z
+    .object({
+      spotifyUserId: z.string(),
+      displayName: z.string().nullable(),
+      scopes: z.array(z.string()),
+      status: z.enum(['ACTIVE', 'REVOKED']),
+      hiddenArtistIds: z.array(z.string()),
+      lastSyncedAt: z.date().nullable(),
+      createdAt: z.date(),
+      snapshot: z
+        .object({
+          timeRange: z.string(),
+          artists: z.unknown(),
+          genreKeys: z.array(z.string()),
+          syncedAt: z.date(),
+        })
+        .nullable(),
+    })
+    .nullable(),
   history: z.array(auditLogEntrySchema),
 })
 
@@ -120,6 +163,10 @@ export const ALL_CONSENT_FIELDS = Object.keys(
   allConsentFieldsSchema.shape,
 ) as ConsentField[]
 
+export type DerivedConsentField = keyof z.infer<
+  typeof derivedConsentFieldsSchema
+>
+
 /**
  * Preferências de produto que vivem no User mas são desligadas junto na
  * revogação do Art. 18 — senão a revogação seria parcial.
@@ -128,6 +175,7 @@ export const USER_PREFERENCE_FIELDS = [
   'socialFeed',
   'socialVisibility',
   'analytics',
+  'spotifyArtistsVisible',
 ] as const
 
 export type UserPreferenceField = (typeof USER_PREFERENCE_FIELDS)[number]

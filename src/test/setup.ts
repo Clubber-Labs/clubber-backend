@@ -4,6 +4,7 @@ import { setMailer } from '../lib/mailer'
 import { setPlacesClient } from '../lib/places'
 import { setPushService } from '../lib/push'
 import { redis } from '../lib/redis'
+import { setSpotifyClient } from '../lib/spotify'
 import { setStorage } from '../lib/storage'
 import {
   setProfileQueryComposer,
@@ -14,6 +15,7 @@ import { fakeMailer } from './fake-mailer'
 import { fakePlaces } from './fake-places'
 import { fakePush } from './fake-push'
 import { fakeQueryComposer } from './fake-query-composer'
+import { fakeSpotify } from './fake-spotify'
 import { fakeStorage } from './fake-storage'
 import { testPrisma } from './prisma'
 
@@ -22,6 +24,7 @@ beforeAll(() => {
   setMailer(fakeMailer)
   setPushService(fakePush)
   setPlacesClient(fakePlaces)
+  setSpotifyClient(fakeSpotify)
   setSuggestionEnhancer(fakeEnhancer)
   setProfileQueryComposer(fakeQueryComposer)
 })
@@ -79,6 +82,8 @@ afterEach(async () => {
     testPrisma.eventSeries.deleteMany(),
     testPrisma.follow.deleteMany(),
     testPrisma.socialAccount.deleteMany(),
+    testPrisma.spotifyTasteSnapshot.deleteMany(),
+    testPrisma.spotifyLink.deleteMany(),
     testPrisma.passwordResetCode.deleteMany(),
     testPrisma.user.deleteMany(),
   ])
@@ -90,6 +95,7 @@ afterEach(async () => {
   fakeMailer.reset()
   fakePush.reset()
   fakePlaces.reset()
+  fakeSpotify.reset()
   fakeEnhancer.reset()
   fakeQueryComposer.reset()
   if (redis) await redis.flushdb()

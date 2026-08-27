@@ -74,6 +74,34 @@ export const placesSearchTotal = new Counter({
   registers: [registry],
 })
 
+// Chamadas à API do Spotify por endpoint e desfecho (status HTTP, erro de rede
+// ou JSON inválido). Alarme de rate limit e de degradação do provedor.
+export const spotifyApiCallsTotal = new Counter({
+  name: 'spotify_api_calls_total',
+  help: 'Chamadas à API do Spotify por endpoint e desfecho',
+  labelNames: ['endpoint', 'outcome'],
+  registers: [registry],
+})
+
+// Desfecho de cada sync de gosto musical: ok, revoked (usuário tirou o app) ou
+// failed. Um salto de `revoked` pode indicar chave rotacionada, não usuários
+// saindo — os tokens ficam indecifráveis e o sync trata como revogação.
+export const spotifySyncTotal = new Counter({
+  name: 'spotify_sync_total',
+  help: 'Sincronizações de gosto musical do Spotify por desfecho',
+  labelNames: ['outcome'],
+  registers: [registry],
+})
+
+// Gêneros do Spotify que o de-para não reconheceu. SEM label do gênero (seria
+// cardinalidade ilimitada): o valor cru vai no log e na coluna unmappedGenres
+// do snapshot, que é a fila de curadoria do mapeamento.
+export const spotifyGenreUnmappedTotal = new Counter({
+  name: 'spotify_genre_unmapped_total',
+  help: 'Ocorrências de gênero do Spotify sem correspondência na taxonomia',
+  registers: [registry],
+})
+
 // Quantas gerações tiveram o filtro de venue social zerando uma lista não-vazia
 // (todos os candidatos eram não-sociais). Nesses casos o filtro é bypassado para
 // não devolver 0 sugestões após gastar quota — este contador é o alarme de
