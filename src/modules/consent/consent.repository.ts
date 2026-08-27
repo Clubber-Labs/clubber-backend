@@ -72,6 +72,7 @@ export async function findUserPreferences(userId: string) {
       socialVisibility: true,
       analytics: true,
       spotifyArtistsVisible: true,
+      spotifyTopArtistVisible: true,
     },
   })
 }

@@ -81,6 +81,7 @@ export const userPreferencesResponseSchema = z.object({
   socialVisibility: z.boolean(),
   analytics: z.boolean(),
   spotifyArtistsVisible: z.boolean(),
+  spotifyTopArtistVisible: z.boolean(),
 })
 
 /** Shape de uma entrada do audit log */
@@ -176,6 +177,7 @@ export const USER_PREFERENCE_FIELDS = [
   'socialVisibility',
   'analytics',
   'spotifyArtistsVisible',
+  'spotifyTopArtistVisible',
 ] as const
 
 export type UserPreferenceField = (typeof USER_PREFERENCE_FIELDS)[number]

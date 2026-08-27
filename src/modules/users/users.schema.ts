@@ -82,6 +82,8 @@ export const userPreferencesSchema = z.object({
   // Mostrar os top artistas do Spotify no perfil. Nasce `true` no vínculo (a
   // tela avisa) e o toggle em Configurações desliga.
   spotifyArtistsVisible: z.boolean(),
+  // Destacar o mais ouvido acima da fileira.
+  spotifyTopArtistVisible: z.boolean(),
 })
 
 export const updateUserSchema = createUserSchema

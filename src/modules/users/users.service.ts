@@ -65,6 +65,7 @@ function toApiUser<
     categoryPreferences?: { category: string }[]
     subcategoryPreferences?: { subcategory: string }[]
     spotifyArtistsVisible?: boolean
+    spotifyTopArtistVisible?: boolean
     spotifyLink?: { status: string; hiddenArtistIds: string[] } | null
     spotifyTasteSnapshot?: { artists: unknown } | null
   },
@@ -73,6 +74,7 @@ function toApiUser<
     categoryPreferences,
     subcategoryPreferences,
     spotifyArtistsVisible,
+    spotifyTopArtistVisible,
     spotifyLink,
     spotifyTasteSnapshot,
     ...rest
@@ -84,6 +86,19 @@ function toApiUser<
     spotifyArtistsVisible !== false && spotifyLink?.status === 'ACTIVE'
   const hidden = new Set(spotifyLink?.hiddenArtistIds ?? [])
 
+  // Lista já filtrada pelas duas regras de visibilidade. A fileira e o
+  // destaque saem daqui para não poderem divergir: o destaque nunca pode ser
+  // alguém que a fileira esconde.
+  //
+  // Ordena por `rank` em vez de confiar na posição do array: "o mais ouvido" é
+  // definido pelo rank, e depender da ordem de gravação faria uma escrita
+  // futura fora de ordem trocar o destaque em silêncio.
+  const visible = showArtists
+    ? readSnapshotArtists(spotifyTasteSnapshot?.artists)
+        .filter((a) => !hidden.has(a.id))
+        .sort((a, b) => a.rank - b.rank)
+    : []
+
   return {
     ...rest,
     preferredCategories: (categoryPreferences ?? []).map((p) => p.category),
@@ -93,19 +108,31 @@ function toApiUser<
     // A preferência em si só volta pro dono (é o estado do toggle dele); em
     // perfil de terceiro nem revelamos que alguém escondeu algo.
     ...(opts.own
-      ? { spotifyArtistsVisible: spotifyArtistsVisible ?? true }
+      ? {
+          spotifyArtistsVisible: spotifyArtistsVisible ?? true,
+          spotifyTopArtistVisible: spotifyTopArtistVisible ?? true,
+        }
       : {}),
-    topArtists: showArtists
-      ? readSnapshotArtists(spotifyTasteSnapshot?.artists)
-          .filter((a) => !hidden.has(a.id))
-          .slice(0, PROFILE_ARTIST_LIMIT)
-          .map((a) => ({
-            id: a.id,
-            name: a.name,
-            imageUrl: a.imageUrl,
-            spotifyUrl: spotifyArtistUrl(a.id),
-          }))
-      : [],
+    topArtists: visible.slice(0, PROFILE_ARTIST_LIMIT).map((a) => ({
+      id: a.id,
+      name: a.name,
+      imageUrl: a.imageUrl,
+      spotifyUrl: spotifyArtistUrl(a.id),
+    })),
+    // O mais ouvido, com os gêneros que o Spotify dá pra ele — é o que
+    // explica de onde vêm os estilos do perfil. Diferente do toggle da
+    // fileira, este não é privacidade: dá pra ver na tela se está ou não
+    // destacado, então esconder o estado do cliente não protegeria nada.
+    featuredArtist:
+      spotifyTopArtistVisible !== false && visible[0]
+        ? {
+            id: visible[0].id,
+            name: visible[0].name,
+            imageUrl: visible[0].imageUrl,
+            spotifyUrl: spotifyArtistUrl(visible[0].id),
+            genres: visible[0].genres,
+          }
+        : null,
   }
 }
 
