@@ -198,10 +198,10 @@ const baseSchema = z.object({
   // não tempo; sem este teto um único destaque poderia durar até a data do
   // evento, monopolizando o feed gastando só 1 dos N créditos do mês.
   PROMOTION_MAX_DURATION_DAYS: z.coerce.number().int().positive().default(7),
-  // Espaçamento entre a notificação de criação do evento e o alcance pago:
-  // promover logo após criar mandaria os dois pushes com segundos de
-  // diferença. Quem cai nesta janela tem preferência casada (foi o público do
-  // fan-out de criação) e é alcançado pelas ondas de reforço.
+  // Espaçamento entre saber do evento e o alcance pago: promover logo após
+  // criar mandaria os dois pushes com segundos de diferença. Quem cai nesta
+  // janela foi notificado do evento agora (criação ou convite) e é alcançado
+  // pelas ondas de reforço.
   PROMOTION_REACH_MIN_GAP_HOURS: z.coerce.number().int().positive().default(24),
   // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
   // Aceita explicitamente as strings comuns e transforma manualmente.
