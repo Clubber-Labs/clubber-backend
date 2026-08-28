@@ -142,7 +142,8 @@ específica de ajuste.
 | `LOKI_URL` | — | Logs centralizados. Sem URL, só stdout. |
 | `METRICS_ENABLED` | `true` | Expõe `/metrics`. Ver `METRICS_TOKEN` na seção 1.2 quando ligado em produção. |
 | `FEATURED_RECONCILE_INTERVAL_MS` / `..._ENABLED` | `300000` / `true` | Reconciler de featured events. |
-| `PROMOTION_MONTHLY_LIMIT` / `PROMOTION_MAX_DURATION_DAYS` / `PROMOTION_DIGEST_*` | vários | Regras de promoção/destaque (RF11.4+). |
+| `PROMOTION_MONTHLY_LIMIT` / `PROMOTION_MAX_DURATION_DAYS` | `3` / `7` | Quota mensal e duração máxima de um destaque (RF11.4+). |
+| `PROMOTION_REACH_MIN_GAP_HOURS` | `24` | Espaçamento entre a notificação de criação do evento e o alcance pago da promoção. |
 | `RECURRENCE_RECONCILE_INTERVAL_MS` / `..._ENABLED` | `21600000` / `true` | Reposição de ocorrências de eventos recorrentes. |
 | `ACCOUNT_DELETION_GRACE_DAYS` / `..._INTERVAL_MS` / `..._ENABLED` | `30` / `3600000` / `true` | Exclusão de conta (soft-delete + anonimização). |
 | `SUSPENSION_RECONCILE_INTERVAL_MS` / `..._ENABLED` | `3600000` / `true` | Expira suspensões temporárias vencidas. |

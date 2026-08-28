@@ -172,6 +172,20 @@ export async function findExistingUserIdsByDedupeKey(
   return new Set(rows.map((r) => r.userId))
 }
 
+/** Usuários (entre os passados) notificados deste evento a partir de `since`. */
+export async function findUserIdsNotifiedOfEventSince(
+  userIds: string[],
+  eventId: string,
+  since: Date,
+): Promise<Set<string>> {
+  if (userIds.length === 0) return new Set()
+  const rows = await prisma.notification.findMany({
+    where: { userId: { in: userIds }, eventId, createdAt: { gte: since } },
+    select: { userId: true },
+  })
+  return new Set(rows.map((r) => r.userId))
+}
+
 /** Linhas completas das notificações desta dedupeKey para os usuários dados (foreground). */
 export async function findNotificationsByDedupeKey(
   userIds: string[],

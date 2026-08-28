@@ -198,25 +198,11 @@ const baseSchema = z.object({
   // não tempo; sem este teto um único destaque poderia durar até a data do
   // evento, monopolizando o feed gastando só 1 dos N créditos do mês.
   PROMOTION_MAX_DURATION_DAYS: z.coerce.number().int().positive().default(7),
-  // Digest "melhor pra você": no máx. 1 push de promoção por usuário a cada
-  // COOLDOWN_DAYS, escolhendo o promovido mais relevante perto dele. Volume
-  // por usuário (não por promoção) — anti-spam by design.
-  PROMOTION_DIGEST_ENABLED: z
-    .enum(['true', 'false', '1', '0'])
-    .default('true')
-    .transform((v) => v === 'true' || v === '1'),
-  PROMOTION_DIGEST_INTERVAL_MS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(21_600_000),
-  PROMOTION_DIGEST_COOLDOWN_DAYS: z.coerce.number().int().positive().default(3),
-  // Só avalia usuários ativos recentemente (lastSeenAt) — corta custo e spam.
-  PROMOTION_DIGEST_ACTIVE_USER_DAYS: z.coerce
-    .number()
-    .int()
-    .positive()
-    .default(14),
+  // Espaçamento entre saber do evento e o alcance pago: promover logo após
+  // criar mandaria os dois pushes com segundos de diferença. Quem cai nesta
+  // janela foi notificado do evento agora (criação ou convite) e é alcançado
+  // pelas ondas de reforço.
+  PROMOTION_REACH_MIN_GAP_HOURS: z.coerce.number().int().positive().default(24),
   // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
   // Aceita explicitamente as strings comuns e transforma manualmente.
   FEATURED_RECONCILE_ENABLED: z
@@ -745,10 +731,7 @@ export const env = {
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,
   PROMOTION_MAX_DURATION_DAYS: parsed.PROMOTION_MAX_DURATION_DAYS,
-  PROMOTION_DIGEST_ENABLED: parsed.PROMOTION_DIGEST_ENABLED,
-  PROMOTION_DIGEST_INTERVAL_MS: parsed.PROMOTION_DIGEST_INTERVAL_MS,
-  PROMOTION_DIGEST_COOLDOWN_DAYS: parsed.PROMOTION_DIGEST_COOLDOWN_DAYS,
-  PROMOTION_DIGEST_ACTIVE_USER_DAYS: parsed.PROMOTION_DIGEST_ACTIVE_USER_DAYS,
+  PROMOTION_REACH_MIN_GAP_HOURS: parsed.PROMOTION_REACH_MIN_GAP_HOURS,
   RECURRENCE_RECONCILE_INTERVAL_MS: parsed.RECURRENCE_RECONCILE_INTERVAL_MS,
   RECURRENCE_RECONCILE_ENABLED: parsed.RECURRENCE_RECONCILE_ENABLED,
   STRIPE_SECRET_KEY: parsed.STRIPE_SECRET_KEY,

@@ -10,10 +10,6 @@ import {
   stopNotificationRetentionReconciler,
 } from './notification-retention.reconciler'
 import {
-  startPromotedDigestReconciler,
-  stopPromotedDigestReconciler,
-} from './promoted-digest.reconciler'
-import {
   startPushReceiptsReconciler,
   stopPushReceiptsReconciler,
 } from './push-receipts.reconciler'
@@ -24,7 +20,7 @@ import {
 
 // As funções de processamento de cada reconciler já são testadas direto
 // (notifications.test.ts, location-proximity.test.ts, proximity-fanout.test.ts,
-// spot-lifecycle.test.ts, promoted-digest.test.ts). O que faltava cobertura é a
+// spot-lifecycle.test.ts). O que faltava cobertura é a
 // GERÊNCIA DO TIMER (start/stop): guarda de singleton, unref e re-arme após stop.
 
 const INTERVAL = 60_000
@@ -47,11 +43,6 @@ const RECONCILERS = [
     name: 'push-receipts',
     start: () => startPushReceiptsReconciler(INTERVAL, 1000),
     stop: stopPushReceiptsReconciler,
-  },
-  {
-    name: 'promoted-digest',
-    start: () => startPromotedDigestReconciler(INTERVAL),
-    stop: stopPromotedDigestReconciler,
   },
   {
     name: 'spot-lifecycle',

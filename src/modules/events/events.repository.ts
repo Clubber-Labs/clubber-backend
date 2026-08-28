@@ -401,6 +401,9 @@ export async function findEventForFanout(id: string) {
       authorId: true,
       isPublic: true,
       canceledAt: true,
+      isFeatured: true,
+      date: true,
+      endDate: true,
     },
   })
 }

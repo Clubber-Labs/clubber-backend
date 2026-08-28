@@ -22,6 +22,27 @@ export async function findFeatureById(featureId: string) {
   return prisma.featuredEvent.findUnique({ where: { id: featureId } })
 }
 
+/**
+ * O destaque VIGENTE do evento: janela aberta agora e não cancelado. É a fonte
+ * autoritativa do estado da promoção — `events.isFeatured` é só o espelho
+ * mantido pelo reconciler, que pode estar atrasado de até um tick.
+ */
+export async function findActiveFeature(
+  eventId: string,
+  now: Date = new Date(),
+  client: TxClient = prisma,
+) {
+  return client.featuredEvent.findFirst({
+    where: {
+      eventId,
+      canceledAt: null,
+      startsAt: { lte: now },
+      endsAt: { gte: now },
+    },
+    select: { id: true },
+  })
+}
+
 export async function findOverlappingActiveFeature(
   eventId: string,
   startsAt: Date,
@@ -101,16 +122,7 @@ async function softCancelAndRecalculateTx(
     data: { canceledAt: new Date() },
   })
 
-  const now = new Date()
-  const remainingActive = await tx.featuredEvent.findFirst({
-    where: {
-      eventId,
-      canceledAt: null,
-      startsAt: { lte: now },
-      endsAt: { gte: now },
-    },
-    select: { id: true },
-  })
+  const remainingActive = await findActiveFeature(eventId, new Date(), tx)
 
   await tx.event.update({
     where: { id: eventId },

@@ -1,0 +1,308 @@
+import type { EventCategory } from '@prisma/client'
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest'
+import { realtime } from '../../lib/realtime'
+import {
+  makeAttendance,
+  makeBlock,
+  makeEvent,
+  makeFeaturedEvent,
+  makeUser,
+} from '../../test/factories'
+import { fakePush } from '../../test/fake-push'
+import { testPrisma } from '../../test/prisma'
+import {
+  promotionWaveDedupeKey,
+  runPromotionReachFanout,
+} from './promotion-fanout.service'
+import { runEventCreatedFanout } from './proximity-fanout.service'
+
+const GEOHASH = '6gkzwg'
+const LAT = -25.38116
+const LNG = -49.26819
+const CATEGORY: EventCategory = 'MUSIC'
+const OTHER_CATEGORY: EventCategory = 'TECH'
+const TOKEN = 'ExponentPushToken[cccccccccccccccccccccc]'
+
+const DAY = 86_400_000
+const HOUR = 3_600_000
+
+beforeEach(() => {
+  vi.spyOn(realtime, 'publishNotification').mockResolvedValue(undefined)
+})
+afterEach(() => {
+  vi.restoreAllMocks()
+  fakePush.reset()
+})
+afterAll(async () => {
+  await testPrisma.$disconnect()
+})
+
+async function makeNearbyUser(
+  opts: { preference?: EventCategory | null; push?: boolean } = {},
+) {
+  const user = await makeUser()
+  await testPrisma.user.update({
+    where: { id: user.id },
+    data: {
+      locationGeohash: GEOHASH,
+      locationUpdatedAt: new Date(),
+      notifyRadiusKm: 10,
+      lastSeenAt: new Date(),
+    },
+  })
+  await testPrisma.userConsent.update({
+    where: { userId: user.id },
+    data: { locationPrecise: true, pushNotifications: opts.push ?? true },
+  })
+  const preference = opts.preference === undefined ? CATEGORY : opts.preference
+  if (preference) {
+    await testPrisma.userCategoryPreference.create({
+      data: { userId: user.id, category: preference },
+    })
+  }
+  await testPrisma.deviceToken.create({
+    data: { userId: user.id, token: `${TOKEN}${user.id.slice(0, 4)}` },
+  })
+  return user
+}
+
+function makeNearbyEvent(
+  authorId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  return makeEvent(authorId, {
+    isPublic: true,
+    isFeatured: true,
+    category: CATEGORY,
+    latitude: LAT,
+    longitude: LNG,
+    date: new Date(Date.now() + DAY),
+    ...overrides,
+  })
+}
+
+/** Evento com uma compra de destaque vigente — o estado que o fan-out exige. */
+async function makePromotedEvent(
+  authorId: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const event = await makeNearbyEvent(authorId, overrides)
+  const feature = await makeFeaturedEvent(event.id, authorId, {
+    startsAt: new Date(Date.now() - HOUR),
+    endsAt: new Date(Date.now() + 6 * HOUR),
+  })
+  return { event, feature }
+}
+
+function notificationsFor(userId: string, eventId: string) {
+  return testPrisma.notification.findMany({
+    where: { userId, eventId },
+    orderBy: { createdAt: 'asc' },
+  })
+}
+
+async function ageNotifications(eventId: string, createdAt: Date) {
+  await testPrisma.notification.updateMany({
+    where: { eventId },
+    data: { createdAt },
+  })
+}
+
+describe('runPromotionReachFanout', () => {
+  it('alcança quem recebeu a notificação de criação faz tempo', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser()
+    const { event, feature } = await makePromotedEvent(author.id)
+
+    await runEventCreatedFanout(event.id)
+    expect(await notificationsFor(user.id, event.id)).toHaveLength(1)
+    await ageNotifications(event.id, new Date(Date.now() - 2 * DAY))
+
+    const result = await runPromotionReachFanout(event.id)
+
+    expect(result.notified).toBe(1)
+    const all = await notificationsFor(user.id, event.id)
+    expect(all).toHaveLength(2)
+    expect(all[1].dedupeKey).toBe(promotionWaveDedupeKey(feature.id, 1))
+    expect(all[1].params).toMatchObject({ promoted: true })
+  })
+
+  it('não alcança quem acabou de receber a notificação de criação', async () => {
+    const author = await makeUser({ isPremium: true })
+    const matched = await makeNearbyUser()
+    const unmatched = await makeNearbyUser({ preference: OTHER_CATEGORY })
+    const { event } = await makePromotedEvent(author.id)
+
+    await runEventCreatedFanout(event.id)
+    const result = await runPromotionReachFanout(event.id)
+
+    // Só o público fora da preferência — quem acabou de ser notificado da
+    // criação fica para as ondas de reforço.
+    expect(result.notified).toBe(1)
+    expect(await notificationsFor(matched.id, event.id)).toHaveLength(1)
+    expect(await notificationsFor(unmatched.id, event.id)).toHaveLength(1)
+    expect(fakePush.sent).toHaveLength(2)
+  })
+
+  it('alcança quem NÃO tem a categoria nas preferências', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser({ preference: OTHER_CATEGORY })
+    const { event, feature } = await makePromotedEvent(author.id)
+
+    await runEventCreatedFanout(event.id)
+    expect(await notificationsFor(user.id, event.id)).toHaveLength(0)
+
+    const result = await runPromotionReachFanout(event.id)
+
+    expect(result.notified).toBe(1)
+    const all = await notificationsFor(user.id, event.id)
+    expect(all).toHaveLength(1)
+    expect(all[0].dedupeKey).toBe(promotionWaveDedupeKey(feature.id, 1))
+  })
+
+  it('uma segunda compra do mesmo evento alcança de novo', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser()
+    const { event, feature } = await makePromotedEvent(author.id)
+
+    expect((await runPromotionReachFanout(event.id)).notified).toBe(1)
+
+    // A primeira janela fecha e o autor compra outro destaque, sem sobreposição.
+    await testPrisma.featuredEvent.update({
+      where: { id: feature.id },
+      data: {
+        startsAt: new Date(Date.now() - 3 * DAY),
+        endsAt: new Date(Date.now() - 2 * DAY),
+      },
+    })
+    await ageNotifications(event.id, new Date(Date.now() - 2 * DAY))
+    const second = await makeFeaturedEvent(event.id, author.id, {
+      startsAt: new Date(Date.now() - HOUR),
+      endsAt: new Date(Date.now() + 6 * HOUR),
+    })
+
+    expect((await runPromotionReachFanout(event.id)).notified).toBe(1)
+
+    const all = await notificationsFor(user.id, event.id)
+    expect(all.map((n) => n.dedupeKey)).toEqual([
+      promotionWaveDedupeKey(feature.id, 1),
+      promotionWaveDedupeKey(second.id, 1),
+    ])
+  })
+
+  it('envia push com a copy de destaque', async () => {
+    const author = await makeUser({ isPremium: true })
+    await makeNearbyUser()
+    const { event } = await makePromotedEvent(author.id, {
+      title: 'Rave na Ilha',
+    })
+
+    await runPromotionReachFanout(event.id)
+
+    expect(fakePush.sent).toHaveLength(1)
+    expect(fakePush.sent[0].title).toBe('Em destaque perto de você')
+    expect(fakePush.sent[0].body).toBe('Rave na Ilha')
+  })
+
+  it('entrega in-app mesmo sem consentimento de push', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser({ push: false })
+    const { event } = await makePromotedEvent(author.id)
+
+    const result = await runPromotionReachFanout(event.id)
+
+    expect(result.notified).toBe(1)
+    expect(await notificationsFor(user.id, event.id)).toHaveLength(1)
+    expect(fakePush.sent).toHaveLength(0)
+  })
+
+  it('é idempotente entre execuções', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser()
+    const { event } = await makePromotedEvent(author.id)
+
+    await runPromotionReachFanout(event.id)
+    const second = await runPromotionReachFanout(event.id)
+
+    expect(second.notified).toBe(0)
+    expect(await notificationsFor(user.id, event.id)).toHaveLength(1)
+  })
+
+  it('não alcança o autor, quem já tem presença nem quem bloqueou', async () => {
+    const author = await makeNearbyUser()
+    await testPrisma.user.update({
+      where: { id: author.id },
+      data: { isPremium: true },
+    })
+    const attendee = await makeNearbyUser()
+    const blocker = await makeNearbyUser()
+    const { event } = await makePromotedEvent(author.id)
+    await makeAttendance(attendee.id, event.id)
+    await makeBlock(blocker.id, author.id)
+
+    const result = await runPromotionReachFanout(event.id)
+
+    expect(result.notified).toBe(0)
+    expect(await notificationsFor(author.id, event.id)).toHaveLength(0)
+    expect(await notificationsFor(attendee.id, event.id)).toHaveLength(0)
+    expect(await notificationsFor(blocker.id, event.id)).toHaveLength(0)
+  })
+
+  it('não dispara sem destaque vigente', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser()
+
+    const semCompra = await makeNearbyEvent(author.id)
+
+    const cancelada = await makeNearbyEvent(author.id)
+    await makeFeaturedEvent(cancelada.id, author.id, {
+      canceledAt: new Date(),
+    })
+
+    const agendada = await makeNearbyEvent(author.id)
+    await makeFeaturedEvent(agendada.id, author.id, {
+      startsAt: new Date(Date.now() + HOUR),
+      endsAt: new Date(Date.now() + 6 * HOUR),
+    })
+
+    const encerrada = await makeNearbyEvent(author.id)
+    await makeFeaturedEvent(encerrada.id, author.id, {
+      startsAt: new Date(Date.now() - 2 * DAY),
+      endsAt: new Date(Date.now() - DAY),
+    })
+
+    for (const event of [semCompra, cancelada, agendada, encerrada]) {
+      expect((await runPromotionReachFanout(event.id)).notified).toBe(0)
+      expect(await notificationsFor(user.id, event.id)).toHaveLength(0)
+    }
+  })
+
+  it('não dispara para evento privado, cancelado ou encerrado', async () => {
+    const author = await makeUser({ isPremium: true })
+    const user = await makeNearbyUser()
+
+    const { event: privado } = await makePromotedEvent(author.id, {
+      isPublic: false,
+    })
+    const { event: cancelado } = await makePromotedEvent(author.id, {
+      canceledAt: new Date(),
+    })
+    const { event: encerrado } = await makePromotedEvent(author.id, {
+      date: new Date(Date.now() - 2 * DAY),
+      endDate: new Date(Date.now() - DAY),
+    })
+
+    for (const event of [privado, cancelado, encerrado]) {
+      expect((await runPromotionReachFanout(event.id)).notified).toBe(0)
+      expect(await notificationsFor(user.id, event.id)).toHaveLength(0)
+    }
+  })
+})
