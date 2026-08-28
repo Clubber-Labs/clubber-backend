@@ -5,16 +5,18 @@ import { makeSubscription, makeUser } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { describeReconcilerTimer } from '../../test/reconciler-lifecycle'
 import {
+  reconcileOrphanStripeSubscriptions,
   reconcileStaleSubscriptions,
   startBillingSyncReconciler,
   stopBillingSyncReconciler,
 } from './billing-sync.reconciler'
 
 // O sync re-consulta o Stripe (fonte de verdade) — mock do singleton, sem
-// rede em teste. `retrieve` é o único método usado pelo reconciler.
+// rede em teste. `retrieve` re-sincroniza o que já existe local; `list`
+// descobre o que nunca chegou (varredura de órfãs).
 vi.mock('../../lib/stripe', () => ({
   STRIPE_API_VERSION: 'test',
-  stripe: { subscriptions: { retrieve: vi.fn() } },
+  stripe: { subscriptions: { retrieve: vi.fn(), list: vi.fn() } },
 }))
 
 beforeEach(() => {
@@ -259,8 +261,285 @@ describe('reconcileStaleSubscriptions', () => {
   })
 })
 
+const LOOKBACK_MS = 7 * 24 * 3600_000
+
+function listedSubscriptionPayload(opts: {
+  id: string
+  customerId: string
+  status?: string
+  metadataUserId?: string
+  customerDefaultPaymentMethod?: string | null
+}) {
+  const nowSec = Math.floor(Date.now() / 1000)
+  return {
+    ...stripeSubscriptionPayload({ id: opts.id, status: opts.status }),
+    customer: {
+      id: opts.customerId,
+      invoice_settings: {
+        default_payment_method: opts.customerDefaultPaymentMethod ?? null,
+      },
+    },
+    trial_end: nowSec + 7 * 86_400,
+    ...(opts.metadataUserId && { metadata: { userId: opts.metadataUserId } }),
+  }
+}
+
+type MockPage = unknown[] | { data: unknown[]; has_more: boolean }
+
+function mockList(...pages: MockPage[]) {
+  const mock = vi.mocked(stripe.subscriptions.list)
+  mock.mockReset()
+  // Uma resolução por chamada, na ordem: páginas de um status, depois o
+  // próximo. `has_more` controla se a varredura pagina ou passa adiante.
+  for (const page of pages) {
+    const { data, has_more } = Array.isArray(page)
+      ? { data: page, has_more: false }
+      : page
+    mock.mockResolvedValueOnce({ data, has_more } as never)
+  }
+  mock.mockResolvedValue({ data: [], has_more: false } as never)
+}
+
+async function userWithCustomer(customerId: string, isPremium = false) {
+  const user = await makeUser({ isPremium })
+  await testPrisma.user.update({
+    where: { id: user.id },
+    data: { stripeCustomerId: customerId },
+  })
+  return user
+}
+
+describe('reconcileOrphanStripeSubscriptions', () => {
+  it('adota a assinatura cujo customer.subscription.created se perdeu', async () => {
+    const user = await userWithCustomer('cus_orphan')
+    mockList([
+      listedSubscriptionPayload({
+        id: 'sub_orphan',
+        customerId: 'cus_orphan',
+        status: 'trialing',
+        customerDefaultPaymentMethod: 'pm_card',
+      }),
+    ])
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result).toMatchObject({ adopted: 1, failed: 0 })
+    const created = await testPrisma.subscription.findUnique({
+      where: { stripeSubscriptionId: 'sub_orphan' },
+    })
+    expect(created).toMatchObject({ userId: user.id, status: 'TRIALING' })
+    // Cartão do trial mora no Customer (o SetupIntent grava lá, não na
+    // subscription): sem carimbá-lo a adoção não concederia premium.
+    expect(created?.defaultPaymentMethodId).toBe('pm_card')
+    expect(
+      (await testPrisma.user.findUnique({ where: { id: user.id } }))?.isPremium,
+    ).toBe(true)
+  })
+
+  it('trial sem cartão é adotado mas NÃO concede premium', async () => {
+    const user = await userWithCustomer('cus_nocard')
+    mockList([
+      listedSubscriptionPayload({
+        id: 'sub_nocard',
+        customerId: 'cus_nocard',
+        status: 'trialing',
+        customerDefaultPaymentMethod: null,
+      }),
+    ])
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result.adopted).toBe(1)
+    expect(
+      (await testPrisma.user.findUnique({ where: { id: user.id } }))?.isPremium,
+    ).toBe(false)
+  })
+
+  it('assinatura já conhecida não é adotada de novo', async () => {
+    const user = await userWithCustomer('cus_known')
+    const existing = await makeSubscription(user.id, {
+      stripeSubscriptionId: 'sub_known',
+      status: 'ACTIVE',
+    })
+    mockList([
+      listedSubscriptionPayload({
+        id: 'sub_known',
+        customerId: 'cus_known',
+        status: 'active',
+      }),
+    ])
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result.adopted).toBe(0)
+    const reloaded = await testPrisma.subscription.findUnique({
+      where: { stripeSubscriptionId: 'sub_known' },
+    })
+    expect(reloaded?.id).toBe(existing.id)
+  })
+
+  it('customer sem usuário local é ignorado', async () => {
+    mockList([
+      listedSubscriptionPayload({
+        id: 'sub_sem_dono',
+        customerId: 'cus_desconhecido',
+        status: 'active',
+      }),
+    ])
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result.adopted).toBe(0)
+    expect(
+      await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_sem_dono' },
+      }),
+    ).toBeNull()
+  })
+
+  it('vincula pelo customer do banco, nunca pelo metadata (anti-spoofing)', async () => {
+    const dono = await userWithCustomer('cus_dono')
+    const vitima = await makeUser()
+    mockList([
+      listedSubscriptionPayload({
+        id: 'sub_spoof',
+        customerId: 'cus_dono',
+        status: 'active',
+        metadataUserId: vitima.id,
+      }),
+    ])
+
+    await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    const created = await testPrisma.subscription.findUnique({
+      where: { stripeSubscriptionId: 'sub_spoof' },
+    })
+    expect(created?.userId).toBe(dono.id)
+    expect(
+      (await testPrisma.user.findUnique({ where: { id: vitima.id } }))
+        ?.isPremium,
+    ).toBe(false)
+  })
+
+  it('payload anômalo não derruba o lote', async () => {
+    const bom = await userWithCustomer('cus_bom')
+    mockList([
+      // Sem priceId: o mapper descarta e a varredura segue pras seguintes.
+      {
+        ...listedSubscriptionPayload({
+          id: 'sub_ruim',
+          customerId: 'cus_bom',
+        }),
+        items: { data: [] },
+      },
+      listedSubscriptionPayload({
+        id: 'sub_bom',
+        customerId: 'cus_bom',
+        status: 'active',
+      }),
+    ])
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result.adopted).toBe(1)
+    expect(
+      await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_bom' },
+      }),
+    ).not.toBeNull()
+    expect(
+      (await testPrisma.user.findUnique({ where: { id: bom.id } }))?.isPremium,
+    ).toBe(true)
+  })
+
+  it('pagina até o fim da janela: órfã fora da primeira página é adotada', async () => {
+    const user = await userWithCustomer('cus_pagina2')
+    // A listagem do Stripe vem por `created` desc e inclui conhecidas: sem
+    // paginar, a órfã mais antiga que a primeira página nunca apareceria — e
+    // ao vencer o lookback voltaria a ser o bug que este reconciler resolve.
+    mockList(
+      {
+        data: [
+          listedSubscriptionPayload({
+            id: 'sub_ja_conhecida',
+            customerId: 'cus_pagina2',
+            status: 'trialing',
+          }),
+        ],
+        has_more: true,
+      },
+      {
+        data: [
+          listedSubscriptionPayload({
+            id: 'sub_pagina2',
+            customerId: 'cus_pagina2',
+            status: 'trialing',
+            customerDefaultPaymentMethod: 'pm_pagina2',
+          }),
+        ],
+        has_more: false,
+      },
+    )
+    await makeSubscription(user.id, {
+      stripeSubscriptionId: 'sub_ja_conhecida',
+      status: 'TRIALING',
+      defaultPaymentMethodId: 'pm_antigo',
+    })
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result.adopted).toBe(1)
+    expect(result.truncated).toBe(false)
+    expect(
+      await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_pagina2' },
+      }),
+    ).not.toBeNull()
+  })
+
+  it('sinaliza truncamento quando a janela não cabe no teto de páginas', async () => {
+    const user = await userWithCustomer('cus_muitas')
+    await makeSubscription(user.id, {
+      stripeSubscriptionId: 'sub_cheia',
+      status: 'ACTIVE',
+    })
+    // Sempre com has_more: a varredura bate no teto sem nunca esgotar.
+    const cheia = {
+      data: [
+        listedSubscriptionPayload({
+          id: 'sub_cheia',
+          customerId: 'cus_muitas',
+          status: 'active',
+        }),
+      ],
+      has_more: true,
+    }
+    mockList(...Array.from({ length: 60 }, () => cheia))
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    // Cobertura incompleta não pode passar como varredura limpa: o operador
+    // precisa saber que sobrou janela sem varrer.
+    expect(result.truncated).toBe(true)
+  })
+
+  it('erro do Stripe na varredura não derruba o tick', async () => {
+    vi.mocked(stripe.subscriptions.list).mockReset()
+    vi.mocked(stripe.subscriptions.list).mockRejectedValue(
+      new Stripe.errors.StripeAPIError({
+        message: 'stripe down',
+        // biome-ignore lint/suspicious/noExplicitAny: construtor raw do SDK
+      } as any),
+    )
+
+    await expect(
+      reconcileOrphanStripeSubscriptions(LOOKBACK_MS),
+    ).resolves.toMatchObject({ adopted: 0 })
+  })
+})
+
 describeReconcilerTimer('billing-sync', {
-  start: () => startBillingSyncReconciler(60_000, GRACE_MS),
+  start: () => startBillingSyncReconciler(60_000, GRACE_MS, LOOKBACK_MS),
   stop: stopBillingSyncReconciler,
   intervalMs: 60_000,
 })

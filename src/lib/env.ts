@@ -283,6 +283,15 @@ const baseSchema = z.object({
     .int()
     .positive()
     .default(6 * 3600000),
+  // Janela da varredura de assinaturas órfãs (existem no Stripe, nunca
+  // chegaram ao banco — `customer.subscription.created` perdido). Cobre com
+  // folga o retry do próprio Stripe (~3 dias); varrer a conta inteira a cada
+  // tick não escala.
+  BILLING_ORPHAN_LOOKBACK_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(7 * 24 * 3600000),
   BILLING_SYNC_ENABLED: z
     .enum(['true', 'false', '1', '0'])
     .default('true')
@@ -758,6 +767,7 @@ export const env = {
     parsed.BILLING_WEBHOOK_RETENTION_CLEANUP_ENABLED,
   BILLING_SYNC_INTERVAL_MS: parsed.BILLING_SYNC_INTERVAL_MS,
   BILLING_SYNC_GRACE_MS: parsed.BILLING_SYNC_GRACE_MS,
+  BILLING_ORPHAN_LOOKBACK_MS: parsed.BILLING_ORPHAN_LOOKBACK_MS,
   BILLING_SYNC_ENABLED: parsed.BILLING_SYNC_ENABLED,
   LOG_LEVEL: parsed.LOG_LEVEL,
   SENTRY_DSN: parsed.SENTRY_DSN,

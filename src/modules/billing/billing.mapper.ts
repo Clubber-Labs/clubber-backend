@@ -35,7 +35,18 @@ export type StripeSubscriptionLike = {
   // Nullable de propósito: em payloads anômalos do Stripe `customer` pode vir
   // ausente. extractCustomerId trata o caso; o tipo reflete a defensividade
   // pra ninguém remover a guarda confiando num não-null que não existe.
-  customer: string | { id: string } | null | undefined
+  // `invoice_settings` só existe quando o customer vem expandido (a varredura
+  // de órfãs pede `expand: ['data.customer']` justamente pra lê-lo).
+  customer:
+    | string
+    | {
+        id: string
+        invoice_settings?: {
+          default_payment_method?: string | { id: string } | null
+        } | null
+      }
+    | null
+    | undefined
   status: string
   items?: {
     data: Array<{
@@ -164,6 +175,21 @@ function idFromRef(
 
 export function extractCustomerId(sub: StripeSubscriptionLike): string | null {
   return idFromRef(sub.customer)
+}
+
+/**
+ * Cartão default do Customer expandido. O trial do PaymentSheet nasce sem
+ * `default_payment_method` na subscription — quem grava o cartão é o
+ * setup_intent.succeeded, e ele grava no Customer. Sem ler daqui, adotar um
+ * trial órfão criaria uma linha sem cartão, que por PREMIUM_GRANTING_OR não
+ * concede premium — exatamente o estado que a adoção existe pra consertar.
+ */
+export function extractCustomerDefaultPaymentMethod(
+  sub: StripeSubscriptionLike,
+): string | null {
+  const customer = sub.customer
+  if (!customer || typeof customer === 'string') return null
+  return idFromRef(customer.invoice_settings?.default_payment_method)
 }
 
 /**
