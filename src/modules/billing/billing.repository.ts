@@ -148,6 +148,21 @@ export async function findStaleActiveSubscriptions(
 }
 
 /**
+ * Quais dos ids do Stripe já existem localmente. Uma query pro lote inteiro
+ * da varredura de órfãs, em vez de um findUnique por assinatura listada.
+ */
+export async function findKnownStripeSubscriptionIds(
+  stripeSubscriptionIds: string[],
+): Promise<Set<string>> {
+  if (stripeSubscriptionIds.length === 0) return new Set()
+  const rows = await prisma.subscription.findMany({
+    where: { stripeSubscriptionId: { in: stripeSubscriptionIds } },
+    select: { stripeSubscriptionId: true },
+  })
+  return new Set(rows.map((row) => row.stripeSubscriptionId))
+}
+
+/**
  * Cancela localmente uma subscription que não existe mais no gateway
  * (resource_missing no re-sync). lastSyncedAt avança junto: eventos de
  * webhook mais velhos que o sync são descartados pelo ordering check.

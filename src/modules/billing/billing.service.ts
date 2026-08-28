@@ -3,13 +3,17 @@ import { env } from '../../lib/env'
 import { AppError } from '../../lib/errors/app-error'
 import { STRIPE_API_VERSION, stripe } from '../../lib/stripe'
 import {
+  extractCustomerDefaultPaymentMethod,
+  extractCustomerId,
   mapStripeSubscription,
   type StripeSubscriptionLike,
 } from './billing.mapper'
 import {
   clearUserStripeCustomerIdIfMatches,
   findActiveSubscriptionByUserId,
+  findSubscriptionByStripeIdTx,
   findUserById,
+  findUserIdByStripeCustomerIdTx,
   findUserIsPremium,
   hasAnyPreviousSubscription,
   markSubscriptionCanceledTx,
@@ -513,5 +517,55 @@ export async function syncSubscriptionFromStripe(sub: {
       lastSyncedAt: syncedAt,
     })
     await recalculateUserPremiumTx(tx, sub.userId)
+  })
+}
+
+export type AdoptionOutcome = 'adopted' | 'skipped'
+
+/**
+ * Adota uma subscription que existe no Stripe e nunca chegou ao banco — o
+ * buraco que o syncSubscriptionFromStripe não cobre: ele parte da linha local,
+ * e aqui não há linha nenhuma. Um customer.subscription.created perdido deixa o
+ * usuário com cartão confirmado no gateway e sem premium aqui, para sempre.
+ *
+ * Vínculo pelo stripeCustomerId do banco, NUNCA pelo metadata.userId do
+ * payload — mesma regra anti-spoofing do handler do webhook.
+ *
+ * `skipped` (e não erro) para os casos legítimos de nada a fazer: payload sem
+ * priceId, customer ausente, customer sem usuário local, ou a linha tendo
+ * aparecido entre a varredura e a transação (webhook atrasado que chegou).
+ */
+export async function adoptOrphanSubscription(
+  sub: StripeSubscriptionLike,
+  syncedAt: Date,
+): Promise<AdoptionOutcome> {
+  const fields = mapStripeSubscription(sub)
+  if (!fields) return 'skipped'
+
+  const customerId = extractCustomerId(sub)
+  if (!customerId) return 'skipped'
+
+  const defaultPaymentMethodId =
+    fields.defaultPaymentMethodId ?? extractCustomerDefaultPaymentMethod(sub)
+
+  return runInBillingTransaction(async (tx) => {
+    const userId = await findUserIdByStripeCustomerIdTx(tx, customerId)
+    if (!userId) return 'skipped'
+
+    // Corrida com o webhook: ele pode ter criado a linha depois da varredura.
+    // Reentregar o upsert sobrescreveria com um payload possivelmente mais
+    // velho, então quem chegou primeiro fica.
+    if (await findSubscriptionByStripeIdTx(tx, fields.stripeSubscriptionId)) {
+      return 'skipped'
+    }
+
+    await upsertSubscriptionTx(tx, {
+      userId,
+      ...fields,
+      defaultPaymentMethodId,
+      lastSyncedAt: syncedAt,
+    })
+    await recalculateUserPremiumTx(tx, userId)
+    return 'adopted'
   })
 }

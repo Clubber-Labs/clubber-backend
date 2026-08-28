@@ -323,6 +323,7 @@ app.listen({ port: env.PORT, host: '0.0.0.0' }).then(() => {
     startBillingSyncReconciler(
       env.BILLING_SYNC_INTERVAL_MS,
       env.BILLING_SYNC_GRACE_MS,
+      env.BILLING_ORPHAN_LOOKBACK_MS,
     )
   }
   // Gate composto: sem credencial do Spotify o sync só produziria erro a cada
