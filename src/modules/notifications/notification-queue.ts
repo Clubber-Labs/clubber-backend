@@ -107,6 +107,11 @@ export async function enqueuePromotionStarted(eventId: string): Promise<void> {
         jobId: deterministicJobId('promotion.started', eventId),
         removeOnComplete: true,
         removeOnFail: 200,
+        // Diferente dos fan-outs gratuitos: aqui a entrega foi paga, então uma
+        // falha transiente tem que ser retentada em vez de sumir. O fan-out é
+        // idempotente pela dedupeKey, então re-executar só cobre quem faltou.
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
       },
     )
   } catch (err) {
