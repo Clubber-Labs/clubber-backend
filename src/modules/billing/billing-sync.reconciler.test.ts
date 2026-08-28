@@ -284,12 +284,20 @@ function listedSubscriptionPayload(opts: {
   }
 }
 
-function mockList(...pages: unknown[][]) {
+type MockPage = unknown[] | { data: unknown[]; has_more: boolean }
+
+function mockList(...pages: MockPage[]) {
   const mock = vi.mocked(stripe.subscriptions.list)
   mock.mockReset()
-  // Um list por status varrido (trialing, active) — devolve a página da vez.
-  for (const data of pages) mock.mockResolvedValueOnce({ data } as never)
-  mock.mockResolvedValue({ data: [] } as never)
+  // Uma resolução por chamada, na ordem: páginas de um status, depois o
+  // próximo. `has_more` controla se a varredura pagina ou passa adiante.
+  for (const page of pages) {
+    const { data, has_more } = Array.isArray(page)
+      ? { data: page, has_more: false }
+      : page
+    mock.mockResolvedValueOnce({ data, has_more } as never)
+  }
+  mock.mockResolvedValue({ data: [], has_more: false } as never)
 }
 
 async function userWithCustomer(customerId: string, isPremium = false) {
@@ -442,6 +450,77 @@ describe('reconcileOrphanStripeSubscriptions', () => {
     expect(
       (await testPrisma.user.findUnique({ where: { id: bom.id } }))?.isPremium,
     ).toBe(true)
+  })
+
+  it('pagina até o fim da janela: órfã fora da primeira página é adotada', async () => {
+    const user = await userWithCustomer('cus_pagina2')
+    // A listagem do Stripe vem por `created` desc e inclui conhecidas: sem
+    // paginar, a órfã mais antiga que a primeira página nunca apareceria — e
+    // ao vencer o lookback voltaria a ser o bug que este reconciler resolve.
+    mockList(
+      {
+        data: [
+          listedSubscriptionPayload({
+            id: 'sub_ja_conhecida',
+            customerId: 'cus_pagina2',
+            status: 'trialing',
+          }),
+        ],
+        has_more: true,
+      },
+      {
+        data: [
+          listedSubscriptionPayload({
+            id: 'sub_pagina2',
+            customerId: 'cus_pagina2',
+            status: 'trialing',
+            customerDefaultPaymentMethod: 'pm_pagina2',
+          }),
+        ],
+        has_more: false,
+      },
+    )
+    await makeSubscription(user.id, {
+      stripeSubscriptionId: 'sub_ja_conhecida',
+      status: 'TRIALING',
+      defaultPaymentMethodId: 'pm_antigo',
+    })
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    expect(result.adopted).toBe(1)
+    expect(result.truncated).toBe(false)
+    expect(
+      await testPrisma.subscription.findUnique({
+        where: { stripeSubscriptionId: 'sub_pagina2' },
+      }),
+    ).not.toBeNull()
+  })
+
+  it('sinaliza truncamento quando a janela não cabe no teto de páginas', async () => {
+    const user = await userWithCustomer('cus_muitas')
+    await makeSubscription(user.id, {
+      stripeSubscriptionId: 'sub_cheia',
+      status: 'ACTIVE',
+    })
+    // Sempre com has_more: a varredura bate no teto sem nunca esgotar.
+    const cheia = {
+      data: [
+        listedSubscriptionPayload({
+          id: 'sub_cheia',
+          customerId: 'cus_muitas',
+          status: 'active',
+        }),
+      ],
+      has_more: true,
+    }
+    mockList(...Array.from({ length: 60 }, () => cheia))
+
+    const result = await reconcileOrphanStripeSubscriptions(LOOKBACK_MS)
+
+    // Cobertura incompleta não pode passar como varredura limpa: o operador
+    // precisa saber que sobrou janela sem varrer.
+    expect(result.truncated).toBe(true)
   })
 
   it('erro do Stripe na varredura não derruba o tick', async () => {

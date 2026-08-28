@@ -20,9 +20,15 @@ const SYNC_BATCH_SIZE = 50
 // nunca produziriam uma linha que concede valor.
 const ORPHAN_SCAN_STATUSES = ['trialing', 'active'] as const
 
-// Página única por status: o normal é zero órfã por tick, e um teto baixo
-// mantém o custo da varredura previsível.
-const ORPHAN_SCAN_LIMIT = 100
+const ORPHAN_SCAN_PAGE_SIZE = 100
+
+// Teto de páginas por status. Diferente do SYNC_BATCH_SIZE, um corte aqui NÃO
+// se autocorrige: a listagem vem por `created` desc, então o próximo tick
+// receberia as mesmas páginas do início e as órfãs mais antigas nunca
+// apareceriam — venceriam o lookback caladas. Por isso paginamos até esgotar a
+// janela; o teto é só uma trava contra tick infinito, e bater nele é anomalia
+// que a varredura reporta em vez de esconder.
+const ORPHAN_SCAN_MAX_PAGES = 50
 
 /**
  * Rede de segurança pra webhook perdido. O estado premium é dirigido por
@@ -78,6 +84,10 @@ export async function reconcileStaleSubscriptions(
  * inteira a cada tick não escala; ela cobre com folga o retry do próprio
  * Stripe (~3 dias) e qualquer indisponibilidade plausível do endpoint.
  *
+ * A janela é varrida por inteiro, paginando: cobertura parcial aqui não se
+ * autocorrige no tick seguinte (ver ORPHAN_SCAN_MAX_PAGES). `truncated` no
+ * retorno diz se sobrou janela sem varrer.
+ *
  * Idempotente: adotada, a assinatura passa a ser conhecida e sai da varredura.
  * Falha em uma não derruba o lote — as outras seguem e a que falhou volta no
  * próximo tick.
@@ -91,50 +101,75 @@ export async function reconcileOrphanStripeSubscriptions(
   let adopted = 0
   let failed = 0
 
+  let truncated = false
+
   for (const status of ORPHAN_SCAN_STATUSES) {
-    let listed: StripeSubscriptionLike[]
-    try {
-      const page = await stripe.subscriptions.list({
-        status,
-        created: { gte: createdSince },
-        limit: ORPHAN_SCAN_LIMIT,
-        // O cartão do trial mora no Customer, não na subscription — expandir
-        // aqui evita um retrieve por órfã encontrada.
-        expand: ['data.customer'],
-      })
-      listed = page.data as unknown as StripeSubscriptionLike[]
-    } catch (err) {
-      failed++
-      reconcilerLog.error({ err, status }, 'orphan scan failed')
-      continue
-    }
+    let startingAfter: string | undefined
+    let pages = 0
 
-    scanned += listed.length
-    const known = await findKnownStripeSubscriptionIds(
-      listed.map((sub) => sub.id),
-    )
-
-    for (const sub of listed) {
-      if (known.has(sub.id)) continue
+    while (true) {
+      let listed: StripeSubscriptionLike[]
+      let hasMore: boolean
       try {
-        if ((await adoptOrphanSubscription(sub, now)) === 'adopted') adopted++
+        const page = await stripe.subscriptions.list({
+          status,
+          created: { gte: createdSince },
+          limit: ORPHAN_SCAN_PAGE_SIZE,
+          // O cartão do trial mora no Customer, não na subscription — expandir
+          // aqui evita um retrieve por órfã encontrada.
+          expand: ['data.customer'],
+          ...(startingAfter && { starting_after: startingAfter }),
+        })
+        listed = page.data as unknown as StripeSubscriptionLike[]
+        hasMore = page.has_more
       } catch (err) {
         failed++
-        reconcilerLog.error(
-          { err, stripeSubscriptionId: sub.id },
-          'subscription adoption failed',
-        )
+        truncated = true
+        reconcilerLog.error({ err, status }, 'orphan scan failed')
+        break
       }
+
+      pages++
+      if (listed.length === 0) break
+
+      scanned += listed.length
+      const known = await findKnownStripeSubscriptionIds(
+        listed.map((sub) => sub.id),
+      )
+
+      for (const sub of listed) {
+        if (known.has(sub.id)) continue
+        try {
+          if ((await adoptOrphanSubscription(sub, now)) === 'adopted') adopted++
+        } catch (err) {
+          failed++
+          reconcilerLog.error(
+            { err, stripeSubscriptionId: sub.id },
+            'subscription adoption failed',
+          )
+        }
+      }
+
+      if (!hasMore) break
+      if (pages >= ORPHAN_SCAN_MAX_PAGES) {
+        truncated = true
+        reconcilerLog.warn(
+          { status, pages, scanned },
+          'orphan scan hit page cap: window not fully scanned',
+        )
+        break
+      }
+      startingAfter = listed[listed.length - 1].id
     }
   }
 
   if (adopted > 0 || failed > 0) {
     reconcilerLog.warn(
-      { scanned, adopted, failed },
+      { scanned, adopted, failed, truncated },
       'orphan subscriptions adopted',
     )
   }
-  return { scanned, adopted, failed }
+  return { scanned, adopted, failed, truncated }
 }
 
 let timer: NodeJS.Timeout | null = null
