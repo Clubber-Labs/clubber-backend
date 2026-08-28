@@ -94,15 +94,22 @@ function notificationsFor(userId: string, eventId: string) {
   })
 }
 
+async function ageNotifications(eventId: string, createdAt: Date) {
+  await testPrisma.notification.updateMany({
+    where: { eventId },
+    data: { createdAt },
+  })
+}
+
 describe('runPromotionReachFanout', () => {
-  it('alcança quem já recebeu a notificação de criação do evento', async () => {
+  it('alcança quem recebeu a notificação de criação faz tempo', async () => {
     const author = await makeUser({ isPremium: true })
     const user = await makeNearbyUser()
     const event = await makePromotedEvent(author.id)
 
     await runEventCreatedFanout(event.id)
-    const afterCreation = await notificationsFor(user.id, event.id)
-    expect(afterCreation).toHaveLength(1)
+    expect(await notificationsFor(user.id, event.id)).toHaveLength(1)
+    await ageNotifications(event.id, new Date(Date.now() - 2 * DAY))
 
     const result = await runPromotionReachFanout(event.id)
 
@@ -111,6 +118,23 @@ describe('runPromotionReachFanout', () => {
     expect(all).toHaveLength(2)
     expect(all[1].dedupeKey).toBe(promotionWaveDedupeKey(event.id, 1))
     expect(all[1].params).toMatchObject({ promoted: true })
+  })
+
+  it('não alcança quem acabou de receber a notificação de criação', async () => {
+    const author = await makeUser({ isPremium: true })
+    const matched = await makeNearbyUser()
+    const unmatched = await makeNearbyUser({ preference: OTHER_CATEGORY })
+    const event = await makePromotedEvent(author.id)
+
+    await runEventCreatedFanout(event.id)
+    const result = await runPromotionReachFanout(event.id)
+
+    // Só o público fora da preferência — quem acabou de ser notificado da
+    // criação fica para as ondas de reforço.
+    expect(result.notified).toBe(1)
+    expect(await notificationsFor(matched.id, event.id)).toHaveLength(1)
+    expect(await notificationsFor(unmatched.id, event.id)).toHaveLength(1)
+    expect(fakePush.sent).toHaveLength(2)
   })
 
   it('alcança quem NÃO tem a categoria nas preferências', async () => {

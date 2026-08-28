@@ -198,6 +198,11 @@ const baseSchema = z.object({
   // não tempo; sem este teto um único destaque poderia durar até a data do
   // evento, monopolizando o feed gastando só 1 dos N créditos do mês.
   PROMOTION_MAX_DURATION_DAYS: z.coerce.number().int().positive().default(7),
+  // Espaçamento entre a notificação de criação do evento e o alcance pago:
+  // promover logo após criar mandaria os dois pushes com segundos de
+  // diferença. Quem cai nesta janela tem preferência casada (foi o público do
+  // fan-out de criação) e é alcançado pelas ondas de reforço.
+  PROMOTION_REACH_MIN_GAP_HOURS: z.coerce.number().int().positive().default(24),
   // z.coerce.boolean() usa Boolean() do JS — "false"/"0" virariam true.
   // Aceita explicitamente as strings comuns e transforma manualmente.
   FEATURED_RECONCILE_ENABLED: z
@@ -726,6 +731,7 @@ export const env = {
   FEATURED_RECONCILE_ENABLED: parsed.FEATURED_RECONCILE_ENABLED,
   PROMOTION_MONTHLY_LIMIT: parsed.PROMOTION_MONTHLY_LIMIT,
   PROMOTION_MAX_DURATION_DAYS: parsed.PROMOTION_MAX_DURATION_DAYS,
+  PROMOTION_REACH_MIN_GAP_HOURS: parsed.PROMOTION_REACH_MIN_GAP_HOURS,
   RECURRENCE_RECONCILE_INTERVAL_MS: parsed.RECURRENCE_RECONCILE_INTERVAL_MS,
   RECURRENCE_RECONCILE_ENABLED: parsed.RECURRENCE_RECONCILE_ENABLED,
   STRIPE_SECRET_KEY: parsed.STRIPE_SECRET_KEY,

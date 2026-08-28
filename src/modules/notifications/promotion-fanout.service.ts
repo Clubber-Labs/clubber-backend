@@ -5,6 +5,7 @@ import {
   createManyNotifications,
   findExistingUserIdsByDedupeKey,
   findNotificationsByDedupeKey,
+  findUserIdsNotifiedOfEventSince,
 } from './notification.repository'
 import { deliverNotifications } from './notification-delivery'
 import { findUsersToNotifyForPromotion } from './proximity.repository'
@@ -49,6 +50,9 @@ export async function runPromotionReachFanout(
 
     const dedupeKey = promotionWaveDedupeKey(eventId, 1)
     const batchSize = env.NOTIFY_FANOUT_BATCH_SIZE
+    const gapCutoff = new Date(
+      now.getTime() - env.PROMOTION_REACH_MIN_GAP_HOURS * 3600_000,
+    )
 
     let cursorId: string | undefined
     let notified = 0
@@ -72,7 +76,18 @@ export async function runPromotionReachFanout(
       cursorId = userIds[userIds.length - 1]
 
       const existing = await findExistingUserIdsByDedupeKey(userIds, dedupeKey)
-      const newUserIds = userIds.filter((id) => !existing.has(id))
+      // Promover logo depois de criar mandaria os dois pushes do mesmo evento
+      // com segundos de diferença (e em ordem não garantida, já que os dois
+      // jobs correm em paralelo). Quem soube do evento agora — pelo fan-out de
+      // criação ou por convite — fica para as ondas de reforço.
+      const justNotified = await findUserIdsNotifiedOfEventSince(
+        userIds,
+        eventId,
+        gapCutoff,
+      )
+      const newUserIds = userIds.filter(
+        (id) => !existing.has(id) && !justNotified.has(id),
+      )
 
       if (newUserIds.length > 0) {
         await createManyNotifications(
