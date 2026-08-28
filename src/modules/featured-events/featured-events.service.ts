@@ -1,5 +1,6 @@
 import { env } from '../../lib/env'
 import { AppError } from '../../lib/errors/app-error'
+import { enqueuePromotionStarted } from '../notifications/notification-queue'
 import {
   createFeaturedEventWithQuota,
   findEventForFeatured,
@@ -55,7 +56,7 @@ export async function addFeaturedEvent(
   }
 
   try {
-    return await createFeaturedEventWithQuota(
+    const feature = await createFeaturedEventWithQuota(
       {
         eventId,
         startsAt: body.startsAt,
@@ -64,6 +65,16 @@ export async function addFeaturedEvent(
       },
       env.PROMOTION_MONTHLY_LIMIT,
     )
+    // Janela já aberta: o alcance pago sai agora. Destaque agendado é
+    // enfileirado pelo reconciler no tick em que a janela abrir.
+    const startedAt = Date.now()
+    if (
+      feature.startsAt.getTime() <= startedAt &&
+      feature.endsAt.getTime() >= startedAt
+    ) {
+      await enqueuePromotionStarted(eventId)
+    }
+    return feature
   } catch (err) {
     // Safety-net: dois POSTs concorrentes podem passar pelo check otimista
     // acima e chegar aqui simultaneamente. A constraint de exclusão no DB

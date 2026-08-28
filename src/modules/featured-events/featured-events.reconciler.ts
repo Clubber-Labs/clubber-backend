@@ -1,5 +1,6 @@
 import { logger } from '../../lib/logger'
 import { prisma } from '../../lib/prisma'
+import { enqueuePromotionStarted } from '../notifications/notification-queue'
 
 export async function reconcileFeaturedEvents() {
   const deactivated = await prisma.$executeRaw`
@@ -14,7 +15,9 @@ export async function reconcileFeaturedEvents() {
       )
   `
 
-  const activated = await prisma.$executeRaw`
+  // RETURNING para enfileirar o alcance pago dos destaques AGENDADOS, cuja
+  // janela abre aqui (o de janela imediata já é enfileirado na criação).
+  const activated = await prisma.$queryRaw<{ id: string }[]>`
     UPDATE "events"
     SET "isFeatured" = true
     WHERE "isFeatured" = false
@@ -24,9 +27,14 @@ export async function reconcileFeaturedEvents() {
           AND fe."canceledAt" IS NULL
           AND now() BETWEEN fe."startsAt" AND fe."endsAt"
       )
+    RETURNING "id"
   `
 
-  return { deactivated, activated }
+  for (const event of activated) {
+    await enqueuePromotionStarted(event.id)
+  }
+
+  return { deactivated, activated: activated.length }
 }
 
 let timer: NodeJS.Timeout | null = null

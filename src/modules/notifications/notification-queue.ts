@@ -8,6 +8,7 @@ import {
   runChatMessagePush,
 } from './chat-push.service'
 import { type PushContent, sendPushToUsers } from './notification-push.service'
+import { runPromotionReachFanout } from './promotion-fanout.service'
 import { runEventCreatedFanout } from './proximity-fanout.service'
 import {
   runSpotJoinedFanout,
@@ -27,6 +28,7 @@ export function deterministicJobId(...parts: string[]): string {
 
 type NotificationJob =
   | { kind: 'event.created'; eventId: string }
+  | { kind: 'promotion.started'; eventId: string }
   | { kind: 'spot.published'; spotId: string }
   | { kind: 'spot.joined'; spotId: string; joinerId: string }
   | { kind: 'notification.push'; userId: string; content: PushContent }
@@ -87,6 +89,28 @@ export async function enqueueEventCreated(eventId: string): Promise<void> {
     )
   } catch (err) {
     recordQueueFailure('enqueue', 'event.created', err, { eventId })
+  }
+}
+
+/**
+ * Enfileira o alcance da promoção assim que a janela do destaque abre — o push
+ * pago não pode esperar o próximo tick de um reconciler. Best-effort.
+ */
+export async function enqueuePromotionStarted(eventId: string): Promise<void> {
+  const q = getQueue()
+  if (!q) return
+  try {
+    await q.add(
+      'promotion.started',
+      { kind: 'promotion.started', eventId },
+      {
+        jobId: deterministicJobId('promotion.started', eventId),
+        removeOnComplete: true,
+        removeOnFail: 200,
+      },
+    )
+  } catch (err) {
+    recordQueueFailure('enqueue', 'promotion.started', err, { eventId })
   }
 }
 
@@ -190,6 +214,8 @@ export function startNotificationsWorker(): void {
     async (job: Job<NotificationJob>) => {
       if (job.data.kind === 'event.created') {
         await runEventCreatedFanout(job.data.eventId)
+      } else if (job.data.kind === 'promotion.started') {
+        await runPromotionReachFanout(job.data.eventId)
       } else if (job.data.kind === 'spot.published') {
         await runSpotPublishedFanout(job.data.spotId)
       } else if (job.data.kind === 'spot.joined') {

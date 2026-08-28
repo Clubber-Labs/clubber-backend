@@ -12,14 +12,20 @@ import { prisma } from '../../lib/prisma'
 // positivos na borda (decisão de produto).
 const CELL_HALF_DIAGONAL_M = 700
 
-export type ProximityTarget = {
+/** O mínimo que a vizinhança precisa do alvo: o ponto e o autor (excluído). */
+export type ProximityScanTarget = {
   longitude: number
   latitude: number
+  authorId: string
+}
+
+export type ProximityTarget = ProximityScanTarget & {
   categories: EventCategory[]
   /** Tags finas do evento/spot (subcategorias de venue + gêneros). Pode ser []. */
   subcategories: string[]
-  authorId: string
 }
+
+export type PromotionTarget = ProximityScanTarget & { eventId: string }
 
 /**
  * Predicado de preferência de 2 níveis: o usuário prefere AO MENOS UMA das
@@ -74,6 +80,38 @@ export async function findUsersToNotifyNearEvent(
   target: ProximityTarget,
   scan: ProximityScan,
 ): Promise<string[]> {
+  return scanUsersNearEvent(
+    target,
+    scan,
+    Prisma.sql`AND ${preferenceMatch(target)}`,
+  )
+}
+
+/**
+ * Alcance pago de um evento promovido: mesma vizinhança da query acima, SEM o
+ * predicado de preferência — sair da bolha de categoria é justamente o que a
+ * promoção compra. Exclui quem já registrou presença (anunciar para quem já
+ * vai é queimar impressão) — o autor e os bloqueios saem no corpo comum.
+ */
+export async function findUsersToNotifyForPromotion(
+  target: PromotionTarget,
+  scan: ProximityScan,
+): Promise<string[]> {
+  return scanUsersNearEvent(
+    target,
+    scan,
+    Prisma.sql`AND NOT EXISTS (
+        SELECT 1 FROM event_attendances a
+        WHERE a."userId" = u.id AND a."eventId" = ${target.eventId}
+      )`,
+  )
+}
+
+async function scanUsersNearEvent(
+  target: ProximityScanTarget,
+  scan: ProximityScan,
+  audience: Prisma.Sql,
+): Promise<string[]> {
   const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${target.longitude}, ${target.latitude}), 4326)::geography`
   const cursor = scan.cursorId
     ? Prisma.sql`AND u.id > ${scan.cursorId}`
@@ -91,7 +129,7 @@ export async function findUsersToNotifyNearEvent(
       AND u.id <> ${target.authorId}
       AND c."revokedAt" IS NULL
       AND c."locationPrecise" = true
-      AND ${preferenceMatch(target)}
+      ${audience}
       AND NOT EXISTS (
         SELECT 1 FROM blocks b
         WHERE (b."blockerId" = u.id AND b."blockedId" = ${target.authorId})
