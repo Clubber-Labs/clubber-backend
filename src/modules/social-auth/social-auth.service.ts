@@ -2,6 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { Prisma, type SocialProvider } from '@prisma/client'
 import { AppError } from '../../lib/errors/app-error'
 import { unblock } from '../../lib/moderation-denylist'
+import { countProfileEvents } from '../events/events.repository'
 import {
   clearExpiredSuspension,
   findOwnUserById,
@@ -87,14 +88,16 @@ async function loadUserAndDecorate(userId: string) {
     const res = await clearExpiredSuspension(user.id, new Date())
     if (res.count > 0) await unblock(user.id)
   }
-  // Espelha o shape de getMe: achata _count em eventsCount e expõe hasPassword
+  // Espelha o shape de getMe: eventsCount (o mesmo contador da vitrine, que
+  // soma o que a pessoa criou e aquilo em que confirmou presença) e hasPassword
   // (derivado, sem vazar o hash) pra o cliente decidir o fluxo de exclusão.
-  const { _count, password, ...rest } = user
+  const { password, ...rest } = user
   const profileIncomplete = !user.phone || !user.birthdate
   return {
     user: {
       ...rest,
-      eventsCount: _count.events,
+      // Acabou de autenticar: é o próprio dono.
+      eventsCount: await countProfileEvents(user.id, true),
       hasPassword: password !== null,
     },
     profileIncomplete,

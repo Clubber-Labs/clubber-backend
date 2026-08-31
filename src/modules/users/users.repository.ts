@@ -119,7 +119,6 @@ export async function findUserById(id: string) {
     where: { id, ...activeUserWhere() },
     select: {
       ...userPublicProfileSelect,
-      _count: { select: { events: true } },
     },
   })
 }
@@ -133,7 +132,6 @@ export async function findOwnUserById(id: string) {
       // serializado (é removido antes de montar a resposta). Mantido fora do
       // userPrivateProfileSelect compartilhado para não vazar em create/update.
       password: true,
-      _count: { select: { events: true } },
     },
   })
 }

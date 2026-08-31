@@ -370,55 +370,57 @@ const CLOSED_ORDER: Prisma.EventOrderByWithRelationInput[] = [
   { id: 'desc' },
 ]
 
-type ProfileEventsScope = {
+type ProfileEventsParams = {
   /** Dono do perfil — de quem é a vitrine. */
   ownerId: string
   viewerId?: string
-  /**
-   * Inclui os eventos em que o dono CONFIRMOU presença (de qualquer autor).
-   * Fica a cargo do chamador, que sabe se a atividade social dele é visível ao
-   * viewer — ver listUserEvents.
-   */
-  includeAttended: boolean
-}
-
-type ProfileEventsParams = ProfileEventsScope & {
   limit: number
   cursor?: string
   now?: Date
 }
 
 /**
- * O que a vitrine mostra. Listagem e contagem saem DAQUI — o número no
- * cabeçalho depende de quem está olhando (autor privado, bloqueio, evento
- * privado), então derivar os dois do mesmo predicado é o que impede que ele
- * conte uma coisa e a grade mostre outra.
+ * O que a pessoa tem na vitrine: o que CRIOU mais aquilo em que CONFIRMOU
+ * presença. Um evento que ela criou e também confirmou casa os dois lados e
+ * continua sendo uma linha só — sem duplicata.
+ *
+ * A presença só conta para terceiros se ela mantém as atividades visíveis. A
+ * regra vive no predicado, e não num booleano vindo do chamador, porque
+ * listagem e contador precisam nascer da MESMA definição de vitrine — e o
+ * contador do perfil é montado noutro módulo, sem o registro do dono em mãos.
  */
-function profileEventsWhere({
-  ownerId,
-  viewerId,
-  includeAttended,
-}: ProfileEventsScope): Prisma.EventWhereInput {
+function profileScopeWhere(
+  ownerId: string,
+  isSelf: boolean,
+): Prisma.EventWhereInput {
+  return {
+    OR: [
+      { authorId: ownerId },
+      {
+        attendances: {
+          some: {
+            userId: ownerId,
+            type: 'CONFIRMED',
+            ...(isSelf ? {} : { user: { socialVisibility: true } }),
+          },
+        },
+      },
+    ],
+  }
+}
+
+/**
+ * A vitrine como ela é LISTADA: o escopo mais as réguas de visibilidade do
+ * evento — que, com as presenças, passam a proteger QUEM CRIOU, e não mais o
+ * dono do perfil (esse portão é do listUserEvents).
+ */
+function profileEventsWhere(
+  ownerId: string,
+  viewerId?: string,
+): Prisma.EventWhereInput {
   return {
     AND: [
-      {
-        // Criou OU vai. Um evento que ele criou e também confirmou casa os dois
-        // lados e continua sendo uma linha só — sem duplicata.
-        OR: [
-          { authorId: ownerId },
-          ...(includeAttended
-            ? [
-                {
-                  attendances: {
-                    some: { userId: ownerId, type: 'CONFIRMED' as const },
-                  },
-                },
-              ]
-            : []),
-        ],
-      },
-      // A partir daqui o autor pode ser outra pessoa (evento de terceiro em que
-      // o dono do perfil vai): as duas réguas passam a proteger QUEM CRIOU.
+      profileScopeWhere(ownerId, viewerId === ownerId),
       { author: visibleAuthorWhere() },
       authorVisibleWhere(viewerId),
       ...(viewerId !== ownerId ? [{ isPublic: true }] : []),
@@ -427,13 +429,17 @@ function profileEventsWhere({
 }
 
 /**
- * Total da vitrine. As duas fases da listagem cobrem todo evento que casa o
- * predicado (ativa = não passado e não cancelado; encerrada = o resto), então
- * contar o predicado inteiro dá exatamente o que a grade vai mostrar até o fim
- * da paginação.
+ * Contador da vitrine, para o perfil. AGREGADO: só o escopo, sem as réguas de
+ * visibilidade da listagem. Contador de perfil é metadado, como seguidores —
+ * conta privada mostra os números mesmo para quem não segue (regra estilo
+ * Instagram, registrada no getUserById). Filtrar por viewer aqui zeraria o
+ * contador de todo perfil privado.
  */
-export function countProfileEvents(scope: ProfileEventsScope): Promise<number> {
-  return prisma.event.count({ where: profileEventsWhere(scope) })
+export function countProfileEvents(
+  ownerId: string,
+  isSelf: boolean,
+): Promise<number> {
+  return prisma.event.count({ where: profileScopeWhere(ownerId, isSelf) })
 }
 
 export async function findProfileEvents({
@@ -441,10 +447,9 @@ export async function findProfileEvents({
   limit,
   viewerId,
   cursor,
-  includeAttended,
   now = new Date(),
 }: ProfileEventsParams): Promise<SharedEvent[]> {
-  const visible = profileEventsWhere({ ownerId, viewerId, includeAttended })
+  const visible = profileEventsWhere(ownerId, viewerId)
   const activeWhere = buildLifecycleWhere({ includePast: false, now })
   const closedWhere: Prisma.EventWhereInput = {
     OR: [statusConditionFor('PAST', now), statusConditionFor('CANCELED', now)],

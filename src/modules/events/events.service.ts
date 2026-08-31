@@ -306,28 +306,15 @@ export async function listUserEvents(
   // filtro por autor já fazia isso sozinho; com as presenças, o autor do evento
   // é outra pessoa e a privacidade dele precisa ser checada aqui.
   const owner = await findVisibleProfileOwner(ownerId, viewerId)
-  if (!owner) return { data: [], nextCursor: null, total: 0 }
+  if (!owner) return { data: [], nextCursor: null }
 
-  const scope = {
-    ownerId,
-    viewerId,
-    // Confirmação de presença é atividade social: quem desligou "visibilidade
-    // das suas atividades" some da vitrine dos outros, mas continua vendo a
-    // própria.
-    includeAttended: viewerId === ownerId || owner.socialVisibility,
-  }
-  // `total` é o número do cabeçalho da vitrine, e não o de eventos criados
-  // (esse é o `eventsCount` do perfil, que continua sendo de autoria). Só na 1ª
-  // página: não muda entre páginas, e é a parte cara da listagem.
-  const [events, total] = await Promise.all([
-    findProfileEvents({ ...scope, limit, cursor }),
-    cursor ? Promise.resolve(undefined) : countProfileEvents(scope),
-  ])
+  // A regra de quais presenças entram mora no predicado da vitrine — aqui só
+  // se diz de quem é o perfil e quem está olhando.
+  const events = await findProfileEvents({ ownerId, viewerId, limit, cursor })
   const nextCursor =
     events.length === limit ? (events[events.length - 1].id as string) : null
   const shared: SharedListResult = { data: events, nextCursor }
-  const page = await mergeViewerState(shared, viewerId)
-  return total === undefined ? page : { ...page, total }
+  return mergeViewerState(shared, viewerId)
 }
 
 export async function getEventById(id: string, requesterId?: string) {

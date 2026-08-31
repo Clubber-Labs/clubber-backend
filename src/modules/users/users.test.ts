@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import {
+  makeAttendance,
   makeEvent,
   makeFollow,
   makeUser,
@@ -220,6 +221,50 @@ describe('GET /users/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().eventsCount).toBe(3)
+  })
+
+  // O contador espelha a VITRINE (o que a grade do perfil lista), não a autoria:
+  // criou + confirmou presença, sem duplicar o que é as duas coisas.
+  it('eventsCount soma presenças confirmadas, sem duplicar o próprio evento', async () => {
+    const user = await makeUser()
+    const host = await makeUser()
+    const own = await makeEvent(user.id)
+    await makeAttendance(user.id, own.id, 'CONFIRMED')
+    const attended = await makeEvent(host.id)
+    await makeAttendance(user.id, attended.id, 'CONFIRMED')
+    const onlyInterested = await makeEvent(host.id)
+    await makeAttendance(user.id, onlyInterested.id, 'INTERESTED')
+
+    const res = await app.inject({ method: 'GET', url: `/users/${user.id}` })
+
+    expect(res.json().eventsCount).toBe(2)
+  })
+
+  // Mesma régua do feed: quem desligou a visibilidade das atividades some das
+  // presenças pra terceiros, e continua contando as próprias.
+  it('eventsCount respeita socialVisibility, mas não para o dono', async () => {
+    const user = await makeUser()
+    const host = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { socialVisibility: false },
+    })
+    await makeEvent(user.id)
+    const attended = await makeEvent(host.id)
+    await makeAttendance(user.id, attended.id, 'CONFIRMED')
+
+    const visitor = await app.inject({
+      method: 'GET',
+      url: `/users/${user.id}`,
+    })
+    const self = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(visitor.json().eventsCount).toBe(1)
+    expect(self.json().eventsCount).toBe(2)
   })
 
   it('não expõe dados privados nem role no perfil público', async () => {
