@@ -14,6 +14,7 @@ import {
 import {
   countActiveMembersByConversation,
   countFriendMembersByConversation,
+  findMemberPreviewsByConversation,
   findSpotIdsNearPoint,
   findSpotsByIds,
 } from '../spots/spots.repository'
@@ -323,6 +324,12 @@ async function findSpotCandidateIds(
  * não tem), amigos no grupo como friendEngagement, e a razão social vem da
  * relação com o criador (você / amigo / descoberta).
  */
+// Teto da prévia de membros por rolê. O pulso social do card (SpotPulseRow no
+// mobile) enche a linha com quantos avatares couberem: no aparelho mais largo
+// cabem 15 círculos de 36px com sobreposição de 12 — 14 avatares + o "+N".
+// Acima disso é hidratação que nunca aparece.
+export const SPOT_MEMBER_PREVIEW = 14
+
 async function hydrateSpots(
   spotIds: string[],
   userId: string,
@@ -337,9 +344,10 @@ async function hydrateSpots(
   if (spotIds.length === 0) return []
   const spots = await findSpotsByIds(spotIds)
   const conversationIds = spots.map((s) => s.conversationId)
-  const [memberCounts, friendMemberCounts] = await Promise.all([
+  const [memberCounts, friendMemberCounts, memberPreviews] = await Promise.all([
     countActiveMembersByConversation(conversationIds),
     countFriendMembersByConversation(conversationIds, followingIds),
+    findMemberPreviewsByConversation(conversationIds, SPOT_MEMBER_PREVIEW),
   ])
 
   return spots.map((spot) => {
@@ -371,7 +379,13 @@ async function hydrateSpots(
       ctx.scoringNow,
     )
     return {
-      item: { ...shapeSpot(spot, memberCount), reason, type: 'SPOT' as const },
+      item: {
+        ...shapeSpot(spot, memberCount),
+        // Prévia do pulso social do card; o "+N" do mobile sai do memberCount.
+        members: memberPreviews.get(spot.conversationId) ?? [spot.creator],
+        reason,
+        type: 'SPOT' as const,
+      },
       id: spot.id,
       score,
     }
