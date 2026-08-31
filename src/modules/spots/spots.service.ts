@@ -45,6 +45,7 @@ import {
   findSpotForMutation,
   findSpotForRenew,
   findSpotIdsInBbox,
+  findSpotIdsNearPoint,
   findSpotsByIds,
   renewSpotById,
   type SpotDetail,
@@ -133,27 +134,87 @@ export async function getSpot(viewerId: string | null, id: string) {
   return shapeSpot(spot, counts.get(spot.conversationId) ?? 0)
 }
 
-export async function listSpotsOnMap(
+/**
+ * Raio efetivo (km) de uma operação de spots: o do request (validado contra o
+ * teto, como no setSpotRadius) > o salvo do usuário > o padrão — os dois
+ * últimos clampados ao teto, caso o env tenha baixado.
+ */
+async function resolveRadiusKm(
+  userId: string | null,
+  requested?: number,
+): Promise<number> {
+  const maxKm = env.SPOT_MAX_RADIUS_KM
+  if (requested !== undefined) {
+    if (requested > maxKm) {
+      throw new AppError(400, 'SPOT_RADIUS_TOO_LARGE', undefined, { maxKm })
+    }
+    return requested
+  }
+  const saved = userId ? await findSpotRadius(userId) : null
+  return Math.min(saved ?? DEFAULT_SPOT_RADIUS_KM, maxKm)
+}
+
+export async function listSpots(
   viewerId: string | null,
   query: ListSpotsQuery,
 ) {
   if (query.friendsOnly && !viewerId) {
     throw new AppError(400, 'FRIENDS_FILTER_REQUIRES_AUTH')
   }
-  const ids = await findSpotIdsInBbox(
-    viewerId,
-    {
-      bboxNorth: query.bboxNorth,
-      bboxSouth: query.bboxSouth,
-      bboxEast: query.bboxEast,
-      bboxWest: query.bboxWest,
-      category: query.category,
-      status: query.status,
-      friendsOnly: query.friendsOnly,
-      limit: query.limit,
-    },
-    new Date(),
-  )
+  const now = new Date()
+  const common = {
+    category: query.category,
+    status: query.status,
+    friendsOnly: query.friendsOnly,
+    limit: query.limit,
+  }
+
+  let ids: string[]
+  if (query.nearLat !== undefined && query.nearLng !== undefined) {
+    const radiusKm = await resolveRadiusKm(viewerId, query.radiusKm)
+    const [preferredCategories, preferredSubcategories]: [
+      EventCategory[],
+      string[],
+    ] = viewerId
+      ? await Promise.all([
+          findUserPreferredCategories(viewerId),
+          findUserPreferredSubcategories(viewerId),
+        ])
+      : [[], []]
+    ids = await findSpotIdsNearPoint(
+      viewerId,
+      {
+        ...common,
+        nearLat: query.nearLat,
+        nearLng: query.nearLng,
+        radiusKm,
+        preferredCategories,
+        preferredSubcategories,
+      },
+      now,
+    )
+  } else if (
+    query.bboxNorth !== undefined &&
+    query.bboxSouth !== undefined &&
+    query.bboxEast !== undefined &&
+    query.bboxWest !== undefined
+  ) {
+    ids = await findSpotIdsInBbox(
+      viewerId,
+      {
+        ...common,
+        bboxNorth: query.bboxNorth,
+        bboxSouth: query.bboxSouth,
+        bboxEast: query.bboxEast,
+        bboxWest: query.bboxWest,
+      },
+      now,
+    )
+  } else {
+    // Inatingível via HTTP: o listSpotsQuerySchema exige bbox completa OU ponto.
+    ids = []
+  }
+
   const spots = await findSpotsByIds(ids)
   const counts = await countActiveMembersByConversation(
     spots.map((s) => s.conversationId),
@@ -299,19 +360,7 @@ export async function generateSuggestions(
 ) {
   const intent = body.query
 
-  // Raio: override do request (validado contra o teto, como no setNotifyRadius)
-  // ou o valor salvo do usuário (clampado ao teto, caso o env tenha baixado).
-  const maxKm = env.SPOT_MAX_RADIUS_KM
-  let radiusKm: number
-  if (body.radiusKm !== undefined) {
-    if (body.radiusKm > maxKm) {
-      throw new AppError(400, 'SPOT_RADIUS_TOO_LARGE', undefined, { maxKm })
-    }
-    radiusKm = body.radiusKm
-  } else {
-    const saved = (await findSpotRadius(userId)) ?? DEFAULT_SPOT_RADIUS_KM
-    radiusKm = Math.min(saved, maxKm)
-  }
+  const radiusKm = await resolveRadiusKm(userId, body.radiusKm)
   const radiusMeters = radiusKm * 1000
 
   // Sem intenção em texto, a busca depende das preferências de perfil. Com

@@ -8,6 +8,8 @@ import {
   makeSpot,
   makeSpotGenerationUsage,
   makeUser,
+  makeUserCategoryPreference,
+  makeUserSubcategoryPreference,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
 import { runSpotRenewalReminders } from '../notifications/spot-lifecycle.reconciler'
@@ -884,6 +886,132 @@ describe('GET /spots (mapa)', () => {
       headers: auth(blocked.id),
     })
     expect(res.json().map((s: { id: string }) => s.id)).not.toContain(spot.id)
+  })
+})
+
+describe('GET /spots (modo ponto+raio — seção do feed)', () => {
+  const NEAR = '/spots?nearLat=-25.4&nearLng=-49.3'
+
+  it('ordena do mais perto pro mais longe e corta pelo raio', async () => {
+    const creator = await makeUser()
+    const pertinho = await makeSpot(creator.id) // -25.4, -49.3 → 0 km
+    const perto = await makeSpot(creator.id, { latitude: -25.42 }) // ~2 km
+    const longe = await makeSpot(creator.id, { latitude: -25.6 }) // ~22 km
+    const saoPaulo = await makeSpot(creator.id, {
+      latitude: -23.55,
+      longitude: -46.63, // ~340 km
+    })
+
+    const res = await app.inject({ method: 'GET', url: `${NEAR}&radiusKm=30` })
+    expect(res.statusCode).toBe(200)
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toEqual([pertinho.id, perto.id, longe.id])
+    expect(ids).not.toContain(saoPaulo.id)
+  })
+
+  it('sem radiusKm usa o raio salvo do usuário (anônimo cai no padrão)', async () => {
+    const creator = await makeUser()
+    const viewer = await makeUser({ spotRadiusKm: 30 })
+    const pertinho = await makeSpot(creator.id)
+    const longe = await makeSpot(creator.id, { latitude: -25.6 }) // ~22 km
+
+    // Anônimo: padrão de 10 km corta o de ~22 km.
+    const anon = await app.inject({ method: 'GET', url: NEAR })
+    expect(anon.json().map((s: { id: string }) => s.id)).toEqual([pertinho.id])
+
+    const asViewer = await app.inject({
+      method: 'GET',
+      url: NEAR,
+      headers: auth(viewer.id),
+    })
+    expect(asViewer.json().map((s: { id: string }) => s.id)).toEqual([
+      pertinho.id,
+      longe.id,
+    ])
+  })
+
+  it('prioriza rolês que casam com as preferências do perfil, desempatando por distância', async () => {
+    const creator = await makeUser()
+    const viewer = await makeUser()
+    await makeUserCategoryPreference(viewer.id, 'SPORTS')
+    await makeUserSubcategoryPreference(viewer.id, 'MUSIC_KARAOKE')
+    const semMatch = await makeSpot(creator.id, { categories: ['PARTY'] })
+    const porInteresse = await makeSpot(creator.id, {
+      categories: ['MUSIC'],
+      subcategories: ['MUSIC_KARAOKE'],
+      latitude: -25.42, // ~2 km
+    })
+    const porCategoria = await makeSpot(creator.id, {
+      categories: ['SPORTS'],
+      latitude: -25.6, // ~22 km
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `${NEAR}&radiusKm=30`,
+      headers: auth(viewer.id),
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toEqual([porInteresse.id, porCategoria.id, semMatch.id])
+  })
+
+  it('aplica visibilidade e bloqueio como no mapa', async () => {
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const stranger = await makeUser()
+    const blocker = await makeUser()
+    await makeFriends(viewer.id, friend.id)
+    await makeBlock(blocker.id, viewer.id)
+    const deAmigo = await makeSpot(friend.id, { visibility: 'FRIENDS' })
+    const deEstranho = await makeSpot(stranger.id, { visibility: 'FRIENDS' })
+    const deQuemBloqueou = await makeSpot(blocker.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: NEAR,
+      headers: auth(viewer.id),
+    })
+    const ids = res.json().map((s: { id: string }) => s.id)
+    expect(ids).toContain(deAmigo.id)
+    expect(ids).not.toContain(deEstranho.id)
+    expect(ids).not.toContain(deQuemBloqueou.id)
+  })
+
+  it('radiusKm acima do teto retorna 400', async () => {
+    const res = await app.inject({ method: 'GET', url: `${NEAR}&radiusKm=51` })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('SPOT_RADIUS_TOO_LARGE')
+  })
+
+  it('nearLat sem nearLng retorna 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/spots?nearLat=-25.4' })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('radiusKm sem o ponto retorna 400', async () => {
+    const res = await app.inject({ method: 'GET', url: `${BBOX}&radiusKm=10` })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('sem bbox e sem ponto retorna 400', async () => {
+    const res = await app.inject({ method: 'GET', url: '/spots' })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('bbox e ponto juntos retorna 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `${BBOX}&nearLat=-25.4&nearLng=-49.3`,
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('bbox incompleta retorna 400', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots?bboxNorth=-25.3&bboxSouth=-25.5',
+    })
+    expect(res.statusCode).toBe(400)
   })
 })
 

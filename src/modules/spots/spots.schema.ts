@@ -49,24 +49,66 @@ export const spotParamSchema = z.object({
 
 // Mapa: spots dentro da bbox visível. Visibilidade (público/amigos) e janela
 // ativa são resolvidas no service/repository, não como parâmetro do cliente.
+// Dois modos espaciais, mutuamente exclusivos: bbox (viewport do mapa) ou
+// ponto+raio (seção "rolês perto de você" do feed). No modo ponto, radiusKm
+// omitido cai no raio salvo do usuário (spotRadiusKm) — resolvido no service.
 export const listSpotsQuerySchema = z
   .object({
-    bboxNorth: z.coerce.number().min(-90).max(90),
-    bboxSouth: z.coerce.number().min(-90).max(90),
-    bboxEast: z.coerce.number().min(-180).max(180),
-    bboxWest: z.coerce.number().min(-180).max(180),
+    bboxNorth: z.coerce.number().min(-90).max(90).optional(),
+    bboxSouth: z.coerce.number().min(-90).max(90).optional(),
+    bboxEast: z.coerce.number().min(-180).max(180).optional(),
+    bboxWest: z.coerce.number().min(-180).max(180).optional(),
+    nearLat: z.coerce.number().min(-90).max(90).optional(),
+    nearLng: z.coerce.number().min(-180).max(180).optional(),
+    radiusKm: z.coerce.number().int().min(2).optional(),
     category: categoryFilter,
     status: statusFilter,
     friendsOnly: booleanQuery.default(false),
     limit: z.coerce.number().int().min(1).max(300).default(200),
   })
-  .refine((q) => q.bboxNorth > q.bboxSouth, {
-    message: 'bboxNorth deve ser maior que bboxSouth',
+  .refine((q) => (q.nearLat === undefined) === (q.nearLng === undefined), {
+    message: 'nearLat e nearLng devem ser fornecidos juntos',
+    path: ['nearLat'],
+  })
+  .refine(
+    (q) => {
+      const given = [q.bboxNorth, q.bboxSouth, q.bboxEast, q.bboxWest].filter(
+        (v) => v !== undefined,
+      ).length
+      return given === 0 || given === 4
+    },
+    {
+      message: 'bbox exige bboxNorth, bboxSouth, bboxEast e bboxWest juntos',
+      path: ['bboxNorth'],
+    },
+  )
+  .refine((q) => (q.bboxNorth !== undefined) !== (q.nearLat !== undefined), {
+    message: 'informe bbox (mapa) OU nearLat/nearLng (proximidade)',
     path: ['bboxNorth'],
   })
-  .refine((q) => q.bboxEast > q.bboxWest, {
-    message: 'bboxEast deve ser maior que bboxWest',
-    path: ['bboxEast'],
+  .refine(
+    (q) =>
+      q.bboxNorth === undefined ||
+      q.bboxSouth === undefined ||
+      q.bboxNorth > q.bboxSouth,
+    {
+      message: 'bboxNorth deve ser maior que bboxSouth',
+      path: ['bboxNorth'],
+    },
+  )
+  .refine(
+    (q) =>
+      q.bboxEast === undefined ||
+      q.bboxWest === undefined ||
+      q.bboxEast > q.bboxWest,
+    {
+      message: 'bboxEast deve ser maior que bboxWest',
+      path: ['bboxEast'],
+    },
+  )
+  .refine((q) => q.radiusKm === undefined || q.nearLat !== undefined, {
+    message: 'radiusKm exige nearLat e nearLng',
+    path: ['radiusKm'],
   })
 
 // Geração de sugestões: ponto em torno do qual buscar (centro do mapa / posição).

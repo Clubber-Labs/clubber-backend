@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { AppError } from '../../lib/errors/app-error'
+import type { EventCategory } from '../../lib/event-categories'
 import { type EventStatus, SOON_THRESHOLD_MS } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import type { CreateSpotBody } from './spots.schema'
@@ -189,15 +190,26 @@ export async function countActiveMembersByConversation(
   return new Map(rows.map((r) => [r.conversationId, r._count._all]))
 }
 
-export type SpotMapFilters = {
-  bboxNorth: number
-  bboxSouth: number
-  bboxEast: number
-  bboxWest: number
+type SpotListFilters = {
   category?: string[]
   status?: EventStatus[]
   friendsOnly: boolean
   limit: number
+}
+
+export type SpotMapFilters = SpotListFilters & {
+  bboxNorth: number
+  bboxSouth: number
+  bboxEast: number
+  bboxWest: number
+}
+
+export type SpotNearFilters = SpotListFilters & {
+  nearLat: number
+  nearLng: number
+  radiusKm: number
+  preferredCategories: EventCategory[]
+  preferredSubcategories: string[]
 }
 
 /**
@@ -235,23 +247,24 @@ function statusPredicate(
 }
 
 /**
- * IDs dos spots visíveis dentro da bbox. Filtra no SQL (camada certa): janela
- * ativa, bbox (índice GiST sobre location), interseção de categorias, status,
- * bloqueio mútuo e visibilidade (público; ou criador; ou FRIENDS via follow mútuo).
- * Viewer anônimo (null) só enxerga PUBLIC e nunca com friendsOnly.
+ * Core das listagens espaciais. Filtra no SQL (camada certa): janela ativa,
+ * predicado espacial do modo (índice GiST sobre location), interseção de
+ * categorias, status, bloqueio mútuo e visibilidade (público; ou criador; ou
+ * FRIENDS via follow mútuo). Viewer anônimo (null) só enxerga PUBLIC e nunca
+ * com friendsOnly.
  *
  * "Ativo" = não cancelado E ainda não encerrado (`endsAt > now`) — inclui os
  * que ainda não começaram (upcoming): o objetivo é entrar no chat e COMBINAR
  * antes do rolê. startsAt é só o horário exibido, não um gate de visibilidade.
  */
-export async function findSpotIdsInBbox(
+async function findVisibleSpotIds(
   viewerId: string | null,
-  filters: SpotMapFilters,
+  filters: SpotListFilters,
   now: Date,
+  spatial: Prisma.Sql,
+  orderBy: Prisma.Sql,
 ): Promise<string[]> {
   if (filters.friendsOnly && !viewerId) return []
-
-  const envelope = Prisma.sql`ST_MakeEnvelope(${filters.bboxWest}, ${filters.bboxSouth}, ${filters.bboxEast}, ${filters.bboxNorth}, 4326)::geography`
 
   const categoryFilter =
     filters.category && filters.category.length > 0
@@ -298,15 +311,57 @@ export async function findSpotIdsInBbox(
     FROM spots s
     WHERE s."canceledAt" IS NULL
       AND s."endsAt" > ${now}
-      AND s.location && ${envelope}
+      AND ${spatial}
       ${categoryFilter}
       ${status}
       AND ${visibility}
       ${blockExclusion}
-    ORDER BY s."createdAt" DESC
+    ORDER BY ${orderBy}
     LIMIT ${filters.limit}
   `)
   return rows.map((r) => r.id)
+}
+
+/** IDs dos spots visíveis dentro da bbox (viewport do mapa). */
+export async function findSpotIdsInBbox(
+  viewerId: string | null,
+  filters: SpotMapFilters,
+  now: Date,
+): Promise<string[]> {
+  const envelope = Prisma.sql`ST_MakeEnvelope(${filters.bboxWest}, ${filters.bboxSouth}, ${filters.bboxEast}, ${filters.bboxNorth}, 4326)::geography`
+  return findVisibleSpotIds(
+    viewerId,
+    filters,
+    now,
+    Prisma.sql`s.location && ${envelope}`,
+    Prisma.sql`s."createdAt" DESC`,
+  )
+}
+
+/**
+ * Modo ponto+raio (seção "rolês perto de você" do feed): mesmos predicados do
+ * mapa, cortado por ST_DWithin e ordenado com os rolês que casam com as
+ * preferências do perfil primeiro, depois do mais perto pro mais longe.
+ */
+export async function findSpotIdsNearPoint(
+  viewerId: string | null,
+  filters: SpotNearFilters,
+  now: Date,
+): Promise<string[]> {
+  const point = Prisma.sql`ST_SetSRID(ST_MakePoint(${filters.nearLng}, ${filters.nearLat}), 4326)::geography`
+  const hasPrefs =
+    filters.preferredCategories.length > 0 ||
+    filters.preferredSubcategories.length > 0
+  const prefBoost = hasPrefs
+    ? Prisma.sql`(s.categories && ${filters.preferredCategories}::"EventCategory"[] OR s.subcategories && ${filters.preferredSubcategories}::text[]) DESC,`
+    : Prisma.empty
+  return findVisibleSpotIds(
+    viewerId,
+    filters,
+    now,
+    Prisma.sql`ST_DWithin(s.location, ${point}, ${filters.radiusKm * 1000})`,
+    Prisma.sql`${prefBoost} s.location <-> ${point}`,
+  )
 }
 
 export async function findSpotsByIds(ids: string[]): Promise<SpotDetail[]> {
