@@ -15,7 +15,10 @@ async function process(
   quality: number,
 ): Promise<ProcessedImage> {
   try {
+    // A correção da câmera vem na tag EXIF, que o WebP de saída não carrega:
+    // sem virar pixel aqui — e antes do resize — o retrato chega deitado.
     const { data, info } = await sharp(buffer)
+      .autoOrient()
       .resize(resize)
       .webp({ quality })
       .toBuffer({ resolveWithObject: true })
