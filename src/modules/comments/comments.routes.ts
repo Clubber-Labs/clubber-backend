@@ -8,7 +8,9 @@ import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteEventComment,
   deletePostComment,
+  getEventCommentReplies,
   getEventComments,
+  getPostCommentReplies,
   getPostComments,
   postEventComment,
   postPostComment,
@@ -53,6 +55,18 @@ export async function commentsRoutes(app: FastifyInstance) {
     getEventComments,
   )
 
+  api.get(
+    '/events/:eventId/comments/:commentId/replies',
+    {
+      schema: {
+        params: eventCommentIdParamSchema,
+        querystring: paginationSchema,
+      },
+      onRequest: [app.authenticate],
+    },
+    getEventCommentReplies,
+  )
+
   api.delete(
     '/events/:eventId/comments/:commentId',
     {
@@ -81,6 +95,18 @@ export async function commentsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     getPostComments,
+  )
+
+  api.get(
+    '/posts/:postId/comments/:commentId/replies',
+    {
+      schema: {
+        params: postCommentIdParamSchema,
+        querystring: paginationSchema,
+      },
+      onRequest: [app.authenticate],
+    },
+    getPostCommentReplies,
   )
 
   api.delete(

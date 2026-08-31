@@ -116,6 +116,10 @@ export const es: Dictionary = {
       title: 'Nuevo comentario',
       body: '{{actor}} comentó en tu post',
     },
+    commentReply: {
+      title: 'Nueva respuesta',
+      body: '{{actor}} respondió a tu comentario',
+    },
     eventReaction: {
       title: 'Nuevo me gusta',
       body: 'A {{actor}} le gustó tu evento',

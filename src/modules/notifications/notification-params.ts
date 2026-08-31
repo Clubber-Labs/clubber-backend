@@ -27,6 +27,7 @@ export const NOTIFICATION_PARAMS = {
   EVENT_INVITE: z.undefined(),
   EVENT_COMMENT: z.undefined(),
   POST_COMMENT: z.undefined(),
+  COMMENT_REPLY: z.undefined(),
   EVENT_REACTION: z.undefined(),
   POST_REACTION: z.undefined(),
   COMMENT_REACTION: z.undefined(),

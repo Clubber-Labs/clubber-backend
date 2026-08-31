@@ -387,3 +387,391 @@ describe('visibilidade de comentários por status do autor', () => {
     expect(anon.author).toMatchObject({ name: 'Usuário', lastname: 'Excluído' })
   })
 })
+
+describe('respostas a comentário', () => {
+  it('responde a um comentário de post e vincula ao pai', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ parentId, content: 'Resposta' })
+  })
+
+  it('a listagem devolve só as raízes, com repliesCount', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data
+    expect(data).toHaveLength(1)
+    expect(data[0]).toMatchObject({ id: parentId, repliesCount: 1 })
+  })
+
+  it('lista as respostas de um comentário', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Primeira resposta', parentId },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Segunda resposta', parentId },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments/${parentId}/replies`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.nextCursor).toBeNull()
+    expect(body.data.map((c: { content: string }) => c.content)).toEqual([
+      'Primeira resposta',
+      'Segunda resposta',
+    ])
+  })
+
+  it('responde a comentário de evento', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId },
+    })
+
+    expect(res.statusCode).toBe(201)
+
+    const replies = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${parentId}/replies`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(replies.json().data).toHaveLength(1)
+  })
+
+  it('retorna 400 ao responder uma resposta (profundidade máxima de 1)', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta da resposta', parentId: reply.json().id },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 404 se o pai for de outro post', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+    const outroPost = await makePost(app, user.id, event.id)
+
+    const alheio = await app.inject({
+      method: 'POST',
+      url: `/posts/${outroPost.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário de outro post' },
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId: alheio.json().id },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('retorna 404 se o pai não existir', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: {
+        content: 'Resposta',
+        parentId: '00000000-0000-4000-8000-000000000000',
+      },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('apagar o pai apaga as respostas junto', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId },
+    })
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/posts/${post.id}/comments/${parentId}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+    expect(del.statusCode).toBe(204)
+
+    expect(await testPrisma.comment.count({ where: { postId: post.id } })).toBe(
+      0,
+    )
+  })
+
+  it('notifica o autor do comentário respondido, não o do post', async () => {
+    const postAuthor = await makeUser()
+    const commentAuthor = await makeUser()
+    const replier = await makeUser()
+    const event = await makeEvent(postAuthor.id, { isPublic: true })
+    const post = await makePost(app, postAuthor.id, event.id)
+    await makeAttendance(commentAuthor.id, event.id)
+    await makeAttendance(replier.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, commentAuthor.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, replier.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const notifications = await testPrisma.notification.findMany({
+      where: { type: 'COMMENT_REPLY' },
+    })
+    expect(notifications).toHaveLength(1)
+    expect(notifications[0].userId).toBe(commentAuthor.id)
+  })
+})
+
+describe('contadores de comentário concordam com a listagem', () => {
+  it('_count.comments do evento não conta resposta', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(detail.json()._count.comments).toBe(1)
+  })
+
+  it('_count.comments do evento não conta comentário de autor desativado', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id)
+    const saindo = await makeUser()
+    await makeComment(owner.id, event.id, 'visível')
+    await makeComment(saindo.id, event.id, 'do autor que saiu')
+    await testPrisma.user.update({
+      where: { id: saindo.id },
+      data: { accountStatus: 'DEACTIVATED' },
+    })
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(detail.json()._count.comments).toBe(listed.json().data.length)
+    expect(detail.json()._count.comments).toBe(1)
+  })
+
+  it('_count.comments do post não conta resposta', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/posts`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.json().data[0]._count.comments).toBe(1)
+  })
+
+  it('repliesCount não conta resposta de autor desativado', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id)
+    const post = await makePost(app, owner.id, event.id)
+    const saindo = await makeUser()
+    await makeAttendance(saindo.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+      body: { content: 'Resposta visível', parentId },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, saindo.id)}` },
+      body: { content: 'Resposta do autor que saiu', parentId },
+    })
+    await testPrisma.user.update({
+      where: { id: saindo.id },
+      data: { accountStatus: 'DEACTIVATED' },
+    })
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+    const replies = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments/${parentId}/replies`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(replies.json().data).toHaveLength(1)
+    expect(list.json().data[0].repliesCount).toBe(replies.json().data.length)
+  })
+})

@@ -28,6 +28,7 @@ export type PostCommentIdParam = z.infer<typeof postCommentIdParamSchema>
 
 export const createCommentSchema = z.object({
   content: z.string().min(1, 'Conteúdo obrigatório').max(500),
+  parentId: z.uuid('ID do comentário pai inválido').optional(),
 })
 
 export type CreateCommentBody = z.infer<typeof createCommentSchema>

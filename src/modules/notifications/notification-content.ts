@@ -83,6 +83,11 @@ function contentKeys(type: NotificationType, promoted: boolean): ContentKeys {
         titleKey: 'notifications.postComment.title',
         bodyKey: 'notifications.postComment.body',
       }
+    case 'COMMENT_REPLY':
+      return {
+        titleKey: 'notifications.commentReply.title',
+        bodyKey: 'notifications.commentReply.body',
+      }
     case 'EVENT_REACTION':
       return {
         titleKey: 'notifications.eventReaction.title',

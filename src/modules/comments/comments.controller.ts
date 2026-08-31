@@ -10,7 +10,9 @@ import type {
 import {
   addCommentToEvent,
   addCommentToPost,
+  listEventCommentReplies,
   listEventComments,
+  listPostCommentReplies,
   listPostComments,
   removeComment,
 } from './comments.service'
@@ -91,6 +93,38 @@ export async function getPostComments(
   request.log.info(
     { userId: request.user.sub, postId, limit, cursor },
     'User requested comments for post',
+  )
+  return reply.send(result)
+}
+
+export async function getEventCommentReplies(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { eventId, commentId } = request.params as EventCommentIdParam
+  const { limit, cursor } = request.query as PaginationQuery
+  const result = await listEventCommentReplies(
+    eventId,
+    commentId,
+    request.user.sub,
+    limit,
+    cursor,
+  )
+  return reply.send(result)
+}
+
+export async function getPostCommentReplies(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { postId, commentId } = request.params as PostCommentIdParam
+  const { limit, cursor } = request.query as PaginationQuery
+  const result = await listPostCommentReplies(
+    postId,
+    commentId,
+    request.user.sub,
+    limit,
+    cursor,
   )
   return reply.send(result)
 }

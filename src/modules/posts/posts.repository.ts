@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client'
 import { visibleAuthorWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
+import { visibleCommentWhere } from '../comments/comments.repository'
 
 const authorSelect = {
   id: true,
@@ -58,7 +59,12 @@ export async function findPostsByEvent(
     include: {
       author: { select: authorSelect },
       images: postImagesInclude,
-      _count: { select: { comments: true, reactions: true } },
+      _count: {
+        select: {
+          comments: { where: visibleCommentWhere() },
+          reactions: true,
+        },
+      },
       // Só a reação do viewer — vira o booleano userLiked no service.
       reactions: { where: { userId: viewerId }, select: { id: true } },
     },
