@@ -46,6 +46,7 @@ export async function findPostById(postId: string) {
 
 export async function findPostsByEvent(
   eventId: string,
+  viewerId: string,
   limit: number,
   cursor?: string,
 ) {
@@ -58,6 +59,8 @@ export async function findPostsByEvent(
       author: { select: authorSelect },
       images: postImagesInclude,
       _count: { select: { comments: true, reactions: true } },
+      // Só a reação do viewer — vira o booleano userLiked no service.
+      reactions: { where: { userId: viewerId }, select: { id: true } },
     },
   })
 }

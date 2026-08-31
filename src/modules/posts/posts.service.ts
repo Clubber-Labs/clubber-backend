@@ -75,9 +75,13 @@ export async function listPostsByEvent(
   cursor?: string,
 ) {
   await ensureEventAccess(eventId, requesterId)
-  const rows = await findPostsByEvent(eventId, limit, cursor)
+  const rows = await findPostsByEvent(eventId, requesterId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
-  return { data: rows, nextCursor }
+  const data = rows.map(({ reactions, ...post }) => ({
+    ...post,
+    userLiked: reactions.length > 0,
+  }))
+  return { data, nextCursor }
 }
 
 export async function removePost(
