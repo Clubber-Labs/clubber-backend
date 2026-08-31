@@ -190,6 +190,39 @@ export async function countActiveMembersByConversation(
   return new Map(rows.map((r) => [r.conversationId, r._count._all]))
 }
 
+export type SpotMemberPreview = Prisma.UserGetPayload<{
+  select: typeof creatorSelect
+}>
+
+/**
+ * Prévia do grupo por conversa: os primeiros membros ativos em ordem de
+ * entrada (o criador vem primeiro por construção — entrou na criação).
+ * Busca todos e corta em JS: LIMIT por grupo exigiria lateral join, e grupo
+ * de rolê é pequeno por natureza (janela de 24h).
+ */
+export async function findMemberPreviewsByConversation(
+  conversationIds: string[],
+  limit: number,
+): Promise<Map<string, SpotMemberPreview[]>> {
+  if (conversationIds.length === 0) return new Map()
+  const rows = await prisma.conversationParticipant.findMany({
+    where: { conversationId: { in: conversationIds }, leftAt: null },
+    // id desempata joinedAt (now() é estável por transação) — ordem arbitrária
+    // porém determinística, pra prévia não trocar entre requests.
+    orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
+    select: { conversationId: true, user: { select: creatorSelect } },
+  })
+  const previews = new Map<string, SpotMemberPreview[]>()
+  for (const row of rows) {
+    const members = previews.get(row.conversationId) ?? []
+    if (members.length < limit) {
+      members.push(row.user)
+      previews.set(row.conversationId, members)
+    }
+  }
+  return previews
+}
+
 /** Amigos (ids dados) ativos por conversa — sinal de ranking do feed misto. */
 export async function countFriendMembersByConversation(
   conversationIds: string[],

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { SPOT_MEMBER_PREVIEW } from './feed.service'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
@@ -1521,6 +1522,40 @@ describe('GET /feed — kinds (eventos e rolês misturados)', () => {
     const ids = res.json().data.map((i: { id: string }) => i.id)
     expect(ids).toContain(perto.id)
     expect(ids).not.toContain(saoPaulo.id)
+  })
+
+  it('rolê traz prévia do grupo (members) limitada ao teto, com memberCount cheio', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const extras = await Promise.all(
+      Array.from({ length: SPOT_MEMBER_PREVIEW + 1 }, () => makeUser()),
+    )
+    const spot = await makeSpot(creator.id, {
+      memberIds: extras.map((u) => u.id),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=SPOTS&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const item = res
+      .json()
+      .data.find((i: { id: string }) => i.id === spot.id) as {
+      memberCount: number
+      members: { id: string; username: string; avatarUrl: string | null }[]
+    }
+    expect(item.memberCount).toBe(SPOT_MEMBER_PREVIEW + 2)
+    expect(item.members).toHaveLength(SPOT_MEMBER_PREVIEW)
+    // A ordem entre participantes criados na mesma transação é arbitrária
+    // (joinedAt empata no now() transacional) — valida pertencimento e shape.
+    const participantIds = [creator.id, ...extras.map((u) => u.id)]
+    for (const member of item.members) {
+      expect(participantIds).toContain(member.id)
+      expect(member.username).toEqual(expect.any(String))
+    }
   })
 
   it('rolê FRIENDS de estranho fica fora da mescla', async () => {
