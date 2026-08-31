@@ -61,7 +61,7 @@ export async function findVisibleProfileOwner(
         userContentVisibleWhere(viewerId),
       ],
     },
-    select: { id: true, socialVisibility: true },
+    select: { id: true },
   })
 }
 

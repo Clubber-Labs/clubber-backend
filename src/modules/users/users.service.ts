@@ -10,6 +10,7 @@ import {
   unlinkStripeCustomer,
 } from '../billing/billing.service'
 import { getConsentSummary } from '../consent/consent.service'
+import { countProfileEvents } from '../events/events.repository'
 import { withViewerFollowInfo } from '../follows/follows.service'
 import { mapSpotifyGenres } from '../spotify-link/spotify-link.mapping'
 import { findActiveSnapshotByUserId } from '../spotify-link/spotify-link.repository'
@@ -255,8 +256,6 @@ export async function getUserById(id: string, viewerId?: string) {
   const user = await findUserById(id)
   if (!user) throw new AppError(404, 'USER_NOT_FOUND')
 
-  const { _count, ...rest } = user
-
   const isSelf = viewerId === id
   // Os dois sentidos, mesmo motivo da busca: o botão de mensagem só libera se
   // o perfil for público OU o follow for mútuo (canChatWith).
@@ -265,17 +264,25 @@ export async function getUserById(id: string, viewerId?: string) {
       ? (await withViewerFollowInfo([{ id }], viewerId))[0]
       : { followStatus: null, followsYou: false }
 
+  // Paralelo: as duas são independentes e cada uma é um round-trip ao banco.
+  const [eventsCount, artistMatch] = await Promise.all([
+    // A vitrine do perfil lista o que a pessoa criou E aquilo em que confirmou
+    // presença; o contador conta a mesma coisa, do mesmo predicado. Agregado de
+    // propósito — contador de perfil é metadado, como seguidores.
+    countProfileEvents(id, isSelf),
+    viewerId && !isSelf ? resolveArtistMatch(viewerId, user) : null,
+  ])
+
   // Perfil completo mesmo p/ conta privada (estilo Instagram): a privacidade
   // real fica no conteúdo (authorVisibleWhere) e nas listas de seguidores
   // (ensureCanViewFollowList) — aqui só metadados agregados, não identidades.
   return {
     kind: 'full' as const,
-    ...toApiUser(rest),
-    eventsCount: _count.events,
+    ...toApiUser(user),
+    eventsCount,
     followStatus,
     followsYou,
-    artistMatch:
-      viewerId && !isSelf ? await resolveArtistMatch(viewerId, rest) : null,
+    artistMatch,
   }
 }
 
@@ -323,15 +330,18 @@ export async function getMe(userId: string) {
   }
   // password sai aqui (nunca serializado); vira o booleano hasPassword para o
   // cliente decidir se exige reconfirmação de senha na exclusão.
-  const { _count, password, ...rest } = user
+  const { password, ...rest } = user
   // Paralelo: evita round-trip sequencial ao banco
-  const [preferredUser, consent] = await Promise.all([
+  const [preferredUser, consent, eventsCount] = await Promise.all([
     Promise.resolve(toApiUser(rest, { own: true })),
     getConsentSummary(userId),
+    // Dono do próprio perfil: as presenças entram mesmo com a visibilidade de
+    // atividades desligada.
+    countProfileEvents(userId, true),
   ])
   return {
     ...preferredUser,
-    eventsCount: _count.events,
+    eventsCount,
     hasPassword: password !== null,
     consent,
     // Teto do raio de recomendação de spots — o client usa como max do slider

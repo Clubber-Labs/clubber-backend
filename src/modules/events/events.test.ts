@@ -889,7 +889,7 @@ describe('GET /users/:id/events — privacy gate', () => {
     })
 
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ data: [], total: 0 })
+    expect(res.json()).toMatchObject({ data: [], nextCursor: null })
   })
 
   it('follower aceito vê eventos de autor privado', async () => {
@@ -1218,53 +1218,6 @@ describe('GET /users/:id/events — presença confirmada', () => {
     })
 
     expect(res.json().data).toEqual([])
-  })
-
-  // O total é o número do cabeçalho da vitrine: conta o que a grade mostra até
-  // o fim da paginação, e não os eventos criados (esse é o eventsCount do
-  // perfil). Depende do viewer, por isso sai do mesmo predicado da listagem.
-  it('total conta a vitrine inteira, sem duplicar criado-e-confirmado', async () => {
-    const owner = await makeUser()
-    const host = await makeUser()
-    const own = await makeEvent(owner.id, { isPublic: true })
-    const alsoAttending = await makeEvent(owner.id, { isPublic: true })
-    await makeAttendance(owner.id, alsoAttending.id, 'CONFIRMED')
-    const attended = await makeEvent(host.id, { isPublic: true })
-    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
-
-    const res = await app.inject({
-      method: 'GET',
-      url: `/users/${owner.id}/events?limit=2`,
-    })
-
-    expect(ids(res).length).toBe(2)
-    expect(res.json().total).toBe(3)
-    expect([own.id, alsoAttending.id, attended.id].length).toBe(3)
-  })
-
-  it('total respeita o viewer: presença escondida não entra na conta', async () => {
-    const owner = await makeUser()
-    await testPrisma.user.update({
-      where: { id: owner.id },
-      data: { socialVisibility: false },
-    })
-    const host = await makeUser()
-    await makeEvent(owner.id, { isPublic: true })
-    const attended = await makeEvent(host.id, { isPublic: true })
-    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
-
-    const visitor = await app.inject({
-      method: 'GET',
-      url: `/users/${owner.id}/events`,
-    })
-    const self = await app.inject({
-      method: 'GET',
-      url: `/users/${owner.id}/events`,
-      headers: { authorization: `Bearer ${token(app, owner.id)}` },
-    })
-
-    expect(visitor.json().total).toBe(1)
-    expect(self.json().total).toBe(2)
   })
 
   it('socialVisibility desligado esconde presenças dos outros, não do dono', async () => {

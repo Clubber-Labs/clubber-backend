@@ -2,6 +2,8 @@ import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import {
+  makeAttendance,
+  makeBlock,
   makeEvent,
   makeFollow,
   makeUser,
@@ -220,6 +222,78 @@ describe('GET /users/:id', () => {
 
     expect(res.statusCode).toBe(200)
     expect(res.json().eventsCount).toBe(3)
+  })
+
+  // O contador espelha a VITRINE (o que a grade do perfil lista), não a autoria:
+  // criou + confirmou presença, sem duplicar o que é as duas coisas.
+  it('eventsCount soma presenças confirmadas, sem duplicar o próprio evento', async () => {
+    const user = await makeUser()
+    const host = await makeUser()
+    const own = await makeEvent(user.id)
+    await makeAttendance(user.id, own.id, 'CONFIRMED')
+    const attended = await makeEvent(host.id)
+    await makeAttendance(user.id, attended.id, 'CONFIRMED')
+    const onlyInterested = await makeEvent(host.id)
+    await makeAttendance(user.id, onlyInterested.id, 'INTERESTED')
+
+    const res = await app.inject({ method: 'GET', url: `/users/${user.id}` })
+
+    expect(res.json().eventsCount).toBe(2)
+  })
+
+  // Mesma régua do feed: quem desligou a visibilidade das atividades some das
+  // presenças pra terceiros, e continua contando as próprias.
+  it('eventsCount respeita socialVisibility, mas não para o dono', async () => {
+    const user = await makeUser()
+    const host = await makeUser()
+    await testPrisma.user.update({
+      where: { id: user.id },
+      data: { socialVisibility: false },
+    })
+    await makeEvent(user.id)
+    const attended = await makeEvent(host.id)
+    await makeAttendance(user.id, attended.id, 'CONFIRMED')
+
+    const visitor = await app.inject({
+      method: 'GET',
+      url: `/users/${user.id}`,
+    })
+    const self = await app.inject({
+      method: 'GET',
+      url: '/users/me',
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(visitor.json().eventsCount).toBe(1)
+    expect(self.json().eventsCount).toBe(2)
+  })
+
+  // O contador é AGREGADO, e não o total da grade: como o de seguidores, ele
+  // ignora as réguas por viewer (evento privado, autor bloqueado, autor privado
+  // sem follow) — aplicá-las aqui zeraria o número de todo perfil privado. Quem
+  // esconde o evento é a grade.
+  it('eventsCount conta presença em evento de autor que bloqueou o viewer; a vitrine não', async () => {
+    const owner = await makeUser()
+    const host = await makeUser()
+    const viewer = await makeUser()
+    await makeBlock(host.id, viewer.id)
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const auth = { authorization: `Bearer ${token(app, viewer.id)}` }
+    const profile = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}`,
+      headers: auth,
+    })
+    const showcase = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+      headers: auth,
+    })
+
+    expect(profile.json().eventsCount).toBe(1)
+    expect(showcase.json().data).toEqual([])
   })
 
   it('não expõe dados privados nem role no perfil público', async () => {
