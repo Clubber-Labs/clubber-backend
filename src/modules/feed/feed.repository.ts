@@ -8,7 +8,10 @@ import { buildLifecycleWhere } from '../../lib/event-filters'
 import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import { findEventIdsByDistance, type LatLng } from '../../lib/spatial'
-import { buildCommentInclude } from '../comments/comments.repository'
+import {
+  buildCommentInclude,
+  visibleCommentWhere,
+} from '../comments/comments.repository'
 import { findTopAttendancesByEvent } from '../events/events.repository'
 import type { FeedQuery } from './feed.schema'
 
@@ -308,7 +311,7 @@ export async function hydrateEvents(
         take: 1,
       },
       comments: {
-        where: { parentId: null, author: visibleAuthorWhere() },
+        where: visibleCommentWhere(),
         orderBy: { createdAt: 'desc' as const },
         take: 2,
         include: buildCommentInclude(viewerId),
@@ -326,7 +329,7 @@ export async function hydrateEvents(
       _count: {
         select: {
           attendances: { where: { type: { in: POSITIVE_ATTENDANCE } } },
-          comments: true,
+          comments: { where: visibleCommentWhere() },
           reactions: true,
         },
       },

@@ -20,6 +20,7 @@ import {
 import {
   buildCommentInclude,
   commentAuthorSelect,
+  visibleCommentWhere,
 } from '../comments/comments.repository'
 import type {
   CreateEventBody,
@@ -54,10 +55,14 @@ function buildSharedIncludes(): Prisma.EventInclude {
   return {
     author: { select: authorSelect },
     _count: {
-      select: { attendances: true, reactions: true, comments: true },
+      select: {
+        attendances: true,
+        reactions: true,
+        comments: { where: visibleCommentWhere() },
+      },
     },
     comments: {
-      where: { parentId: null, author: visibleAuthorWhere() },
+      where: visibleCommentWhere(),
       orderBy: { createdAt: 'desc' },
       take: 2,
       include: buildCommentInclude(),
@@ -81,7 +86,11 @@ function buildMapIncludes(): Prisma.EventInclude {
   return {
     author: { select: authorSelect },
     _count: {
-      select: { attendances: true, reactions: true, comments: true },
+      select: {
+        attendances: true,
+        reactions: true,
+        comments: { where: visibleCommentWhere() },
+      },
     },
     images: {
       take: 1,

@@ -12,10 +12,27 @@ export const commentAuthorSelect = {
 
 const authorSelect = commentAuthorSelect
 
+/**
+ * O que a listagem de comentários considera visível: raiz da thread (resposta
+ * sai por findRepliesByComment) e autor exibível. Os `_count.comments` de
+ * evento, post e feed contam pelo MESMO predicado — contador que não concorda
+ * com a lista que ele resume vira badge mentiroso.
+ */
+export function visibleCommentWhere(): Prisma.CommentWhereInput {
+  return { parentId: null, author: visibleAuthorWhere() }
+}
+
 export function buildCommentInclude(viewerId?: string): Prisma.CommentInclude {
   return {
     author: { select: commentAuthorSelect },
-    _count: { select: { reactions: true, replies: true } },
+    // Mesma regra do visibleCommentWhere aplicada à outra ponta da thread:
+    // repliesCount tem que bater com o que GET .../replies devolve.
+    _count: {
+      select: {
+        reactions: true,
+        replies: { where: { author: visibleAuthorWhere() } },
+      },
+    },
     ...(viewerId && {
       reactions: {
         where: { userId: viewerId },
@@ -82,7 +99,7 @@ export async function findCommentsByEvent(
   viewerId?: string,
 ): Promise<NormalizedComment[]> {
   const comments = (await prisma.comment.findMany({
-    where: { eventId, parentId: null, author: visibleAuthorWhere() },
+    where: { eventId, ...visibleCommentWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'asc' },
@@ -98,7 +115,7 @@ export async function findCommentsByPost(
   viewerId?: string,
 ): Promise<NormalizedComment[]> {
   const comments = (await prisma.comment.findMany({
-    where: { postId, parentId: null, author: visibleAuthorWhere() },
+    where: { postId, ...visibleCommentWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'asc' },

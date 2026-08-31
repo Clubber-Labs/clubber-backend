@@ -646,3 +646,132 @@ describe('respostas a comentário', () => {
     expect(notifications[0].userId).toBe(commentAuthor.id)
   })
 })
+
+describe('contadores de comentário concordam com a listagem', () => {
+  it('_count.comments do evento não conta resposta', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(detail.json()._count.comments).toBe(1)
+  })
+
+  it('_count.comments do evento não conta comentário de autor desativado', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id)
+    const saindo = await makeUser()
+    await makeComment(owner.id, event.id, 'visível')
+    await makeComment(saindo.id, event.id, 'do autor que saiu')
+    await testPrisma.user.update({
+      where: { id: saindo.id },
+      data: { accountStatus: 'DEACTIVATED' },
+    })
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    const listed = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(detail.json()._count.comments).toBe(listed.json().data.length)
+    expect(detail.json()._count.comments).toBe(1)
+  })
+
+  it('_count.comments do post não conta resposta', async () => {
+    const user = await makeUser()
+    const event = await makeEvent(user.id)
+    const post = await makePost(app, user.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/posts`,
+      headers: { authorization: `Bearer ${token(app, user.id)}` },
+    })
+
+    expect(res.json().data[0]._count.comments).toBe(1)
+  })
+
+  it('repliesCount não conta resposta de autor desativado', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id)
+    const post = await makePost(app, owner.id, event.id)
+    const saindo = await makeUser()
+    await makeAttendance(saindo.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const parentId = parent.json().id
+
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+      body: { content: 'Resposta visível', parentId },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, saindo.id)}` },
+      body: { content: 'Resposta do autor que saiu', parentId },
+    })
+    await testPrisma.user.update({
+      where: { id: saindo.id },
+      data: { accountStatus: 'DEACTIVATED' },
+    })
+
+    const list = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+    const replies = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments/${parentId}/replies`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(replies.json().data).toHaveLength(1)
+    expect(list.json().data[0].repliesCount).toBe(replies.json().data.length)
+  })
+})
