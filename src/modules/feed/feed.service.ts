@@ -17,7 +17,7 @@ import {
   findSpotIdsNearPoint,
   findSpotsByIds,
 } from '../spots/spots.repository'
-import { resolveSpotRadiusKm } from '../spots/spots.service'
+import { resolveSpotRadiusKm, shapeSpot } from '../spots/spots.service'
 import {
   findUserPreferredCategories,
   findUserPreferredSubcategories,
@@ -370,9 +370,8 @@ async function hydrateSpots(
       DEFAULT_RANK_WEIGHTS,
       ctx.scoringNow,
     )
-    const { creatorId: _creatorId, ...rest } = spot
     return {
-      item: { ...rest, memberCount, reason, type: 'SPOT' as const },
+      item: { ...shapeSpot(spot, memberCount), reason, type: 'SPOT' as const },
       id: spot.id,
       score,
     }

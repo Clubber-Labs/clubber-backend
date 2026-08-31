@@ -79,7 +79,8 @@ function gridCell(value: number, radiusKm: number): string {
 const MAX_ACTIVE_SPOTS = 5
 const SPOT_WINDOW_MS = 24 * 60 * 60 * 1000 // 24h por janela (criação e renovação)
 
-function shapeSpot(spot: SpotDetail, memberCount: number) {
+/** Shape público do rolê (tira creatorId) — fonte única, usada aqui e no feed. */
+export function shapeSpot(spot: SpotDetail, memberCount: number) {
   const { creatorId: _creatorId, ...rest } = spot
   return { ...rest, memberCount }
 }
