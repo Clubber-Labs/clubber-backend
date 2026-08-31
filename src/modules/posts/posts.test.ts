@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
-import { makeEvent, makePost, makeUser } from '../../test/factories'
+import {
+  makeEvent,
+  makePost,
+  makePostReaction,
+  makeUser,
+} from '../../test/factories'
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
@@ -94,6 +99,30 @@ describe('GET /events/:eventId/posts', () => {
       nextCursor: null,
     })
     expect(res.json().data.length).toBeGreaterThan(0)
+  })
+
+  it('userLiked reflete a curtida do viewer, não a dos outros', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id)
+    const curtido = await makePost(author.id, event.id)
+    const naoCurtido = await makePost(author.id, event.id)
+    await makePostReaction(viewer.id, curtido.id)
+    // Curtida de terceiro não vaza pro userLiked do viewer.
+    await makePostReaction(author.id, naoCurtido.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/posts`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const byId = new Map(
+      res.json().data.map((p: { id: string; userLiked: boolean }) => [p.id, p]),
+    )
+    expect(byId.get(curtido.id)).toMatchObject({ userLiked: true })
+    expect(byId.get(naoCurtido.id)).toMatchObject({ userLiked: false })
   })
 })
 
