@@ -870,6 +870,28 @@ describe('GET /users/:id/events — privacy gate', () => {
     expect(res.json().data).toEqual([])
   })
 
+  // O dono da vitrine é PESSOA, não autor de conteúdo: conta anonimizada
+  // responde 404 em GET /users/:id, então a vitrine dela também não existe —
+  // nem o que criou, nem o que confirmou presença em evento de terceiro.
+  it.each([
+    'ANONYMIZED',
+    'DEACTIVATED',
+  ] as const)('vitrine de dono %s responde vazia', async (accountStatus) => {
+    const owner = await makeUser({ accountStatus })
+    const host = await makeUser()
+    await makeEvent(owner.id, { isPublic: true })
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ data: [], total: 0 })
+  })
+
   it('follower aceito vê eventos de autor privado', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const follower = await makeUser()
@@ -964,6 +986,309 @@ describe('GET /users/:id/events — privacy gate', () => {
     })
 
     expect(res.statusCode).toBe(200)
+  })
+})
+
+describe('GET /users/:id/events — ordem da vitrine', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const HOUR = 60 * 60 * 1000
+
+  function ids(res: { json: () => { data: { id: string }[] } }) {
+    return res.json().data.map((e) => e.id)
+  }
+
+  it('acontecendo e futuros na frente; histórico do mais recente pro mais antigo', async () => {
+    const author = await makeUser()
+    const now = Date.now()
+    const ongoing = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - HOUR),
+      endDate: new Date(now + HOUR),
+    })
+    const soon = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + DAY),
+    })
+    const later = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + 10 * DAY),
+    })
+    const recentPast = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 2 * DAY),
+    })
+    const oldPast = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 30 * DAY),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${author.id}/events`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(ids(res)).toEqual([
+      ongoing.id,
+      soon.id,
+      later.id,
+      recentPast.id,
+      oldPast.id,
+    ])
+  })
+
+  // Promoção é paga e vale em toda listagem de evento, vitrine inclusive: passa
+  // na frente do que já começou, mas só dentro da fase ativa — no histórico ela
+  // não disputa espaço com o passado recente.
+  it('promovido futuro passa na frente do ONGOING, e não reordena o histórico', async () => {
+    const author = await makeUser()
+    const now = Date.now()
+    const ongoing = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - HOUR),
+      endDate: new Date(now + HOUR),
+    })
+    const featured = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + DAY),
+      isFeatured: true,
+    })
+    const featuredPast = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 30 * DAY),
+      isFeatured: true,
+    })
+    const recentPast = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 2 * DAY),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${author.id}/events`,
+    })
+
+    expect(ids(res)).toEqual([
+      featured.id,
+      ongoing.id,
+      recentPast.id,
+      featuredPast.id,
+    ])
+  })
+
+  it('cancelado continua na vitrine, no bloco encerrado', async () => {
+    const author = await makeUser()
+    const now = Date.now()
+    const upcoming = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + DAY),
+    })
+    const canceled = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + 2 * DAY),
+      canceledAt: new Date(now),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${author.id}/events`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(ids(res)).toEqual([upcoming.id, canceled.id])
+  })
+
+  // A página emenda as duas fases: a virada cai no meio de uma página, e é aí
+  // que um cursor ingênuo repetiria ou pularia evento.
+  it('pagina atravessando a virada de fase sem repetir nem pular', async () => {
+    const author = await makeUser()
+    const now = Date.now()
+    const first = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + DAY),
+    })
+    const second = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + 2 * DAY),
+    })
+    const third = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - DAY),
+    })
+    const fourth = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 2 * DAY),
+    })
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: `/users/${author.id}/events?limit=3`,
+    })
+    const page2 = await app.inject({
+      method: 'GET',
+      url: `/users/${author.id}/events?limit=3&cursor=${page1.json().nextCursor}`,
+    })
+
+    expect(ids(page1)).toEqual([first.id, second.id, third.id])
+    expect(ids(page2)).toEqual([fourth.id])
+  })
+})
+
+describe('GET /users/:id/events — presença confirmada', () => {
+  const DAY = 24 * 60 * 60 * 1000
+
+  function ids(res: { json: () => { data: { id: string }[] } }) {
+    return res.json().data.map((e) => e.id)
+  }
+
+  it('evento de terceiro com presença CONFIRMADA entra na vitrine, na ordem', async () => {
+    const owner = await makeUser()
+    const host = await makeUser()
+    const own = await makeEvent(owner.id, {
+      isPublic: true,
+      date: new Date(Date.now() + DAY),
+    })
+    const attended = await makeEvent(host.id, {
+      isPublic: true,
+      date: new Date(Date.now() + 2 * DAY),
+    })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(ids(res)).toEqual([own.id, attended.id])
+  })
+
+  it('INTERESTED não é presença: fica de fora', async () => {
+    const owner = await makeUser()
+    const host = await makeUser()
+    const maybe = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, maybe.id, 'INTERESTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+
+    expect(res.json().data).toEqual([])
+  })
+
+  it('evento criado E confirmado pelo dono aparece uma vez só', async () => {
+    const owner = await makeUser()
+    const event = await makeEvent(owner.id, { isPublic: true })
+    await makeAttendance(owner.id, event.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+
+    expect(ids(res)).toEqual([event.id])
+  })
+
+  it('perfil privado não vaza presenças para estranho', async () => {
+    const owner = await makeUser({ isPrivate: true })
+    const host = await makeUser()
+    const stranger = await makeUser()
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+    })
+
+    expect(res.json().data).toEqual([])
+  })
+
+  it('evento PRIVADO de terceiro não aparece para visitante', async () => {
+    const owner = await makeUser()
+    const host = await makeUser()
+    const secret = await makeEvent(host.id, { isPublic: false })
+    await makeAttendance(owner.id, secret.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+
+    expect(res.json().data).toEqual([])
+  })
+
+  // O total é o número do cabeçalho da vitrine: conta o que a grade mostra até
+  // o fim da paginação, e não os eventos criados (esse é o eventsCount do
+  // perfil). Depende do viewer, por isso sai do mesmo predicado da listagem.
+  it('total conta a vitrine inteira, sem duplicar criado-e-confirmado', async () => {
+    const owner = await makeUser()
+    const host = await makeUser()
+    const own = await makeEvent(owner.id, { isPublic: true })
+    const alsoAttending = await makeEvent(owner.id, { isPublic: true })
+    await makeAttendance(owner.id, alsoAttending.id, 'CONFIRMED')
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events?limit=2`,
+    })
+
+    expect(ids(res).length).toBe(2)
+    expect(res.json().total).toBe(3)
+    expect([own.id, alsoAttending.id, attended.id].length).toBe(3)
+  })
+
+  it('total respeita o viewer: presença escondida não entra na conta', async () => {
+    const owner = await makeUser()
+    await testPrisma.user.update({
+      where: { id: owner.id },
+      data: { socialVisibility: false },
+    })
+    const host = await makeUser()
+    await makeEvent(owner.id, { isPublic: true })
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const visitor = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+    const self = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(visitor.json().total).toBe(1)
+    expect(self.json().total).toBe(2)
+  })
+
+  it('socialVisibility desligado esconde presenças dos outros, não do dono', async () => {
+    const owner = await makeUser()
+    await testPrisma.user.update({
+      where: { id: owner.id },
+      data: { socialVisibility: false },
+    })
+    const host = await makeUser()
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const visitor = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+    const self = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+
+    expect(visitor.json().data).toEqual([])
+    expect(ids(self)).toEqual([attended.id])
   })
 })
 

@@ -1,6 +1,7 @@
 import { cache } from '../../lib/cache'
 import { AppError } from '../../lib/errors/app-error'
 import { timezoneForLocation } from '../../lib/i18n/timezone'
+import { findVisibleProfileOwner } from '../../lib/profile-visibility'
 import { interestMatchesCategories } from '../../lib/subcategories'
 import {
   deleteUploaded,
@@ -13,6 +14,7 @@ import { enqueueEventCreated } from '../notifications/notification-queue'
 import { createRecurringEvent } from '../recurring-events/recurring-events.service'
 import {
   countEventImages,
+  countProfileEvents,
   createEvent,
   createEventImage,
   deleteEvent,
@@ -22,9 +24,9 @@ import {
   findEventImage,
   findEventImageIds,
   findEventImageKeys,
-  findEventsByAuthor,
   findEventsForMap,
   findEventsInViewport,
+  findProfileEvents,
   findPublicEvents,
   findTopAttendancesByEvent,
   findViewerStatesForEvents,
@@ -295,16 +297,37 @@ export async function searchEventsService(
 }
 
 export async function listUserEvents(
-  authorId: string,
+  ownerId: string,
   limit: number,
   viewerId?: string,
   cursor?: string,
 ) {
-  const events = await findEventsByAuthor(authorId, limit, viewerId, cursor)
+  // Portão do DONO do perfil. Enquanto a vitrine era só o que ele criou, o
+  // filtro por autor já fazia isso sozinho; com as presenças, o autor do evento
+  // é outra pessoa e a privacidade dele precisa ser checada aqui.
+  const owner = await findVisibleProfileOwner(ownerId, viewerId)
+  if (!owner) return { data: [], nextCursor: null, total: 0 }
+
+  const scope = {
+    ownerId,
+    viewerId,
+    // Confirmação de presença é atividade social: quem desligou "visibilidade
+    // das suas atividades" some da vitrine dos outros, mas continua vendo a
+    // própria.
+    includeAttended: viewerId === ownerId || owner.socialVisibility,
+  }
+  // `total` é o número do cabeçalho da vitrine, e não o de eventos criados
+  // (esse é o `eventsCount` do perfil, que continua sendo de autoria). Só na 1ª
+  // página: não muda entre páginas, e é a parte cara da listagem.
+  const [events, total] = await Promise.all([
+    findProfileEvents({ ...scope, limit, cursor }),
+    cursor ? Promise.resolve(undefined) : countProfileEvents(scope),
+  ])
   const nextCursor =
     events.length === limit ? (events[events.length - 1].id as string) : null
   const shared: SharedListResult = { data: events, nextCursor }
-  return mergeViewerState(shared, viewerId)
+  const page = await mergeViewerState(shared, viewerId)
+  return total === undefined ? page : { ...page, total }
 }
 
 export async function getEventById(id: string, requesterId?: string) {
