@@ -1,43 +1,72 @@
 import type { Prisma } from '@prisma/client'
 import { areMutualFollowers } from '../modules/follows/follows.repository'
+import { visibleAuthorWhere } from './account-visibility'
+import { prisma } from './prisma'
 
 /**
- * Filtro Prisma para "eventos cujo autor é visível ao viewer".
- * Visível quando o autor é público OU o viewer é o próprio autor OU
- * o viewer segue o autor com status ACCEPTED.
+ * Filtro Prisma para "o conteúdo desta pessoa é visível ao viewer".
+ * Visível quando ela é pública OU é o próprio viewer OU o viewer a segue com
+ * status ACCEPTED — e nunca quando há bloqueio em qualquer direção.
  *
- * Aplica como WHERE adicional em queries de listagem.
+ * Régua ÚNICA de visibilidade de conteúdo por pessoa: a versão em cima do
+ * evento (authorVisibleWhere) e o portão do dono do perfil saem daqui, pra não
+ * existirem duas definições de quem pode ver o quê.
  */
-export function authorVisibleWhere(viewerId?: string): Prisma.EventWhereInput {
+export function userContentVisibleWhere(
+  viewerId?: string,
+): Prisma.UserWhereInput {
   if (!viewerId) {
-    return { author: { isPrivate: false } }
+    return { isPrivate: false }
   }
   return {
     AND: [
       {
         OR: [
-          { authorId: viewerId },
-          { author: { isPrivate: false } },
-          {
-            author: {
-              followers: {
-                some: { followerId: viewerId, status: 'ACCEPTED' },
-              },
-            },
-          },
+          { id: viewerId },
+          { isPrivate: false },
+          { followers: { some: { followerId: viewerId, status: 'ACCEPTED' } } },
         ],
       },
-      // Bloqueio em qualquer direção esconde o conteúdo do autor, mesmo público
-      // ou já seguido: `none` garante que o autor não bloqueou o viewer e que o
-      // viewer não bloqueou o autor.
+      // Bloqueio em qualquer direção esconde o conteúdo, mesmo público ou já
+      // seguido: `none` garante que ela não bloqueou o viewer e que o viewer
+      // não a bloqueou.
       {
-        author: {
-          blocksMade: { none: { blockedId: viewerId } },
-          blocksReceived: { none: { blockerId: viewerId } },
-        },
+        blocksMade: { none: { blockedId: viewerId } },
+        blocksReceived: { none: { blockerId: viewerId } },
       },
     ],
   }
+}
+
+/**
+ * O dono do perfil, quando o viewer pode ver o conteúdo dele. `null` = a
+ * listagem inteira responde vazia.
+ *
+ * Existe porque a vitrine do perfil deixou de ser só "eventos que ele criou":
+ * com as presenças confirmadas, o autor do evento é outra pessoa, e o filtro
+ * por autor não protege mais a privacidade do DONO do perfil.
+ */
+export async function findVisibleProfileOwner(
+  ownerId: string,
+  viewerId?: string,
+) {
+  return prisma.user.findFirst({
+    where: {
+      AND: [
+        { id: ownerId },
+        visibleAuthorWhere(),
+        userContentVisibleWhere(viewerId),
+      ],
+    },
+    select: { id: true, socialVisibility: true },
+  })
+}
+
+/**
+ * Mesma régua, aplicada ao autor do evento em queries de listagem.
+ */
+export function authorVisibleWhere(viewerId?: string): Prisma.EventWhereInput {
+  return { author: userContentVisibleWhere(viewerId) }
 }
 
 /**

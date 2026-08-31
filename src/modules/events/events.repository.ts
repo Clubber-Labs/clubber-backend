@@ -3,6 +3,7 @@ import { visibleAuthorWhere } from '../../lib/account-visibility'
 import {
   buildLifecycleWhere,
   buildMapLifecycleWhere,
+  statusConditionFor,
 } from '../../lib/event-filters'
 import {
   computeEventStatus,
@@ -346,30 +347,152 @@ export async function findPublicEvents(
   return normalizeSharedList(ordered, now)
 }
 
-export async function findEventsByAuthor(
-  authorId: string,
-  limit: number,
-  viewerId?: string,
-  cursor?: string,
-  now: Date = new Date(),
-): Promise<SharedEvent[]> {
-  const where: Prisma.EventWhereInput = {
+/**
+ * Vitrine do perfil em duas fases: primeiro o que ainda está de pé (ONGOING na
+ * frente, porque já começou, depois os mais próximos), e só então o histórico,
+ * do mais recente pro mais antigo. Ordenar tudo por `date asc` abria o perfil
+ * pelos eventos mais VELHOS do autor, com os próximos enterrados no fim.
+ *
+ * As duas fases são complementares (todo evento cai em exatamente uma): a ativa
+ * é o mesmo predicado de "não passado" da listagem pública, e a encerrada é
+ * passado OU cancelado — cancelado precisa entrar aqui, senão sumiria do perfil.
+ *
+ * `isFeatured` só pesa na fase ativa: promoção de evento que já acabou não
+ * disputa espaço com o histórico recente.
+ */
+const ACTIVE_ORDER: Prisma.EventOrderByWithRelationInput[] = [
+  { isFeatured: 'desc' },
+  { date: 'asc' },
+  { id: 'asc' },
+]
+const CLOSED_ORDER: Prisma.EventOrderByWithRelationInput[] = [
+  { date: 'desc' },
+  { id: 'desc' },
+]
+
+type ProfileEventsScope = {
+  /** Dono do perfil — de quem é a vitrine. */
+  ownerId: string
+  viewerId?: string
+  /**
+   * Inclui os eventos em que o dono CONFIRMOU presença (de qualquer autor).
+   * Fica a cargo do chamador, que sabe se a atividade social dele é visível ao
+   * viewer — ver listUserEvents.
+   */
+  includeAttended: boolean
+}
+
+type ProfileEventsParams = ProfileEventsScope & {
+  limit: number
+  cursor?: string
+  now?: Date
+}
+
+/**
+ * O que a vitrine mostra. Listagem e contagem saem DAQUI — o número no
+ * cabeçalho depende de quem está olhando (autor privado, bloqueio, evento
+ * privado), então derivar os dois do mesmo predicado é o que impede que ele
+ * conte uma coisa e a grade mostre outra.
+ */
+function profileEventsWhere({
+  ownerId,
+  viewerId,
+  includeAttended,
+}: ProfileEventsScope): Prisma.EventWhereInput {
+  return {
     AND: [
-      { authorId },
+      {
+        // Criou OU vai. Um evento que ele criou e também confirmou casa os dois
+        // lados e continua sendo uma linha só — sem duplicata.
+        OR: [
+          { authorId: ownerId },
+          ...(includeAttended
+            ? [
+                {
+                  attendances: {
+                    some: { userId: ownerId, type: 'CONFIRMED' as const },
+                  },
+                },
+              ]
+            : []),
+        ],
+      },
+      // A partir daqui o autor pode ser outra pessoa (evento de terceiro em que
+      // o dono do perfil vai): as duas réguas passam a proteger QUEM CRIOU.
       { author: visibleAuthorWhere() },
       authorVisibleWhere(viewerId),
-      ...(viewerId !== authorId ? [{ isPublic: true }] : []),
+      ...(viewerId !== ownerId ? [{ isPublic: true }] : []),
     ],
   }
-  const events = (await prisma.event.findMany({
-    where,
-    take: limit,
-    ...(cursor && { skip: 1, cursor: { id: cursor } }),
-    orderBy: [{ isFeatured: 'desc' }, { date: 'asc' }, { id: 'asc' }],
-    include: buildSharedIncludes(),
-  })) as unknown as PrismaSharedEvent[]
+}
 
-  return normalizeSharedList(events, now)
+/**
+ * Total da vitrine. As duas fases da listagem cobrem todo evento que casa o
+ * predicado (ativa = não passado e não cancelado; encerrada = o resto), então
+ * contar o predicado inteiro dá exatamente o que a grade vai mostrar até o fim
+ * da paginação.
+ */
+export function countProfileEvents(
+  scope: ProfileEventsScope,
+): Promise<number> {
+  return prisma.event.count({ where: profileEventsWhere(scope) })
+}
+
+export async function findProfileEvents({
+  ownerId,
+  limit,
+  viewerId,
+  cursor,
+  includeAttended,
+  now = new Date(),
+}: ProfileEventsParams): Promise<SharedEvent[]> {
+  const visible = profileEventsWhere({ ownerId, viewerId, includeAttended })
+  const activeWhere = buildLifecycleWhere({ includePast: false, now })
+  const closedWhere: Prisma.EventWhereInput = {
+    OR: [statusConditionFor('PAST', now), statusConditionFor('CANCELED', now)],
+  }
+
+  function page(
+    phase: Prisma.EventWhereInput,
+    orderBy: Prisma.EventOrderByWithRelationInput[],
+    take: number,
+    from?: string,
+  ) {
+    return prisma.event.findMany({
+      where: { AND: [visible, phase] },
+      take,
+      ...(from && { skip: 1, cursor: { id: from } }),
+      orderBy,
+      include: buildSharedIncludes(),
+    }) as unknown as Promise<PrismaSharedEvent[]>
+  }
+
+  // Em que fase o cursor parou — perguntado com o MESMO predicado da fase, pra
+  // não haver uma segunda régua de "o que é passado" aqui dentro.
+  const resumingClosed = cursor
+    ? !(await prisma.event.findFirst({
+        where: { AND: [{ id: cursor }, activeWhere] },
+        select: { id: true },
+      }))
+    : false
+
+  const active = resumingClosed
+    ? []
+    : await page(activeWhere, ACTIVE_ORDER, limit, cursor)
+  // A página emenda as duas fases: quando a ativa acaba no meio, o resto vem do
+  // começo do histórico em vez de deixar a última página curta.
+  const remaining = limit - active.length
+  const closed =
+    remaining > 0
+      ? await page(
+          closedWhere,
+          CLOSED_ORDER,
+          remaining,
+          resumingClosed ? cursor : undefined,
+        )
+      : []
+
+  return normalizeSharedList([...active, ...closed], now)
 }
 
 export async function findEventAccess(id: string) {
