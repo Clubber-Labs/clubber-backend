@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { MAX_GALLERY_IMAGES } from '../../lib/uploads'
 import { buildApp } from '../../test/app'
 import {
   makeEvent,
@@ -343,9 +344,9 @@ describe('POST /events/:eventId/posts/:postId/images', () => {
     const author = await makeUser()
     const event = await makeEvent(author.id)
     const post = await makePost(author.id, event.id)
-    // Pré-popula o teto (10) direto no banco para não subir 10 imagens.
+    // Pré-popula o teto direto no banco para não subir N imagens pela rota.
     await testPrisma.postImage.createMany({
-      data: Array.from({ length: 10 }, (_, i) => ({
+      data: Array.from({ length: MAX_GALLERY_IMAGES }, (_, i) => ({
         url: `https://fake.storage/posts/${post.id}/${i}.webp`,
         key: `posts/${post.id}/${i}.webp`,
         format: 'webp',

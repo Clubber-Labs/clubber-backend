@@ -880,6 +880,10 @@ export async function findEventImageKeys(eventId: string) {
   })
 }
 
+export async function countEventImages(eventId: string) {
+  return prisma.eventImage.count({ where: { eventId } })
+}
+
 export async function findEventImage(eventId: string, imageId: string) {
   return prisma.eventImage.findFirst({ where: { id: imageId, eventId } })
 }
