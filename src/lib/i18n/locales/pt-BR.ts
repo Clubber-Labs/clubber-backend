@@ -123,6 +123,10 @@ const notifications = {
     title: 'Novo comentário',
     body: '{{actor}} comentou no seu post',
   },
+  commentReply: {
+    title: 'Nova resposta',
+    body: '{{actor}} respondeu seu comentário',
+  },
   eventReaction: {
     title: 'Nova curtida',
     body: '{{actor}} curtiu seu evento',

@@ -308,7 +308,7 @@ export async function hydrateEvents(
         take: 1,
       },
       comments: {
-        where: { author: visibleAuthorWhere() },
+        where: { parentId: null, author: visibleAuthorWhere() },
         orderBy: { createdAt: 'desc' as const },
         take: 2,
         include: buildCommentInclude(viewerId),

@@ -57,7 +57,7 @@ function buildSharedIncludes(): Prisma.EventInclude {
       select: { attendances: true, reactions: true, comments: true },
     },
     comments: {
-      where: { author: visibleAuthorWhere() },
+      where: { parentId: null, author: visibleAuthorWhere() },
       orderBy: { createdAt: 'desc' },
       take: 2,
       include: buildCommentInclude(),

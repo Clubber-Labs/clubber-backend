@@ -62,6 +62,7 @@ export const ERROR_CODES = [
   'SPOT_NOT_FOUND',
   'POST_NOT_FOUND',
   'COMMENT_NOT_FOUND',
+  'PARENT_COMMENT_NOT_FOUND',
   'MESSAGE_NOT_FOUND',
   'CONVERSATION_NOT_FOUND',
   'REACTION_NOT_FOUND',
@@ -150,6 +151,7 @@ export const ERROR_CODES = [
   // Posts e comentários
   'NOT_POST_AUTHOR',
   'NOT_COMMENT_AUTHOR',
+  'COMMENT_REPLY_DEPTH',
   'POST_IMAGE_LIMIT',
 
   // Denúncias / moderação

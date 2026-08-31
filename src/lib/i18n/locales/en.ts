@@ -117,6 +117,10 @@ export const en: Dictionary = {
       title: 'New comment',
       body: '{{actor}} commented on your post',
     },
+    commentReply: {
+      title: 'New reply',
+      body: '{{actor}} replied to your comment',
+    },
     eventReaction: {
       title: 'New like',
       body: '{{actor}} liked your event',

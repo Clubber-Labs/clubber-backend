@@ -15,7 +15,7 @@ const authorSelect = commentAuthorSelect
 export function buildCommentInclude(viewerId?: string): Prisma.CommentInclude {
   return {
     author: { select: commentAuthorSelect },
-    _count: { select: { reactions: true } },
+    _count: { select: { reactions: true, replies: true } },
     ...(viewerId && {
       reactions: {
         where: { userId: viewerId },
@@ -29,13 +29,14 @@ export function buildCommentInclude(viewerId?: string): Prisma.CommentInclude {
 type PrismaComment = Prisma.CommentGetPayload<{
   include: {
     author: { select: typeof authorSelect }
-    _count: { select: { reactions: true } }
+    _count: { select: { reactions: true; replies: true } }
     reactions: { select: { id: true } }
   }
 }>
 
 export type NormalizedComment = Omit<PrismaComment, 'reactions' | '_count'> & {
   reactionsCount: number
+  repliesCount: number
   userLiked: boolean
 }
 
@@ -47,6 +48,7 @@ function normalizeComment(
   return {
     ...rest,
     reactionsCount: _count.reactions,
+    repliesCount: _count.replies,
     userLiked: !!(viewerId && reactions?.length),
   }
 }
@@ -54,7 +56,9 @@ function normalizeComment(
 export async function createComment(
   authorId: string,
   content: string,
-  target: { eventId: string } | { postId: string },
+  target:
+    | { eventId: string; parentId?: string }
+    | { postId: string; parentId?: string },
   viewerId?: string,
 ): Promise<NormalizedComment> {
   const comment = (await prisma.comment.create({
@@ -68,6 +72,9 @@ export async function findCommentById(commentId: string) {
   return prisma.comment.findUnique({ where: { id: commentId } })
 }
 
+// As listagens de evento e post trazem só a raiz da thread (parentId null): as
+// respostas saem por findRepliesByComment, senão apareceriam soltas na lista,
+// fora do contexto do comentário que responderam.
 export async function findCommentsByEvent(
   eventId: string,
   limit: number,
@@ -75,7 +82,7 @@ export async function findCommentsByEvent(
   viewerId?: string,
 ): Promise<NormalizedComment[]> {
   const comments = (await prisma.comment.findMany({
-    where: { eventId, author: visibleAuthorWhere() },
+    where: { eventId, parentId: null, author: visibleAuthorWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'asc' },
@@ -91,7 +98,23 @@ export async function findCommentsByPost(
   viewerId?: string,
 ): Promise<NormalizedComment[]> {
   const comments = (await prisma.comment.findMany({
-    where: { postId, author: visibleAuthorWhere() },
+    where: { postId, parentId: null, author: visibleAuthorWhere() },
+    take: limit,
+    ...(cursor && { skip: 1, cursor: { id: cursor } }),
+    orderBy: { createdAt: 'asc' },
+    include: buildCommentInclude(viewerId),
+  })) as unknown as PrismaComment[]
+  return comments.map((c) => normalizeComment(c, viewerId))
+}
+
+export async function findRepliesByComment(
+  parentId: string,
+  limit: number,
+  cursor?: string,
+  viewerId?: string,
+): Promise<NormalizedComment[]> {
+  const comments = (await prisma.comment.findMany({
+    where: { parentId, author: visibleAuthorWhere() },
     take: limit,
     ...(cursor && { skip: 1, cursor: { id: cursor } }),
     orderBy: { createdAt: 'asc' },
