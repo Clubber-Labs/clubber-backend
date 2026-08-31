@@ -2,20 +2,40 @@ import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
 import { imageProcessorService } from './image-processor.service'
 
-// Como a câmera de celular entrega uma foto de retrato: os pixels ficam na
-// orientação do sensor (deitados) e a correção mora só na tag EXIF.
+// Retrato como a câmera entrega: pixels deitados no sensor (metade esquerda
+// vermelha) e a correção só na tag EXIF, que ao exibir joga essa metade pro topo.
 function portraitFromSensor() {
   return sharp({
-    create: { width: 800, height: 400, channels: 3, background: '#334455' },
+    create: { width: 800, height: 400, channels: 3, background: '#ff0000' },
   })
+    .composite([
+      {
+        input: {
+          create: {
+            width: 400,
+            height: 400,
+            channels: 3,
+            background: '#0000ff',
+          },
+        },
+        left: 400,
+        top: 0,
+      },
+    ])
     .withMetadata({ orientation: 6 })
     .jpeg()
     .toBuffer()
 }
 
+async function pixelAt(image: Buffer, x: number, y: number) {
+  const { data, info } = await sharp(image)
+    .raw()
+    .toBuffer({ resolveWithObject: true })
+  const offset = (y * info.width + x) * info.channels
+  return { r: data[offset], b: data[offset + 2] }
+}
+
 describe('imageProcessorService', () => {
-  // O WebP de saída não carrega a tag de orientação: ou ela vira pixel aqui, ou
-  // a foto chega deitada em toda tela que a exibe.
   it('aplica a orientação EXIF antes de redimensionar', async () => {
     const processed = await imageProcessorService.processEventGallery(
       await portraitFromSensor(),
@@ -24,12 +44,20 @@ describe('imageProcessorService', () => {
     expect([processed.width, processed.height]).toEqual([400, 800])
   })
 
+  // O recorte 1:1 do avatar é sempre 300x300: só o conteúdo denuncia se ele saiu
+  // do lado certo da foto.
   it('recorta o avatar sobre a imagem já orientada', async () => {
     const processed = await imageProcessorService.processProfileAvatar(
       await portraitFromSensor(),
     )
+    const top = await pixelAt(processed.buffer, 80, 20)
+    const bottom = await pixelAt(processed.buffer, 80, 280)
 
     expect([processed.width, processed.height]).toEqual([300, 300])
+    // Orientada, a divisão de cor é horizontal. Sem orientar ela seria vertical,
+    // e os dois pontos — mesma coluna — teriam a mesma cor.
+    expect(top.r).toBeGreaterThan(top.b)
+    expect(bottom.b).toBeGreaterThan(bottom.r)
   })
 
   it('não mexe em imagem sem orientação declarada', async () => {
