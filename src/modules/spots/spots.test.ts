@@ -1107,6 +1107,40 @@ describe('POST /spots/:id/members (entrar)', () => {
     expect(participant).not.toBeNull()
   })
 
+  it('criador que sai do rolê deixa o ADMIN com o primeiro que entrou', async () => {
+    const creator = await makeUser()
+    const primeiro = await makeUser()
+    const segundo = await makeUser()
+    const spot = await makeSpot(creator.id)
+    for (const membro of [primeiro, segundo]) {
+      const join = await app.inject({
+        method: 'POST',
+        url: `/spots/${spot.id}/members`,
+        headers: auth(membro.id),
+      })
+      expect(join.statusCode).toBe(201)
+    }
+
+    // Sair do rolê é sair do grupo — não existe DELETE /spots/:id/members.
+    const left = await app.inject({
+      method: 'POST',
+      url: `/conversations/${spot.conversationId}/leave`,
+      headers: auth(creator.id),
+    })
+    expect(left.statusCode).toBe(204)
+
+    const roles = await testPrisma.conversationParticipant.findMany({
+      where: { conversationId: spot.conversationId, leftAt: null },
+      select: { userId: true, role: true },
+    })
+    expect(roles).toEqual(
+      expect.arrayContaining([
+        { userId: primeiro.id, role: 'ADMIN' },
+        { userId: segundo.id, role: 'MEMBER' },
+      ]),
+    )
+  })
+
   it('criador entrar no próprio spot não rebaixa o role (ADMIN preservado)', async () => {
     const creator = await makeUser()
     const spot = await makeSpot(creator.id)

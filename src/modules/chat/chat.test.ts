@@ -614,6 +614,76 @@ describe('grupos', () => {
       inbox.json().data.some((c: { id: string }) => c.id === group.id),
     ).toBe(false)
   })
+
+  it('saída do último admin passa o bastão pro participante mais antigo', async () => {
+    const owner = await makeUser()
+    const primeiro = await makeUser()
+    const segundo = await makeUser()
+    const group = await makeGroupConversation(owner.id, [])
+    // Entradas sequenciais: joinedAt distinto define quem é o mais antigo.
+    for (const membro of [primeiro, segundo]) {
+      const added = await app.inject({
+        method: 'POST',
+        url: `/conversations/${group.id}/participants`,
+        headers: auth(owner.id),
+        body: { userId: membro.id },
+      })
+      expect(added.statusCode).toBe(201)
+    }
+
+    const left = await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(owner.id),
+    })
+    expect(left.statusCode).toBe(204)
+
+    // O bastão tem que ser efetivo, não só o campo: renomear é ação de admin.
+    const renomeia = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${group.id}`,
+      headers: auth(primeiro.id),
+      body: { title: 'Grupo do primeiro' },
+    })
+    expect(renomeia.statusCode).toBe(200)
+
+    const semBastao = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${group.id}`,
+      headers: auth(segundo.id),
+      body: { title: 'Grupo do segundo' },
+    })
+    expect(semBastao.statusCode).toBe(403)
+  })
+
+  it('saída de admin não promove ninguém enquanto sobra outro admin', async () => {
+    const owner = await makeUser()
+    const antigo = await makeUser()
+    const coadmin = await makeUser()
+    const group = await makeGroupConversation(owner.id, [antigo.id, coadmin.id])
+
+    const promoveu = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${group.id}/participants/${coadmin.id}`,
+      headers: auth(owner.id),
+      body: { role: 'ADMIN' },
+    })
+    expect(promoveu.statusCode).toBe(200)
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(owner.id),
+    })
+
+    const semBastao = await app.inject({
+      method: 'PATCH',
+      url: `/conversations/${group.id}`,
+      headers: auth(antigo.id),
+      body: { title: 'Grupo do antigo' },
+    })
+    expect(semBastao.statusCode).toBe(403)
+  })
 })
 
 describe('bloqueio em DM', () => {
@@ -2131,6 +2201,53 @@ describe('mensagens de sistema em grupo', () => {
       .data.find((m: { type: string }) => m.type === 'SYSTEM')
     expect(sys).toBeDefined()
     expect(sys.content).toContain('saiu do grupo')
+  })
+
+  it('passar o bastão de admin gera mensagem SYSTEM', async () => {
+    const owner = await makeUser()
+    const member = await makeUser()
+    const group = await makeGroupConversation(owner.id, [member.id])
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(owner.id),
+    })
+
+    const history = await app.inject({
+      method: 'GET',
+      url: `/conversations/${group.id}/messages`,
+      headers: auth(member.id),
+    })
+    const sys = history
+      .json()
+      .data.filter((m: { type: string }) => m.type === 'SYSTEM')
+      .map((m: { content: string }) => m.content)
+    expect(sys).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('saiu do grupo'),
+        expect.stringContaining('agora é admin do grupo'),
+      ]),
+    )
+  })
+
+  it('sair sendo o último participante não anuncia bastão nenhum', async () => {
+    const owner = await makeUser()
+    const group = await makeGroupConversation(owner.id, [])
+
+    const left = await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(owner.id),
+    })
+    expect(left.statusCode).toBe(204)
+
+    // Ninguém sobrou pra ler pela API — a contagem basta: se o grupo vazio
+    // tivesse promovido alguém, seriam duas mensagens em vez da saída sozinha.
+    const sistema = await testPrisma.message.count({
+      where: { conversationId: group.id, type: 'SYSTEM' },
+    })
+    expect(sistema).toBe(1)
   })
 
   it('mensagem SYSTEM não conta como não-lida', async () => {

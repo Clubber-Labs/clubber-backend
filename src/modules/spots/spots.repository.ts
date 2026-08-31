@@ -201,8 +201,11 @@ export type SpotMemberPreview = Prisma.UserGetPayload<{
  * LATERAL porque o corte tem que ser POR grupo dentro do SQL: nem `findMany`
  * nem o `take` aninhado do Prisma limitam por conversa (o take corta na engine,
  * depois de trazer TODOS os participantes do lote) — e o feed hidrata até
- * poolSize rolês por request. `id` desempata o `joinedAt` (now() é estável por
- * transação), então a prévia não troca entre requests.
+ * poolSize rolês por request.
+ *
+ * A ordem é a MESMA da lista de participantes do chat (joinedAt, userId — ver
+ * activeParticipantsInclude): quem abre o card e quem abre o grupo tem que ver
+ * o mesmo primeiro membro.
  */
 export async function findMemberPreviewsByConversation(
   conversationIds: string[],
@@ -217,14 +220,14 @@ export async function findMemberPreviewsByConversation(
            u.id, u.name, u.lastname, u.username, u."avatarUrl"
     FROM (VALUES ${ids}) AS c(id)
     CROSS JOIN LATERAL (
-      SELECT cp."userId", cp."joinedAt", cp.id AS "participantId"
+      SELECT cp."userId", cp."joinedAt"
       FROM conversation_participants cp
       WHERE cp."conversationId" = c.id AND cp."leftAt" IS NULL
-      ORDER BY cp."joinedAt" ASC, cp.id ASC
+      ORDER BY cp."joinedAt" ASC, cp."userId" ASC
       LIMIT ${limit}
     ) top
     JOIN users u ON u.id = top."userId"
-    ORDER BY top."joinedAt" ASC, top."participantId" ASC`)
+    ORDER BY top."joinedAt" ASC, top."userId" ASC`)
   const previews = new Map<string, SpotMemberPreview[]>()
   for (const { conversationId, ...member } of rows) {
     const members = previews.get(conversationId) ?? []
