@@ -1,23 +1,10 @@
-import type { NotificationType } from '@prisma/client'
+import { NotificationType } from '@prisma/client'
 import { describe, expect, it } from 'vitest'
 import { renderNotificationContent } from './notification-content'
 
-const ALL_TYPES: NotificationType[] = [
-  'EVENT_NEARBY',
-  'SPOT_NEARBY',
-  'SPOT_JOIN',
-  'SPOT_RENEWAL',
-  'FOLLOW_REQUEST',
-  'FOLLOW_ACCEPTED',
-  'NEW_FOLLOWER',
-  'EVENT_INVITE',
-  'EVENT_COMMENT',
-  'POST_COMMENT',
-  'EVENT_REACTION',
-  'POST_REACTION',
-  'COMMENT_REACTION',
-  'EVENT_ATTENDANCE',
-]
+// Derivado do enum do Prisma: tipo novo entra na guarda sozinho, sem depender
+// de alguém lembrar de estender uma lista aqui.
+const ALL_TYPES = Object.values(NotificationType)
 
 const actor = { name: 'Ana', lastname: 'Lima' }
 
