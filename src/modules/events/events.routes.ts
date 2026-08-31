@@ -7,20 +7,24 @@ import {
 import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteEventHandler,
+  deleteEventImageHandler,
   getEvent,
   getEvents,
   getEventsMap,
   getEventsSearch,
   getEventsViewport,
+  patchEventImagesOrder,
   postEvent,
   putEvent,
   uploadEventImageHandler,
 } from './events.controller'
 import {
   createEventSchema,
+  eventImageParamSchema,
   eventParamSchema,
   listEventsQuerySchema,
   mapEventsQuerySchema,
+  reorderEventImagesSchema,
   searchEventsQuerySchema,
   updateEventSchema,
   viewportQuerySchema,
@@ -117,5 +121,24 @@ export async function eventsRoutes(app: FastifyInstance) {
       config: { rateLimit: rateLimit(20) },
     },
     uploadEventImageHandler,
+  )
+
+  api.delete(
+    '/events/:id/images/:imageId',
+    {
+      schema: { params: eventImageParamSchema },
+      onRequest: [app.authenticate],
+    },
+    deleteEventImageHandler,
+  )
+
+  // Reordenar define a capa: o cliente lê images[0] como banner do evento.
+  api.patch(
+    '/events/:id/images',
+    {
+      schema: { params: eventParamSchema, body: reorderEventImagesSchema },
+      onRequest: [app.authenticate],
+    },
+    patchEventImagesOrder,
   )
 }
