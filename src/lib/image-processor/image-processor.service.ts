@@ -15,11 +15,8 @@ async function process(
   quality: number,
 ): Promise<ProcessedImage> {
   try {
-    // Câmera de celular grava os pixels na orientação do sensor e diz o resto na
-    // tag EXIF Orientation. O WebP de saída não carrega essa tag, então sem
-    // aplicá-la aqui a foto de retrato chega deitada — e o recorte do avatar
-    // sairia do lado errado da imagem. Vem antes do resize: é o que faz o
-    // 1920x1080 valer sobre as dimensões já corrigidas.
+    // A correção da câmera vem na tag EXIF, que o WebP de saída não carrega:
+    // sem virar pixel aqui — e antes do resize — o retrato chega deitado.
     const { data, info } = await sharp(buffer)
       .autoOrient()
       .resize(resize)
