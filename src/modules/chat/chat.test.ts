@@ -2203,6 +2203,53 @@ describe('mensagens de sistema em grupo', () => {
     expect(sys.content).toContain('saiu do grupo')
   })
 
+  it('passar o bastão de admin gera mensagem SYSTEM', async () => {
+    const owner = await makeUser()
+    const member = await makeUser()
+    const group = await makeGroupConversation(owner.id, [member.id])
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(owner.id),
+    })
+
+    const history = await app.inject({
+      method: 'GET',
+      url: `/conversations/${group.id}/messages`,
+      headers: auth(member.id),
+    })
+    const sys = history
+      .json()
+      .data.filter((m: { type: string }) => m.type === 'SYSTEM')
+      .map((m: { content: string }) => m.content)
+    expect(sys).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('saiu do grupo'),
+        expect.stringContaining('agora é admin do grupo'),
+      ]),
+    )
+  })
+
+  it('sair sendo o último participante não anuncia bastão nenhum', async () => {
+    const owner = await makeUser()
+    const group = await makeGroupConversation(owner.id, [])
+
+    const left = await app.inject({
+      method: 'POST',
+      url: `/conversations/${group.id}/leave`,
+      headers: auth(owner.id),
+    })
+    expect(left.statusCode).toBe(204)
+
+    // Ninguém sobrou pra ler pela API — a contagem basta: se o grupo vazio
+    // tivesse promovido alguém, seriam duas mensagens em vez da saída sozinha.
+    const sistema = await testPrisma.message.count({
+      where: { conversationId: group.id, type: 'SYSTEM' },
+    })
+    expect(sistema).toBe(1)
+  })
+
   it('mensagem SYSTEM não conta como não-lida', async () => {
     const owner = await makeUser()
     const member = await makeUser()
