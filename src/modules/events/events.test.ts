@@ -2917,3 +2917,44 @@ describe('evento com estabelecimento (Google Places)', () => {
     expect(series?.venueName).toBe('Bar do Zé')
   })
 })
+
+// O mesmo evento aparece em quatro superfícies e o contador tem que dizer a
+// mesma coisa nas quatro. Só o /feed filtrava por presença positiva; lista,
+// mapa e detalhe contavam NOT_INTERESTED junto.
+describe('coerência de _count.attendances entre as superfícies', () => {
+  it('não conta NOT_INTERESTED em lista, mapa, detalhe nem feed', async () => {
+    const viewer = await makeUser()
+    const author = await makeUser()
+    await makeFollow(viewer.id, author.id)
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const confirmed = await makeUser()
+    const interested = await makeUser()
+    const declined = await makeUser()
+    await makeAttendance(confirmed.id, event.id, 'CONFIRMED')
+    await makeAttendance(interested.id, event.id, 'INTERESTED')
+    await makeAttendance(declined.id, event.id, 'NOT_INTERESTED')
+
+    const auth = { authorization: `Bearer ${token(app, viewer.id)}` }
+    const [list, map, detail, feed] = await Promise.all([
+      app.inject({ method: 'GET', url: '/events', headers: auth }),
+      app.inject({
+        method: 'GET',
+        url: `/events/map/events?${BBOX_IN}`,
+        headers: auth,
+      }),
+      app.inject({ method: 'GET', url: `/events/${event.id}`, headers: auth }),
+      app.inject({ method: 'GET', url: '/feed', headers: auth }),
+    ])
+
+    const find = (res: { json: () => { data: { id: string }[] } }) =>
+      res.json().data.find((e) => e.id === event.id) as unknown as {
+        _count: { attendances: number }
+      }
+
+    expect(find(list)._count.attendances).toBe(2)
+    expect(find(map)._count.attendances).toBe(2)
+    expect(detail.json()._count.attendances).toBe(2)
+    expect(find(feed)._count.attendances).toBe(2)
+  })
+})

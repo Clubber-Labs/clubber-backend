@@ -1,9 +1,24 @@
-import type { Prisma } from '@prisma/client'
+import type { AttendanceType, Prisma } from '@prisma/client'
 import {
   DEFAULT_DURATION_MS,
   type EventStatus,
   SOON_THRESHOLD_MS,
 } from './event-lifecycle'
+
+/**
+ * Presença que conta como "vai". NOT_INTERESTED é resposta explícita de quem
+ * NÃO vai — somá-la ao contador diria o oposto do que o número promete.
+ */
+export const POSITIVE_ATTENDANCE: AttendanceType[] = ['CONFIRMED', 'INTERESTED']
+
+/**
+ * Predicado do contador de presenças. Igual ao visibleCommentWhere: contador e
+ * lista que ele resume têm que concordar, e o mesmo evento aparece em lista,
+ * mapa, detalhe e feed — quatro superfícies, um predicado só.
+ */
+export function goingAttendanceWhere(): Prisma.EventAttendanceWhereInput {
+  return { type: { in: POSITIVE_ATTENDANCE } }
+}
 
 export function statusConditionFor(
   status: EventStatus,
