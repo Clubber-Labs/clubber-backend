@@ -1,6 +1,7 @@
 import { AppError } from '../../lib/errors/app-error'
+import { computeEventStatus } from '../../lib/event-lifecycle'
 import { checkEventAccess } from '../event-invites/event-invites.access'
-import { findEventById } from '../events/events.repository'
+import { findEventGate } from '../events/events.repository'
 import {
   type CheckInUser,
   countCheckIns,
@@ -10,24 +11,22 @@ import {
 } from './event-check-ins.repository'
 
 export async function checkInToEvent(eventId: string, userId: string) {
-  const event = await findEventById(eventId)
+  const event = await findEventGate(eventId)
   if (!event) {
     throw new AppError(404, 'EVENT_NOT_FOUND')
   }
-  await checkEventAccess(
-    event as { id: string; isPublic: boolean; authorId: string },
-    userId,
-  )
+  await checkEventAccess(event, userId)
 
   // Check-in é presença física: só existe enquanto a festa acontece. Fora da
   // janela o app nem mostra o botão, mas tela parada ainda consegue postar.
-  if (event.status === 'CANCELED') {
+  const status = computeEventStatus(event)
+  if (status === 'CANCELED') {
     throw new AppError(400, 'EVENT_CANCELED')
   }
-  if (event.status === 'PAST') {
+  if (status === 'PAST') {
     throw new AppError(400, 'EVENT_ENDED')
   }
-  if (event.status !== 'ONGOING') {
+  if (status !== 'ONGOING') {
     throw new AppError(400, 'EVENT_NOT_STARTED')
   }
 

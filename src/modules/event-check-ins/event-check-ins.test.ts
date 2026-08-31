@@ -196,6 +196,22 @@ describe('POST /events/:eventId/check-ins', () => {
     expect(res.statusCode).toBe(404)
   })
 
+  // Mesma régua do GET /events/:id: evento de autor invisível não existe para
+  // quem chega. Sem isso, a tela some mas o "cheguei" continuaria respondendo.
+  it('retorna 404 em evento de autor desativado', async () => {
+    const author = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, liveWindow())
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/check-ins`,
+      headers: { authorization: `Bearer ${token(app, guest.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
   it('retorna 401 sem autenticação', async () => {
     const author = await makeUser()
     const event = await makeEvent(author.id, liveWindow())
