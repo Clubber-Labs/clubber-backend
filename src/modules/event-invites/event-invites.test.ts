@@ -62,6 +62,101 @@ describe('POST /events/:eventId/invites', () => {
     expect(res.json()).toMatchObject({ invited: 2 })
   })
 
+  it('convida só os selecionados quando o app manda invitedIds', async () => {
+    const author = await makeUser()
+    const follower1 = await makeUser()
+    const follower2 = await makeUser()
+    const guest = await makeUser()
+    await makeFollow(follower1.id, author.id)
+    await makeFollow(follower2.id, author.id)
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { invitedIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 1 })
+    const invited = await testPrisma.eventInvite.findMany({
+      where: { eventId: event.id },
+      select: { invitedId: true },
+    })
+    expect(invited.map((i) => i.invitedId)).toEqual([guest.id])
+  })
+
+  it('convida todos os seguidores com all: true', async () => {
+    const author = await makeUser()
+    const follower1 = await makeUser()
+    const follower2 = await makeUser()
+    await makeFollow(follower1.id, author.id)
+    await makeFollow(follower2.id, author.id)
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { all: true },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ invited: 2 })
+  })
+
+  it('rejeita chave desconhecida em vez de cair no fan-out de seguidores', async () => {
+    const author = await makeUser()
+    const follower = await makeUser()
+    const guest = await makeUser()
+    await makeFollow(follower.id, author.id)
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { invitedUserIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(
+      await testPrisma.eventInvite.count({ where: { eventId: event.id } }),
+    ).toBe(0)
+  })
+
+  it('rejeita all: true junto com ids selecionados', async () => {
+    const author = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { all: true, userIds: [guest.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('rejeita userIds e invitedIds no mesmo corpo', async () => {
+    const author = await makeUser()
+    const guest1 = await makeUser()
+    const guest2 = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/invites`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { userIds: [guest1.id], invitedIds: [guest2.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
   it('retorna 403 se não for o autor', async () => {
     const author = await makeUser()
     const other = await makeUser()

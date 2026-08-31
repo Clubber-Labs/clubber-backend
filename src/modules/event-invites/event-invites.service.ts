@@ -34,8 +34,9 @@ export async function inviteToEvent(
     throw new AppError(400, 'EVENT_ENDED')
   }
 
-  // Se userIds não foi fornecido, convida todos os seguidores DO CONVIDADOR
-  const requested = body?.userIds ?? (await findFollowerIds(inviterId))
+  // Sem lista (com ou sem `all`), convida todos os seguidores DO CONVIDADOR
+  const selected = body?.userIds ?? body?.invitedIds
+  const requested = selected ?? (await findFollowerIds(inviterId))
   let targetIds = requested.filter(
     (id) => id !== inviterId && id !== event.authorId,
   )
