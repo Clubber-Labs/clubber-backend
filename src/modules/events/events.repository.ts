@@ -498,6 +498,26 @@ export async function findProfileEvents({
   return normalizeSharedList([...active, ...closed], now)
 }
 
+/**
+ * Acesso + ciclo de vida, sem o include pesado do findEventById: o suficiente
+ * para checkEventAccess e computeEventStatus. Mantém o filtro de autor visível
+ * do findEventById — evento que o GET /events/:id esconde não pode continuar
+ * aceitando escrita por outra porta.
+ */
+export async function findEventGate(id: string) {
+  return prisma.event.findFirst({
+    where: { id, author: visibleAuthorWhere() },
+    select: {
+      id: true,
+      isPublic: true,
+      authorId: true,
+      date: true,
+      endDate: true,
+      canceledAt: true,
+    },
+  })
+}
+
 export async function findEventAccess(id: string) {
   return prisma.event.findUnique({
     where: { id },

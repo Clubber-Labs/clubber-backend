@@ -8,6 +8,7 @@ import {
   MAX_GALLERY_IMAGES,
   uploadEventImage,
 } from '../../lib/uploads'
+import { getCheckInSummary } from '../event-check-ins/event-check-ins.service'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import { enqueueEventCreated } from '../notifications/notification-queue'
@@ -336,7 +337,10 @@ export async function getEventById(id: string, requesterId?: string) {
       ? findViewerStatesForEvents(requesterId, [event.id], commentIds)
       : Promise.resolve(null),
   ])
-  const topMap = await findTopAttendancesByEvent([event.id], followingIds)
+  const [topMap, checkIns] = await Promise.all([
+    findTopAttendancesByEvent([event.id], followingIds),
+    getCheckInSummary(event.id, followingIds, requesterId),
+  ])
   // friendAttendances é o subconjunto de amigos do topAttendances (mesma fonte,
   // sem segunda query) — alinhado com viewport e feed.
   const top = topMap.get(event.id) ?? []
@@ -348,7 +352,7 @@ export async function getEventById(id: string, requesterId?: string) {
   const normalized = states
     ? hydrateWithState(event, states.get(event.id))
     : hydrateAnon(event)
-  return { ...normalized, topAttendances, friendAttendances }
+  return { ...normalized, topAttendances, friendAttendances, checkIns }
 }
 
 // Invalida os caches de leitura de eventos (lista pública + viewport do mapa).

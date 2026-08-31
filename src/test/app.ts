@@ -24,6 +24,7 @@ import { categoriesRoutes } from '../modules/categories/categories.routes'
 import { chatRoutes } from '../modules/chat/chat.routes'
 import { commentsRoutes } from '../modules/comments/comments.routes'
 import { consentRoutes } from '../modules/consent/consent.routes'
+import { eventCheckInsRoutes } from '../modules/event-check-ins/event-check-ins.routes'
 import { eventInviteLinksRoutes } from '../modules/event-invite-links/event-invite-links.routes'
 import { eventInvitesRoutes } from '../modules/event-invites/event-invites.routes'
 import { eventStatsRoutes } from '../modules/event-stats/event-stats.routes'
@@ -100,6 +101,7 @@ export function buildApp() {
   app.register(reactionsRoutes)
   app.register(feedRoutes)
   app.register(eventInvitesRoutes)
+  app.register(eventCheckInsRoutes)
   app.register(eventInviteLinksRoutes)
   app.register(shareRoutes)
   app.register(reportsRoutes)
