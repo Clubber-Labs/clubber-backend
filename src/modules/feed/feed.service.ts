@@ -382,7 +382,9 @@ async function hydrateSpots(
       item: {
         ...shapeSpot(spot, memberCount),
         // Prévia do pulso social do card; o "+N" do mobile sai do memberCount.
-        members: memberPreviews.get(spot.conversationId) ?? [spot.creator],
+        // Sem participante ativo vem vazio: o criador pode ter saído do grupo
+        // (nada impede), e reinventá-lo aqui contradiria o memberCount 0.
+        members: memberPreviews.get(spot.conversationId) ?? [],
         reason,
         type: 'SPOT' as const,
       },

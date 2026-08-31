@@ -197,28 +197,39 @@ export type SpotMemberPreview = Prisma.UserGetPayload<{
 /**
  * Prévia do grupo por conversa: os primeiros membros ativos em ordem de
  * entrada (o criador vem primeiro por construção — entrou na criação).
- * Busca todos e corta em JS: LIMIT por grupo exigiria lateral join, e grupo
- * de rolê é pequeno por natureza (janela de 24h).
+ *
+ * LATERAL porque o corte tem que ser POR grupo dentro do SQL: nem `findMany`
+ * nem o `take` aninhado do Prisma limitam por conversa (o take corta na engine,
+ * depois de trazer TODOS os participantes do lote) — e o feed hidrata até
+ * poolSize rolês por request. `id` desempata o `joinedAt` (now() é estável por
+ * transação), então a prévia não troca entre requests.
  */
 export async function findMemberPreviewsByConversation(
   conversationIds: string[],
   limit: number,
 ): Promise<Map<string, SpotMemberPreview[]>> {
   if (conversationIds.length === 0) return new Map()
-  const rows = await prisma.conversationParticipant.findMany({
-    where: { conversationId: { in: conversationIds }, leftAt: null },
-    // id desempata joinedAt (now() é estável por transação) — ordem arbitrária
-    // porém determinística, pra prévia não trocar entre requests.
-    orderBy: [{ joinedAt: 'asc' }, { id: 'asc' }],
-    select: { conversationId: true, user: { select: creatorSelect } },
-  })
+  const ids = Prisma.join(conversationIds.map((id) => Prisma.sql`(${id})`))
+  const rows = await prisma.$queryRaw<
+    (SpotMemberPreview & { conversationId: string })[]
+  >(Prisma.sql`
+    SELECT c.id AS "conversationId",
+           u.id, u.name, u.lastname, u.username, u."avatarUrl"
+    FROM (VALUES ${ids}) AS c(id)
+    CROSS JOIN LATERAL (
+      SELECT cp."userId", cp."joinedAt", cp.id AS "participantId"
+      FROM conversation_participants cp
+      WHERE cp."conversationId" = c.id AND cp."leftAt" IS NULL
+      ORDER BY cp."joinedAt" ASC, cp.id ASC
+      LIMIT ${limit}
+    ) top
+    JOIN users u ON u.id = top."userId"
+    ORDER BY top."joinedAt" ASC, top."participantId" ASC`)
   const previews = new Map<string, SpotMemberPreview[]>()
-  for (const row of rows) {
-    const members = previews.get(row.conversationId) ?? []
-    if (members.length < limit) {
-      members.push(row.user)
-      previews.set(row.conversationId, members)
-    }
+  for (const { conversationId, ...member } of rows) {
+    const members = previews.get(conversationId) ?? []
+    members.push(member)
+    previews.set(conversationId, members)
   }
   return previews
 }

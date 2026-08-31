@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { SPOT_MEMBER_PREVIEW } from './feed.service'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
@@ -15,6 +14,7 @@ import {
   makeUserSubcategoryPreference,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
+import { SPOT_MEMBER_PREVIEW } from './feed.service'
 
 let app: FastifyInstance
 
@@ -1556,6 +1556,77 @@ describe('GET /feed — kinds (eventos e rolês misturados)', () => {
       expect(participantIds).toContain(member.id)
       expect(member.username).toEqual(expect.any(String))
     }
+  })
+
+  it('o teto da prévia é por rolê, e a ordem é a de entrada no grupo', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const cheio = await makeSpot(creator.id, {
+      memberIds: (
+        await Promise.all(
+          Array.from({ length: SPOT_MEMBER_PREVIEW }, () => makeUser()),
+        )
+      ).map((u) => u.id),
+    })
+    const pequeno = await makeSpot(creator.id)
+    // Entradas sequenciais pelo endpoint: joinedAt distinto, ordem observável
+    // (o mesmo `makeSpot` empata tudo no now() da transação).
+    const entrantes = [await makeUser(), await makeUser()]
+    for (const entrante of entrantes) {
+      const join = await app.inject({
+        method: 'POST',
+        url: `/spots/${pequeno.id}/members`,
+        headers: { authorization: `Bearer ${token(app, entrante.id)}` },
+      })
+      expect(join.statusCode).toBe(201)
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=SPOTS&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const data = res.json().data as {
+      id: string
+      memberCount: number
+      members: { id: string }[]
+    }[]
+    const byId = new Map(data.map((i) => [i.id, i]))
+    // O LIMIT do rolê cheio não pode consumir a cota do vizinho no mesmo lote.
+    expect(byId.get(cheio.id)?.members).toHaveLength(SPOT_MEMBER_PREVIEW)
+    expect(byId.get(pequeno.id)?.members.map((m) => m.id)).toEqual([
+      creator.id,
+      ...entrantes.map((u) => u.id),
+    ])
+  })
+
+  it('rolê sem participante ativo vem sem prévia (criador saiu do grupo)', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    const saiu = await app.inject({
+      method: 'POST',
+      url: `/conversations/${spot.conversationId}/leave`,
+      headers: { authorization: `Bearer ${token(app, creator.id)}` },
+    })
+    expect(saiu.statusCode).toBe(204)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=SPOTS&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const item = res
+      .json()
+      .data.find((i: { id: string }) => i.id === spot.id) as {
+      memberCount: number
+      members: unknown[]
+    }
+    expect(item.memberCount).toBe(0)
+    expect(item.members).toEqual([])
   })
 
   it('rolê FRIENDS de estranho fica fora da mescla', async () => {
