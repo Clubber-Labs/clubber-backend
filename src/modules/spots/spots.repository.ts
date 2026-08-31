@@ -190,6 +190,24 @@ export async function countActiveMembersByConversation(
   return new Map(rows.map((r) => [r.conversationId, r._count._all]))
 }
 
+/** Amigos (ids dados) ativos por conversa — sinal de ranking do feed misto. */
+export async function countFriendMembersByConversation(
+  conversationIds: string[],
+  friendIds: string[],
+): Promise<Map<string, number>> {
+  if (conversationIds.length === 0 || friendIds.length === 0) return new Map()
+  const rows = await prisma.conversationParticipant.groupBy({
+    by: ['conversationId'],
+    where: {
+      conversationId: { in: conversationIds },
+      userId: { in: friendIds },
+      leftAt: null,
+    },
+    _count: { _all: true },
+  })
+  return new Map(rows.map((r) => [r.conversationId, r._count._all]))
+}
+
 type SpotListFilters = {
   category?: string[]
   status?: EventStatus[]

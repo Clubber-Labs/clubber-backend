@@ -8,6 +8,7 @@ import {
   makeFollow,
   makeInvite,
   makeReaction,
+  makeSpot,
   makeUser,
   makeUserCategoryPreference,
   makeUserSubcategoryPreference,
@@ -1436,5 +1437,142 @@ describe('GET /feed — slot promovido', () => {
     expect(second.statusCode).toBe(200)
     const data = second.json().data as FeedItem[]
     expect(data.some((e) => e.promoted === true)).toBe(false)
+  })
+})
+
+describe('GET /feed — kinds (eventos e rolês misturados)', () => {
+  const NEAR_QS = `nearLat=${NEAR.lat}&nearLng=${NEAR.lng}`
+
+  it('kinds=ALL mistura eventos e rolês, discriminados por type', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const event = await makeEvent(viewer.id, { isPublic: true })
+    const spot = await makeSpot(creator.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=ALL&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const data = res.json().data as { id: string; type: string }[]
+    const byId = new Map(data.map((i) => [i.id, i.type]))
+    expect(byId.get(event.id)).toBe('EVENT')
+    expect(byId.get(spot.id)).toBe('SPOT')
+  })
+
+  it('kinds=SPOTS traz só rolês; default (sem kinds) segue só eventos', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const event = await makeEvent(viewer.id, { isPublic: true })
+    const spot = await makeSpot(creator.id)
+
+    const onlySpots = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=SPOTS&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const spotIds = onlySpots.json().data.map((i: { id: string }) => i.id)
+    expect(spotIds).toContain(spot.id)
+    expect(spotIds).not.toContain(event.id)
+
+    // Sem kinds, o contrato antigo se mantém — e o cache não vaza entre kinds.
+    const legacy = await app.inject({
+      method: 'GET',
+      url: `/feed?${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const legacyIds = legacy.json().data.map((i: { id: string }) => i.id)
+    expect(legacyIds).toContain(event.id)
+    expect(legacyIds).not.toContain(spot.id)
+  })
+
+  it('kinds=ALL sem localização não traz rolês', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const event = await makeEvent(viewer.id, { isPublic: true })
+    const spot = await makeSpot(creator.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/feed?kinds=ALL',
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const ids = res.json().data.map((i: { id: string }) => i.id)
+    expect(ids).toContain(event.id)
+    expect(ids).not.toContain(spot.id)
+  })
+
+  it('rolê fora do raio efetivo não entra (raio salvo do viewer)', async () => {
+    const viewer = await makeUser() // spotRadiusKm default: 10 km
+    const creator = await makeUser()
+    const perto = await makeSpot(creator.id)
+    const saoPaulo = await makeSpot(creator.id, {
+      latitude: -23.55,
+      longitude: -46.63, // ~340 km de Curitiba
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=SPOTS&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const ids = res.json().data.map((i: { id: string }) => i.id)
+    expect(ids).toContain(perto.id)
+    expect(ids).not.toContain(saoPaulo.id)
+  })
+
+  it('rolê FRIENDS de estranho fica fora da mescla', async () => {
+    const viewer = await makeUser()
+    const stranger = await makeUser()
+    const hidden = await makeSpot(stranger.id, { visibility: 'FRIENDS' })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/feed?kinds=ALL&${NEAR_QS}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+    const ids = res.json().data.map((i: { id: string }) => i.id)
+    expect(ids).not.toContain(hidden.id)
+  })
+
+  it('paginação mesclada não duplica nem perde itens entre páginas', async () => {
+    const viewer = await makeUser()
+    const creator = await makeUser()
+    const eventos = await Promise.all(
+      Array.from({ length: 4 }, () => makeEvent(viewer.id, { isPublic: true })),
+    )
+    const roles = await Promise.all(
+      Array.from({ length: 3 }, () => makeSpot(creator.id)),
+    )
+    const expected = new Set([
+      ...eventos.map((e) => e.id),
+      ...roles.map((s) => s.id),
+    ])
+
+    const seen: string[] = []
+    let cursor: string | null = null
+    for (let i = 0; i < 5; i++) {
+      const url: string = `/feed?kinds=ALL&${NEAR_QS}&limit=3${
+        cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''
+      }`
+      const res = await app.inject({
+        method: 'GET',
+        url,
+        headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as {
+        data: { id: string }[]
+        nextCursor: string | null
+      }
+      seen.push(...body.data.map((d) => d.id))
+      cursor = body.nextCursor
+      if (!cursor) break
+    }
+
+    expect(new Set(seen).size).toBe(seen.length)
+    expect(new Set(seen)).toEqual(expected)
   })
 })
