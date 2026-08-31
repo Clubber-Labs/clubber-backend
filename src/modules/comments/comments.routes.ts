@@ -8,8 +8,10 @@ import { rateLimit } from '../../lib/rate-limit'
 import {
   deleteEventComment,
   deletePostComment,
+  getEventCommentById,
   getEventCommentReplies,
   getEventComments,
+  getPostCommentById,
   getPostCommentReplies,
   getPostComments,
   postEventComment,
@@ -55,6 +57,17 @@ export async function commentsRoutes(app: FastifyInstance) {
     getEventComments,
   )
 
+  // Um comentário pelo id: o deep-link da notificação de resposta chega com o
+  // id da RESPOSTA, e é o `parentId` daqui que diz qual thread abrir.
+  api.get(
+    '/events/:eventId/comments/:commentId',
+    {
+      schema: { params: eventCommentIdParamSchema },
+      onRequest: [app.authenticate],
+    },
+    getEventCommentById,
+  )
+
   api.get(
     '/events/:eventId/comments/:commentId/replies',
     {
@@ -95,6 +108,15 @@ export async function commentsRoutes(app: FastifyInstance) {
       onRequest: [app.authenticate],
     },
     getPostComments,
+  )
+
+  api.get(
+    '/posts/:postId/comments/:commentId',
+    {
+      schema: { params: postCommentIdParamSchema },
+      onRequest: [app.authenticate],
+    },
+    getPostCommentById,
   )
 
   api.get(

@@ -89,6 +89,23 @@ export async function findCommentById(commentId: string) {
   return prisma.comment.findUnique({ where: { id: commentId } })
 }
 
+/**
+ * Um comentário no mesmo formato da listagem — inclusive `parentId`, que é o
+ * que permite sair de uma resposta para a thread dela. Filtra por autor visível
+ * como a listagem e o /replies: comentário que não aparece por lá não pode
+ * aparecer por aqui.
+ */
+export async function findCommentDetail(
+  commentId: string,
+  viewerId?: string,
+): Promise<NormalizedComment | null> {
+  const comment = (await prisma.comment.findFirst({
+    where: { id: commentId, author: visibleAuthorWhere() },
+    include: buildCommentInclude(viewerId),
+  })) as unknown as PrismaComment | null
+  return comment ? normalizeComment(comment, viewerId) : null
+}
+
 // As listagens de evento e post trazem só a raiz da thread (parentId null): as
 // respostas saem por findRepliesByComment, senão apareceriam soltas na lista,
 // fora do contexto do comentário que responderam.
