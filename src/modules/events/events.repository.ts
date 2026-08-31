@@ -870,3 +870,39 @@ export async function findEventImageKeys(eventId: string) {
     select: { key: true },
   })
 }
+
+export async function findEventImage(eventId: string, imageId: string) {
+  return prisma.eventImage.findFirst({ where: { id: imageId, eventId } })
+}
+
+export async function findEventImageIds(eventId: string) {
+  const images = await prisma.eventImage.findMany({
+    where: { eventId },
+    select: { id: true },
+  })
+  return images.map((image) => image.id)
+}
+
+export async function findEventImages(eventId: string) {
+  return prisma.eventImage.findMany({
+    where: { eventId },
+    orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+    select: eventImageSelect,
+  })
+}
+
+export async function deleteEventImage(imageId: string) {
+  return prisma.eventImage.delete({ where: { id: imageId } })
+}
+
+export async function reorderEventImages(eventId: string, order: string[]) {
+  await prisma.$transaction(
+    order.map((imageId, index) =>
+      prisma.eventImage.update({
+        where: { id: imageId },
+        data: { order: index },
+      }),
+    ),
+  )
+  return findEventImages(eventId)
+}

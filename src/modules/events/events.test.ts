@@ -7,6 +7,7 @@ import {
   makeBlock,
   makeComment,
   makeEvent,
+  makeEventImage,
   makeFollow,
   makeInvite,
   makeUser,
@@ -1682,6 +1683,218 @@ describe('POST /events/:id/images', () => {
       remoteAddress,
     })
     expect(blocked.statusCode).toBe(429)
+  })
+})
+
+describe('DELETE /events/:id/images/:imageId', () => {
+  it('autor remove a imagem e o blob some do provider', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const image = await makeEventImage(event.id, { key: 'events/x/capa' })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/events/${event.id}/images/${image.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(204)
+    expect(fakeStorage.deleted).toContain('events/x/capa')
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+    })
+    expect(detail.json().images).toHaveLength(0)
+  })
+
+  it('remover a capa promove a próxima imagem a capa', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const capa = await makeEventImage(event.id, {
+      url: 'https://cdn.test/capa.webp',
+      order: 0,
+    })
+    await makeEventImage(event.id, {
+      url: 'https://cdn.test/segunda.webp',
+      order: 1,
+    })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/events/${event.id}/images/${capa.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(204)
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+    })
+    const images = detail.json().images
+    expect(images).toHaveLength(1)
+    expect(images[0].url).toBe('https://cdn.test/segunda.webp')
+  })
+
+  it('retorna 404 se a imagem for de outro evento', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const other = await makeEvent(author.id)
+    const image = await makeEventImage(other.id)
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/events/${event.id}/images/${image.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(fakeStorage.deleted).toHaveLength(0)
+  })
+
+  it('retorna 403 se requester não for o autor', async () => {
+    const author = await makeUser()
+    const other = await makeUser()
+    const event = await makeEvent(author.id)
+    const image = await makeEventImage(event.id)
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/events/${event.id}/images/${image.id}`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+    expect(fakeStorage.deleted).toHaveLength(0)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const image = await makeEventImage(event.id)
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/events/${event.id}/images/${image.id}`,
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('PATCH /events/:id/images', () => {
+  it('autor reordena e a nova primeira vira a capa', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const primeira = await makeEventImage(event.id, {
+      url: 'https://cdn.test/primeira.webp',
+      order: 0,
+    })
+    const segunda = await makeEventImage(event.id, {
+      url: 'https://cdn.test/segunda.webp',
+      order: 1,
+    })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${event.id}/images`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { order: [segunda.id, primeira.id] },
+    })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.map((i: { id: string }) => i.id)).toEqual([
+      segunda.id,
+      primeira.id,
+    ])
+    expect(body[0]).not.toHaveProperty('key')
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+    })
+    expect(detail.json().images[0].url).toBe('https://cdn.test/segunda.webp')
+  })
+
+  it('retorna 400 se a lista não cobrir todas as imagens do evento', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const primeira = await makeEventImage(event.id, { order: 0 })
+    await makeEventImage(event.id, { order: 1 })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${event.id}/images`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { order: [primeira.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 se a lista trouxer imagem de outro evento', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const other = await makeEvent(author.id)
+    const image = await makeEventImage(event.id, { order: 0 })
+    const alheia = await makeEventImage(other.id, { order: 0 })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${event.id}/images`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { order: [image.id, alheia.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 400 com id duplicado na lista', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const image = await makeEventImage(event.id, { order: 0 })
+    await makeEventImage(event.id, { order: 1 })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${event.id}/images`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { order: [image.id, image.id] },
+    })
+
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('retorna 403 se requester não for o autor', async () => {
+    const author = await makeUser()
+    const other = await makeUser()
+    const event = await makeEvent(author.id)
+    const image = await makeEventImage(event.id, { order: 0 })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${event.id}/images`,
+      headers: { authorization: `Bearer ${token(app, other.id)}` },
+      body: { order: [image.id] },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const image = await makeEventImage(event.id, { order: 0 })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/events/${event.id}/images`,
+      body: { order: [image.id] },
+    })
+
+    expect(res.statusCode).toBe(401)
   })
 })
 

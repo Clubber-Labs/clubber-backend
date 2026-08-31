@@ -11,8 +11,11 @@ import {
   createEvent,
   createEventImage,
   deleteEvent,
+  deleteEventImage,
   findEventAccess,
   findEventById,
+  findEventImage,
+  findEventImageIds,
   findEventImageKeys,
   findEventsByAuthor,
   findEventsForMap,
@@ -21,6 +24,7 @@ import {
   findTopAttendancesByEvent,
   findViewerStatesForEvents,
   type NormalizedEvent,
+  reorderEventImages,
   type SharedEvent,
   searchEvents,
   updateEvent,
@@ -456,4 +460,53 @@ export async function addEventImage(
     await deleteUploaded(uploaded.key, logger)
     throw err
   }
+}
+
+export async function removeEventImage(
+  id: string,
+  imageId: string,
+  requesterId: string,
+  logger: Logger,
+) {
+  const event = await findEventAccess(id)
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
+  if (event.authorId !== requesterId) throw new AppError(403, 'FORBIDDEN')
+
+  const image = await findEventImage(id, imageId)
+  if (!image) throw new AppError(404, 'EVENT_IMAGE_NOT_FOUND')
+
+  await deleteEventImage(imageId)
+  await deleteUploaded(image.key, logger)
+  if (event.isPublic) {
+    await invalidateEventCaches()
+  }
+}
+
+export async function reorderEventImagesService(
+  id: string,
+  order: string[],
+  requesterId: string,
+) {
+  const event = await findEventAccess(id)
+  if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
+  if (event.authorId !== requesterId) throw new AppError(403, 'FORBIDDEN')
+
+  // A lista tem que ser um rearranjo exato do conjunto atual: id repetido,
+  // faltando ou de outro evento deixaria imagem sem posição definida — ou
+  // reposicionaria a imagem de um evento alheio.
+  const current = await findEventImageIds(id)
+  const requested = new Set(order)
+  if (
+    requested.size !== order.length ||
+    requested.size !== current.length ||
+    !current.every((imageId) => requested.has(imageId))
+  ) {
+    throw new AppError(400, 'IMAGE_ORDER_MISMATCH')
+  }
+
+  const images = await reorderEventImages(id, order)
+  if (event.isPublic) {
+    await invalidateEventCaches()
+  }
+  return images
 }

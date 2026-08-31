@@ -3,9 +3,11 @@ import { AppError } from '../../lib/errors/app-error'
 import { assertImageMimetype } from '../../lib/uploads'
 import type {
   CreateEventBody,
+  EventImageParams,
   EventParams,
   ListEventsQuery,
   MapEventsQuery,
+  ReorderEventImagesBody,
   SearchEventsQuery,
   UpdateEventBody,
   UserEventsParams,
@@ -22,6 +24,8 @@ import {
   listEventsForViewport,
   listUserEvents,
   removeEvent,
+  removeEventImage,
+  reorderEventImagesService,
   searchEventsService,
 } from './events.service'
 
@@ -146,4 +150,31 @@ export async function uploadEventImageHandler(
     'User uploaded an image for event',
   )
   return reply.status(201).send(eventImage)
+}
+
+export async function deleteEventImageHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id, imageId } = request.params as EventImageParams
+  await removeEventImage(id, imageId, request.user.sub, request.log)
+  request.log.info(
+    { userId: request.user.sub, eventId: id, imageId },
+    'User deleted an image from event',
+  )
+  return reply.status(204).send()
+}
+
+export async function patchEventImagesOrder(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { id } = request.params as EventParams
+  const { order } = request.body as ReorderEventImagesBody
+  const images = await reorderEventImagesService(id, order, request.user.sub)
+  request.log.info(
+    { userId: request.user.sub, eventId: id },
+    'User reordered event images',
+  )
+  return reply.send(images)
 }

@@ -174,6 +174,15 @@ export const eventParamSchema = z.object({
   id: z.string().uuid(),
 })
 
+export const eventImageParamSchema = z.object({
+  id: z.string().uuid(),
+  imageId: z.string().uuid(),
+})
+
+export const reorderEventImagesSchema = z.object({
+  order: z.array(z.string().uuid()).min(1),
+})
+
 export const listEventsQuerySchema = z
   .object({
     category: categoryFilter,
@@ -274,6 +283,8 @@ export type UserEventsQuery = z.infer<typeof userEventsQuerySchema>
 export type CreateEventBody = z.infer<typeof createEventSchema>
 export type UpdateEventBody = z.infer<typeof updateEventSchema>
 export type EventParams = z.infer<typeof eventParamSchema>
+export type EventImageParams = z.infer<typeof eventImageParamSchema>
+export type ReorderEventImagesBody = z.infer<typeof reorderEventImagesSchema>
 export type ListEventsQuery = z.infer<typeof listEventsQuerySchema>
 export type MapEventsQuery = z.infer<typeof mapEventsQuerySchema>
 export type ViewportQuery = z.infer<typeof viewportQuerySchema>
