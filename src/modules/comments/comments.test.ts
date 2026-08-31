@@ -4,6 +4,7 @@ import { buildApp } from '../../test/app'
 import {
   makeAttendance,
   makeComment,
+  makeCommentReaction,
   makeEvent,
   makeUser,
 } from '../../test/factories'
@@ -773,5 +774,247 @@ describe('contadores de comentário concordam com a listagem', () => {
 
     expect(replies.json().data).toHaveLength(1)
     expect(list.json().data[0].repliesCount).toBe(replies.json().data.length)
+  })
+})
+
+// O caso que motivou a rota: a notificação COMMENT_REPLY carrega o id da
+// RESPOSTA, e a listagem só devolve raízes — sem resolver um comentário
+// isolado, o app não tem como descobrir qual thread abrir.
+describe('GET /events/:eventId/comments/:commentId', () => {
+  it('resolve uma resposta e entrega o parentId da thread', async () => {
+    const author = await makeUser()
+    const responder = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, responder.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${reply.json().id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      id: reply.json().id,
+      parentId: parent.json().id,
+      content: 'Resposta',
+    })
+    expect(res.json().author.id).toBe(responder.id)
+  })
+
+  // O caminho inteiro que o app percorre a partir do tap na notificação.
+  it('do id da resposta até a thread aberta', async () => {
+    const author = await makeUser()
+    const responder = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, responder.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const auth = { authorization: `Bearer ${token(app, author.id)}` }
+    const resolved = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${reply.json().id}`,
+      headers: auth,
+    })
+    const thread = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${resolved.json().parentId}/replies`,
+      headers: auth,
+    })
+
+    expect(thread.statusCode).toBe(200)
+    expect(thread.json().data.map((c: { id: string }) => c.id)).toContain(
+      reply.json().id,
+    )
+  })
+
+  it('resolve um comentário raiz com parentId nulo e repliesCount', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${parent.json().id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.json()).toMatchObject({ parentId: null, repliesCount: 1 })
+  })
+
+  it('reflete a curtida do viewer em userLiked', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const comment = await makeComment(author.id, event.id)
+    await makeCommentReaction(viewer.id, comment.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${comment.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.json()).toMatchObject({ userLiked: true, reactionsCount: 1 })
+  })
+
+  it('retorna 404 para comentário de outro evento', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const outro = await makeEvent(author.id, { isPublic: true })
+    const comment = await makeComment(author.id, outro.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${comment.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('retorna 404 para comentário inexistente', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/00000000-0000-4000-8000-000000000000`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  // Mesma régua da listagem e do /replies: autor invisível não aparece por ali,
+  // e não pode aparecer por aqui.
+  it('retorna 404 quando o autor do comentário está desativado', async () => {
+    const author = await makeUser()
+    const ghost = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const event = await makeEvent(author.id, { isPublic: true })
+    const comment = await makeComment(ghost.id, event.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${comment.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('retorna 403 em evento privado sem acesso', async () => {
+    const author = await makeUser()
+    const stranger = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    const comment = await makeComment(author.id, event.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${comment.id}`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+    })
+
+    expect(res.statusCode).toBe(403)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const comment = await makeComment(author.id, event.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}/comments/${comment.id}`,
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('GET /posts/:postId/comments/:commentId', () => {
+  it('resolve uma resposta em post e entrega o parentId', async () => {
+    const author = await makeUser()
+    const responder = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const post = await makePost(app, author.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário raiz' },
+    })
+    const reply = await app.inject({
+      method: 'POST',
+      url: `/posts/${post.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, responder.id)}` },
+      body: { content: 'Resposta', parentId: parent.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments/${reply.json().id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ parentId: parent.json().id })
+  })
+
+  it('retorna 404 para comentário de outro post', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const post = await makePost(app, author.id, event.id)
+    const outro = await makePost(app, author.id, event.id)
+
+    const parent = await app.inject({
+      method: 'POST',
+      url: `/posts/${outro.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'Comentário do outro post' },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/posts/${post.id}/comments/${parent.json().id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.statusCode).toBe(404)
   })
 })

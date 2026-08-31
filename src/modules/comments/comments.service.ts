@@ -7,6 +7,7 @@ import {
   createComment,
   deleteComment,
   findCommentById,
+  findCommentDetail,
   findCommentsByEvent,
   findCommentsByPost,
   findRepliesByComment,
@@ -193,6 +194,41 @@ export async function listPostCommentReplies(
     await findRepliesByComment(commentId, limit, cursor, requesterId),
     limit,
   )
+}
+
+/**
+ * Um comentário pelo id. Existe para o deep-link da notificação COMMENT_REPLY,
+ * que carrega o id da RESPOSTA: o `parentId` daqui é o que diz qual thread
+ * abrir, já que a listagem só devolve raízes.
+ */
+export async function getEventComment(
+  eventId: string,
+  commentId: string,
+  requesterId: string,
+) {
+  await ensureEventAccess(eventId, requesterId)
+  const comment = await findCommentDetail(commentId, requesterId)
+  if (!comment || comment.eventId !== eventId) {
+    throw new AppError(404, 'COMMENT_NOT_FOUND')
+  }
+  return comment
+}
+
+export async function getPostComment(
+  postId: string,
+  commentId: string,
+  requesterId: string,
+) {
+  const post = await findPostById(postId)
+  if (!post) {
+    throw new AppError(404, 'POST_NOT_FOUND')
+  }
+  await ensureEventAccess(post.eventId, requesterId)
+  const comment = await findCommentDetail(commentId, requesterId)
+  if (!comment || comment.postId !== postId) {
+    throw new AppError(404, 'COMMENT_NOT_FOUND')
+  }
+  return comment
 }
 
 export async function removeComment(

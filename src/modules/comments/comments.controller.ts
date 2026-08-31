@@ -10,6 +10,8 @@ import type {
 import {
   addCommentToEvent,
   addCommentToPost,
+  getEventComment,
+  getPostComment,
   listEventCommentReplies,
   listEventComments,
   listPostCommentReplies,
@@ -111,6 +113,24 @@ export async function getEventCommentReplies(
     cursor,
   )
   return reply.send(result)
+}
+
+export async function getEventCommentById(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { eventId, commentId } = request.params as EventCommentIdParam
+  const comment = await getEventComment(eventId, commentId, request.user.sub)
+  return reply.send(comment)
+}
+
+export async function getPostCommentById(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { postId, commentId } = request.params as PostCommentIdParam
+  const comment = await getPostComment(postId, commentId, request.user.sub)
+  return reply.send(comment)
 }
 
 export async function getPostCommentReplies(
