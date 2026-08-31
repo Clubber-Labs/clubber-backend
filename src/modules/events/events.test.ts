@@ -870,6 +870,28 @@ describe('GET /users/:id/events — privacy gate', () => {
     expect(res.json().data).toEqual([])
   })
 
+  // O dono da vitrine é PESSOA, não autor de conteúdo: conta anonimizada
+  // responde 404 em GET /users/:id, então a vitrine dela também não existe —
+  // nem o que criou, nem o que confirmou presença em evento de terceiro.
+  it.each([
+    'ANONYMIZED',
+    'DEACTIVATED',
+  ] as const)('vitrine de dono %s responde vazia', async (accountStatus) => {
+    const owner = await makeUser({ accountStatus })
+    const host = await makeUser()
+    await makeEvent(owner.id, { isPublic: true })
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ data: [], total: 0 })
+  })
+
   it('follower aceito vê eventos de autor privado', async () => {
     const privateAuthor = await makeUser({ isPrivate: true })
     const follower = await makeUser()
@@ -1012,6 +1034,45 @@ describe('GET /users/:id/events — ordem da vitrine', () => {
       later.id,
       recentPast.id,
       oldPast.id,
+    ])
+  })
+
+  // Promoção é paga e vale em toda listagem de evento, vitrine inclusive: passa
+  // na frente do que já começou, mas só dentro da fase ativa — no histórico ela
+  // não disputa espaço com o passado recente.
+  it('promovido futuro passa na frente do ONGOING, e não reordena o histórico', async () => {
+    const author = await makeUser()
+    const now = Date.now()
+    const ongoing = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - HOUR),
+      endDate: new Date(now + HOUR),
+    })
+    const featured = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now + DAY),
+      isFeatured: true,
+    })
+    const featuredPast = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 30 * DAY),
+      isFeatured: true,
+    })
+    const recentPast = await makeEvent(author.id, {
+      isPublic: true,
+      date: new Date(now - 2 * DAY),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${author.id}/events`,
+    })
+
+    expect(ids(res)).toEqual([
+      featured.id,
+      ongoing.id,
+      recentPast.id,
+      featuredPast.id,
     ])
   })
 

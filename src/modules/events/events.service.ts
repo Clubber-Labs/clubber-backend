@@ -297,7 +297,7 @@ export async function searchEventsService(
 }
 
 export async function listUserEvents(
-  authorId: string,
+  ownerId: string,
   limit: number,
   viewerId?: string,
   cursor?: string,
@@ -305,16 +305,16 @@ export async function listUserEvents(
   // Portão do DONO do perfil. Enquanto a vitrine era só o que ele criou, o
   // filtro por autor já fazia isso sozinho; com as presenças, o autor do evento
   // é outra pessoa e a privacidade dele precisa ser checada aqui.
-  const owner = await findVisibleProfileOwner(authorId, viewerId)
+  const owner = await findVisibleProfileOwner(ownerId, viewerId)
   if (!owner) return { data: [], nextCursor: null, total: 0 }
 
   const scope = {
-    ownerId: authorId,
+    ownerId,
     viewerId,
     // Confirmação de presença é atividade social: quem desligou "visibilidade
     // das suas atividades" some da vitrine dos outros, mas continua vendo a
     // própria.
-    includeAttended: viewerId === authorId || owner.socialVisibility,
+    includeAttended: viewerId === ownerId || owner.socialVisibility,
   }
   // `total` é o número do cabeçalho da vitrine, e não o de eventos criados
   // (esse é o `eventsCount` do perfil, que continua sendo de autoria). Só na 1ª

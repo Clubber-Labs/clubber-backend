@@ -348,10 +348,10 @@ export async function findPublicEvents(
 }
 
 /**
- * Vitrine do perfil em duas fases: primeiro o que ainda está de pé (ONGOING na
- * frente, porque já começou, depois os mais próximos), e só então o histórico,
- * do mais recente pro mais antigo. Ordenar tudo por `date asc` abria o perfil
- * pelos eventos mais VELHOS do autor, com os próximos enterrados no fim.
+ * Vitrine do perfil em duas fases: primeiro o que ainda está de pé (promoção na
+ * frente, depois o que já começou e então os mais próximos), e só então o
+ * histórico, do mais recente pro mais antigo. Ordenar tudo por `date asc` abria
+ * o perfil pelos eventos mais VELHOS do autor, com os próximos no fim.
  *
  * As duas fases são complementares (todo evento cai em exatamente uma): a ativa
  * é o mesmo predicado de "não passado" da listagem pública, e a encerrada é
@@ -432,9 +432,7 @@ function profileEventsWhere({
  * contar o predicado inteiro dá exatamente o que a grade vai mostrar até o fim
  * da paginação.
  */
-export function countProfileEvents(
-  scope: ProfileEventsScope,
-): Promise<number> {
+export function countProfileEvents(scope: ProfileEventsScope): Promise<number> {
   return prisma.event.count({ where: profileEventsWhere(scope) })
 }
 

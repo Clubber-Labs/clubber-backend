@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { areMutualFollowers } from '../modules/follows/follows.repository'
-import { visibleAuthorWhere } from './account-visibility'
+import { activeUserWhere } from './account-visibility'
 import { prisma } from './prisma'
 
 /**
@@ -45,6 +45,9 @@ export function userContentVisibleWhere(
  * Existe porque a vitrine do perfil deixou de ser só "eventos que ele criou":
  * com as presenças confirmadas, o autor do evento é outra pessoa, e o filtro
  * por autor não protege mais a privacidade do DONO do perfil.
+ *
+ * Aqui o dono é PESSOA, não autor de conteúdo: só ACTIVE, a mesma régua do
+ * findUserById — a vitrine some junto com o perfil que responde 404.
  */
 export async function findVisibleProfileOwner(
   ownerId: string,
@@ -54,7 +57,7 @@ export async function findVisibleProfileOwner(
     where: {
       AND: [
         { id: ownerId },
-        visibleAuthorWhere(),
+        activeUserWhere(),
         userContentVisibleWhere(viewerId),
       ],
     },
