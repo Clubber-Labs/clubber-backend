@@ -117,6 +117,7 @@ model User {
   suspensionReason     String?
   events               Event[]
   attendances          EventAttendance[]
+  checkIns             EventCheckIn[]
   posts                Post[]
   comments             Comment[]
   reactions            Reaction[]
@@ -633,6 +634,7 @@ model Event {
   series   EventSeries? @relation(fields: [seriesId], references: [id], onDelete: SetNull)
 
   attendances      EventAttendance[]
+  checkIns         EventCheckIn[]
   posts            Post[]
   comments         Comment[]
   reactions        Reaction[]
@@ -744,6 +746,24 @@ model EventAttendance {
   @@unique([userId, eventId])
   @@index([eventId, createdAt])
   @@map("event_attendances")
+}
+
+/// "Cheguei" do evento ao vivo. Distinto do RSVP: EventAttendance é intenção
+/// (antes), check-in é presença (durante) — por isso duas tabelas e não um
+/// AttendanceType novo. O único por (evento, usuário) é o que torna o POST
+/// idempotente: repetir não duplica.
+model EventCheckIn {
+  id        String   @id @default(uuid())
+  userId    String
+  eventId   String
+  createdAt DateTime @default(now())
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([eventId, createdAt])
+  @@map("event_check_ins")
 }
 
 model Post {

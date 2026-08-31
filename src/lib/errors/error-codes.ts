@@ -108,6 +108,7 @@ export const ERROR_CODES = [
   'SERIES_ALREADY_CANCELED',
   'EVENT_CANCELED',
   'EVENT_ENDED',
+  'EVENT_NOT_STARTED',
   // 410: o link existiu mas não vale mais — códigos distintos para a copy do
   // app diferenciar "expirou" de "o autor revogou".
   'INVITE_LINK_EXPIRED',
