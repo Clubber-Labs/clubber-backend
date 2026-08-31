@@ -853,6 +853,37 @@ export async function setParticipantRole(
   })
 }
 
+/**
+ * Passa o ADMIN adiante quando não sobrou nenhum ativo: promove o participante
+ * mais antigo, na mesma ordem de entrada da lista (joinedAt, userId — ver
+ * activeParticipantsInclude). Devolve quem assumiu, ou null se o grupo ainda
+ * tem admin ou esvaziou de vez.
+ */
+export async function promoteOldestParticipantIfNoAdmin(
+  conversationId: string,
+): Promise<string | null> {
+  return prisma.$transaction(async (tx) => {
+    const admin = await tx.conversationParticipant.findFirst({
+      where: { conversationId, leftAt: null, role: 'ADMIN' },
+      select: { id: true },
+    })
+    if (admin) return null
+
+    const oldest = await tx.conversationParticipant.findFirst({
+      where: { conversationId, leftAt: null },
+      orderBy: [{ joinedAt: 'asc' }, { userId: 'asc' }],
+      select: { userId: true },
+    })
+    if (!oldest) return null
+
+    const promoted = await tx.conversationParticipant.updateMany({
+      where: { conversationId, userId: oldest.userId, leftAt: null },
+      data: { role: 'ADMIN' },
+    })
+    return promoted.count === 0 ? null : oldest.userId
+  })
+}
+
 export async function renameConversation(id: string, title: string) {
   return prisma.conversation.update({ where: { id }, data: { title } })
 }

@@ -46,6 +46,7 @@ import {
   listInboxConversations,
   markConversationDelivered,
   markConversationRead,
+  promoteOldestParticipantIfNoAdmin,
   QuotaExceededError,
   reactivateParticipant,
   removeMessageReaction,
@@ -927,6 +928,18 @@ export async function leaveGroup(userId: string, conversationId: string) {
       conversationId,
       userId,
       `${displayName(actorUser)} saiu do grupo`,
+    )
+  }
+  // Sem admin ninguém renomeia, adiciona nem remove — e ninguém pode se
+  // promover. Quem está no grupo há mais tempo assume; no rolê, o criador sai
+  // e o bastão fica com o primeiro que entrou.
+  const promotedId = await promoteOldestParticipantIfNoAdmin(conversationId)
+  const promoted = promotedId ? await findUserBrief(promotedId) : null
+  if (promotedId && promoted) {
+    await emitSystemMessage(
+      conversationId,
+      promotedId,
+      `${displayName(promoted)} agora é admin do grupo`,
     )
   }
 }
