@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
+  makeBlock,
   makeEvent,
   makeFollow,
   makeUser,
@@ -265,6 +266,34 @@ describe('GET /users/:id', () => {
 
     expect(visitor.json().eventsCount).toBe(1)
     expect(self.json().eventsCount).toBe(2)
+  })
+
+  // O contador é AGREGADO, e não o total da grade: como o de seguidores, ele
+  // ignora as réguas por viewer (evento privado, autor bloqueado, autor privado
+  // sem follow) — aplicá-las aqui zeraria o número de todo perfil privado. Quem
+  // esconde o evento é a grade.
+  it('eventsCount conta presença em evento de autor que bloqueou o viewer; a vitrine não', async () => {
+    const owner = await makeUser()
+    const host = await makeUser()
+    const viewer = await makeUser()
+    await makeBlock(host.id, viewer.id)
+    const attended = await makeEvent(host.id, { isPublic: true })
+    await makeAttendance(owner.id, attended.id, 'CONFIRMED')
+
+    const auth = { authorization: `Bearer ${token(app, viewer.id)}` }
+    const profile = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}`,
+      headers: auth,
+    })
+    const showcase = await app.inject({
+      method: 'GET',
+      url: `/users/${owner.id}/events`,
+      headers: auth,
+    })
+
+    expect(profile.json().eventsCount).toBe(1)
+    expect(showcase.json().data).toEqual([])
   })
 
   it('não expõe dados privados nem role no perfil público', async () => {

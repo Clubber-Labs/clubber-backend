@@ -264,20 +264,25 @@ export async function getUserById(id: string, viewerId?: string) {
       ? (await withViewerFollowInfo([{ id }], viewerId))[0]
       : { followStatus: null, followsYou: false }
 
+  // Paralelo: as duas são independentes e cada uma é um round-trip ao banco.
+  const [eventsCount, artistMatch] = await Promise.all([
+    // A vitrine do perfil lista o que a pessoa criou E aquilo em que confirmou
+    // presença; o contador conta a mesma coisa, do mesmo predicado. Agregado de
+    // propósito — contador de perfil é metadado, como seguidores.
+    countProfileEvents(id, isSelf),
+    viewerId && !isSelf ? resolveArtistMatch(viewerId, user) : null,
+  ])
+
   // Perfil completo mesmo p/ conta privada (estilo Instagram): a privacidade
   // real fica no conteúdo (authorVisibleWhere) e nas listas de seguidores
   // (ensureCanViewFollowList) — aqui só metadados agregados, não identidades.
   return {
     kind: 'full' as const,
     ...toApiUser(user),
-    // A vitrine do perfil lista o que a pessoa criou E aquilo em que confirmou
-    // presença; o contador conta a mesma coisa, do mesmo predicado. Agregado de
-    // propósito — contador de perfil é metadado, como seguidores.
-    eventsCount: await countProfileEvents(id, isSelf),
+    eventsCount,
     followStatus,
     followsYou,
-    artistMatch:
-      viewerId && !isSelf ? await resolveArtistMatch(viewerId, user) : null,
+    artistMatch,
   }
 }
 
