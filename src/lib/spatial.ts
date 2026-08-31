@@ -80,6 +80,23 @@ export async function findDistancesForEvents(
   return new Map(rows.map((r) => [r.id, Number(r.distance)]))
 }
 
+/**
+ * Distância haversine em metros — para poucos pontos já carregados no app,
+ * sem roundtrip SQL (o ST_Distance fica para conjuntos filtrados no banco).
+ */
+export function haversineMeters(a: LatLng, b: LatLng): number {
+  const EARTH_RADIUS_M = 6371000
+  const toRad = (deg: number) => (deg * Math.PI) / 180
+  const dLat = toRad(b.latitude - a.latitude)
+  const dLng = toRad(b.longitude - a.longitude)
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.latitude)) *
+      Math.cos(toRad(b.latitude)) *
+      Math.sin(dLng / 2) ** 2
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.sqrt(s))
+}
+
 export async function findEventIdsByDistance(
   center: LatLng,
   limit: number,

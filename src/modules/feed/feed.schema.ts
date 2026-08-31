@@ -16,6 +16,9 @@ export const feedQuerySchema = z
     includePast: booleanQuery.default(true),
     dateFrom: z.coerce.date().optional(),
     dateTo: z.coerce.date().optional(),
+    // Tipos de item: EVENTS (default, retrocompatível), SPOTS ou ALL (mescla).
+    // Rolês exigem nearLat/nearLng — sem localização a pool de spots fica vazia.
+    kinds: z.enum(['EVENTS', 'SPOTS', 'ALL']).optional().default('EVENTS'),
     // Localização do dispositivo (enviada ao abrir o app) — habilita proximidade.
     nearLat: z.coerce.number().min(-90).max(90).optional(),
     nearLng: z.coerce.number().min(-180).max(180).optional(),

@@ -79,7 +79,8 @@ function gridCell(value: number, radiusKm: number): string {
 const MAX_ACTIVE_SPOTS = 5
 const SPOT_WINDOW_MS = 24 * 60 * 60 * 1000 // 24h por janela (criação e renovação)
 
-function shapeSpot(spot: SpotDetail, memberCount: number) {
+/** Shape público do rolê (tira creatorId) — fonte única, usada aqui e no feed. */
+export function shapeSpot(spot: SpotDetail, memberCount: number) {
   const { creatorId: _creatorId, ...rest } = spot
   return { ...rest, memberCount }
 }
@@ -139,7 +140,7 @@ export async function getSpot(viewerId: string | null, id: string) {
  * teto, como no setSpotRadius) > o salvo do usuário > o padrão — os dois
  * últimos clampados ao teto, caso o env tenha baixado.
  */
-async function resolveRadiusKm(
+export async function resolveSpotRadiusKm(
   userId: string | null,
   requested?: number,
 ): Promise<number> {
@@ -171,7 +172,7 @@ export async function listSpots(
 
   let ids: string[]
   if (query.nearLat !== undefined && query.nearLng !== undefined) {
-    const radiusKm = await resolveRadiusKm(viewerId, query.radiusKm)
+    const radiusKm = await resolveSpotRadiusKm(viewerId, query.radiusKm)
     const [preferredCategories, preferredSubcategories]: [
       EventCategory[],
       string[],
@@ -360,7 +361,7 @@ export async function generateSuggestions(
 ) {
   const intent = body.query
 
-  const radiusKm = await resolveRadiusKm(userId, body.radiusKm)
+  const radiusKm = await resolveSpotRadiusKm(userId, body.radiusKm)
   const radiusMeters = radiusKm * 1000
 
   // Sem intenção em texto, a busca depende das preferências de perfil. Com
