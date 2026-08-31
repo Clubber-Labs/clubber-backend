@@ -4,7 +4,11 @@ import {
   visibleAuthorWhere,
 } from '../../lib/account-visibility'
 import type { EventCategory } from '../../lib/event-categories'
-import { buildLifecycleWhere } from '../../lib/event-filters'
+import {
+  buildLifecycleWhere,
+  goingAttendanceWhere,
+  POSITIVE_ATTENDANCE,
+} from '../../lib/event-filters'
 import { computeEventStatus } from '../../lib/event-lifecycle'
 import { prisma } from '../../lib/prisma'
 import { findEventIdsByDistance, type LatLng } from '../../lib/spatial'
@@ -14,8 +18,6 @@ import {
 } from '../comments/comments.repository'
 import { findTopAttendancesByEvent } from '../events/events.repository'
 import type { FeedQuery } from './feed.schema'
-
-const POSITIVE_ATTENDANCE: AttendanceType[] = ['CONFIRMED', 'INTERESTED']
 
 const authorSelect = {
   id: true,
@@ -328,7 +330,7 @@ export async function hydrateEvents(
       },
       _count: {
         select: {
-          attendances: { where: { type: { in: POSITIVE_ATTENDANCE } } },
+          attendances: { where: goingAttendanceWhere() },
           comments: { where: visibleCommentWhere() },
           reactions: true,
         },

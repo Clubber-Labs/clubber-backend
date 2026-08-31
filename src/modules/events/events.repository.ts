@@ -3,6 +3,8 @@ import { visibleAuthorWhere } from '../../lib/account-visibility'
 import {
   buildLifecycleWhere,
   buildMapLifecycleWhere,
+  goingAttendanceWhere,
+  POSITIVE_ATTENDANCE,
   statusConditionFor,
 } from '../../lib/event-filters'
 import {
@@ -31,7 +33,6 @@ import type {
   ViewportQuery,
 } from './events.schema'
 
-const POSITIVE_ATTENDANCE: AttendanceType[] = ['CONFIRMED', 'INTERESTED']
 // Quantos participantes em destaque acompanham cada evento no payload do mapa.
 const TOP_ATTENDANCES_LIMIT = 5
 
@@ -57,7 +58,7 @@ function buildSharedIncludes(): Prisma.EventInclude {
     author: { select: authorSelect },
     _count: {
       select: {
-        attendances: true,
+        attendances: { where: goingAttendanceWhere() },
         reactions: true,
         comments: { where: visibleCommentWhere() },
       },
@@ -88,7 +89,7 @@ function buildMapIncludes(): Prisma.EventInclude {
     author: { select: authorSelect },
     _count: {
       select: {
-        attendances: true,
+        attendances: { where: goingAttendanceWhere() },
         reactions: true,
         comments: { where: visibleCommentWhere() },
       },
