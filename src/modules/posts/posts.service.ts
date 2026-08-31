@@ -1,5 +1,9 @@
 import { AppError } from '../../lib/errors/app-error'
-import { deleteUploaded, uploadPostImage } from '../../lib/uploads'
+import {
+  deleteUploaded,
+  MAX_GALLERY_IMAGES,
+  uploadPostImage,
+} from '../../lib/uploads'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import {
   countPostImages,
@@ -16,10 +20,6 @@ type Logger = {
   info: (obj: object | string, msg?: string) => void
   error: (obj: object | string, msg?: string) => void
 }
-
-// Teto de imagens por post. Eventos não impõem limite (a galeria cresce sem
-// freio); aqui fechamos essa lacuna na origem para não acumular blobs pagos.
-const MAX_POST_IMAGES = 10
 
 export async function addPost(
   authorId: string,
@@ -46,9 +46,9 @@ export async function addPostImage(
   }
 
   const current = await countPostImages(postId)
-  if (current >= MAX_POST_IMAGES) {
+  if (current >= MAX_GALLERY_IMAGES) {
     throw new AppError(409, 'POST_IMAGE_LIMIT', undefined, {
-      max: MAX_POST_IMAGES,
+      max: MAX_GALLERY_IMAGES,
     })
   }
 

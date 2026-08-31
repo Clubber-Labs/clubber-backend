@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { redis as nullableRedis } from '../../lib/redis'
+import { MAX_GALLERY_IMAGES } from '../../lib/uploads'
 import { buildApp } from '../../test/app'
 import {
   makeAttendance,
@@ -1654,6 +1655,47 @@ describe('POST /events/:id/images', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+
+  it('retorna 409 ao exceder o teto de imagens do evento', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    // Pré-popula o teto direto no banco para não subir N imagens pela rota.
+    await testPrisma.eventImage.createMany({
+      data: Array.from({ length: MAX_GALLERY_IMAGES }, (_, i) => ({
+        url: `https://fake.storage/events/${event.id}/${i}.webp`,
+        key: `events/${event.id}/${i}.webp`,
+        format: 'webp',
+        size: 100,
+        order: i,
+        eventId: event.id,
+      })),
+    })
+    const png = await tinyPngBuffer()
+    const { body, contentType } = multipartFormData(
+      png,
+      'file',
+      'capa.png',
+      'image/png',
+    )
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/images`,
+      headers: {
+        authorization: `Bearer ${token(app, author.id)}`,
+        'content-type': contentType,
+      },
+      payload: body,
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({
+      code: 'EVENT_IMAGE_LIMIT',
+      params: { max: MAX_GALLERY_IMAGES },
+    })
+    // O blob não pode subir quando o teto barra: asset pago sem linha no banco.
+    expect(fakeStorage.uploads).toHaveLength(0)
   })
 
   it('retorna 429 ao exceder o rate limit de upload (20/min)', async () => {

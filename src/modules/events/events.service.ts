@@ -2,12 +2,17 @@ import { cache } from '../../lib/cache'
 import { AppError } from '../../lib/errors/app-error'
 import { timezoneForLocation } from '../../lib/i18n/timezone'
 import { interestMatchesCategories } from '../../lib/subcategories'
-import { deleteUploaded, uploadEventImage } from '../../lib/uploads'
+import {
+  deleteUploaded,
+  MAX_GALLERY_IMAGES,
+  uploadEventImage,
+} from '../../lib/uploads'
 import { checkEventAccess } from '../event-invites/event-invites.access'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import { enqueueEventCreated } from '../notifications/notification-queue'
 import { createRecurringEvent } from '../recurring-events/recurring-events.service'
 import {
+  countEventImages,
   createEvent,
   createEventImage,
   deleteEvent,
@@ -442,6 +447,15 @@ export async function addEventImage(
   const event = await findEventAccess(id)
   if (!event) throw new AppError(404, 'EVENT_NOT_FOUND')
   if (event.authorId !== requesterId) throw new AppError(403, 'FORBIDDEN')
+
+  // Antes do upload: barrar depois já teria pago o processamento e deixado o
+  // blob no provider para o rollback limpar.
+  const current = await countEventImages(id)
+  if (current >= MAX_GALLERY_IMAGES) {
+    throw new AppError(409, 'EVENT_IMAGE_LIMIT', undefined, {
+      max: MAX_GALLERY_IMAGES,
+    })
+  }
 
   const uploaded = await uploadEventImage(buffer, id)
 

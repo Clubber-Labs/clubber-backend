@@ -29,6 +29,11 @@ const VIDEO_FORMATS = ['mp4', 'mov', 'webm']
 // limite é validado server-side contra o tamanho real reportado pelo provider.
 export const MAX_VIDEO_SIZE = 50 * 1024 * 1024
 
+// Teto de imagens de uma galeria (evento ou post). Único para os dois: são o
+// mesmo gesto para quem usa o app, e cada blob é armazenamento pago que só sai
+// quando o dono apaga.
+export const MAX_GALLERY_IMAGES = 5
+
 export function assertImageMimetype(mimetype: string) {
   if (!ALLOWED_MIMETYPES.includes(mimetype)) {
     throw new AppError(400, 'UNSUPPORTED_IMAGE_FORMAT')

@@ -154,6 +154,7 @@ export const ERROR_CODES = [
   'NOT_COMMENT_AUTHOR',
   'COMMENT_REPLY_DEPTH',
   'POST_IMAGE_LIMIT',
+  'EVENT_IMAGE_LIMIT',
 
   // Denúncias / moderação
   'SELF_REPORT',
