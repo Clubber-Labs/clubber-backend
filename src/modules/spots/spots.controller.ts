@@ -15,7 +15,7 @@ import {
   getSpot,
   joinSpot,
   listOwnSpots,
-  listSpotsOnMap,
+  listSpots,
   renewSpot,
   setSpotRadius,
 } from './spots.service'
@@ -28,7 +28,7 @@ export async function postSpot(request: FastifyRequest, reply: FastifyReply) {
 
 export async function getSpots(request: FastifyRequest, reply: FastifyReply) {
   const query = request.query as ListSpotsQuery
-  const spots = await listSpotsOnMap(request.user?.sub ?? null, query)
+  const spots = await listSpots(request.user?.sub ?? null, query)
   return reply.send(spots)
 }
 
