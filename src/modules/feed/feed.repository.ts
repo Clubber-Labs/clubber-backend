@@ -1,4 +1,4 @@
-import { type AttendanceType, Prisma } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import {
   activeUserWhere,
   visibleAuthorWhere,
