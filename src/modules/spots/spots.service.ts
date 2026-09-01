@@ -385,9 +385,10 @@ const MAX_SUGGESTIONS = 8
 
 /**
  * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places (sempre
- * Text Search) em torno do ponto, no raio escolhido. Dois modos que convergem num
- * CRITÉRIO único de busca/ranqueamento:
- * - Texto livre (`query`): o próprio texto é a busca e o critério (ignora perfil).
+ * Text Search) em torno do ponto, no raio escolhido. Dois modos:
+ * - Texto livre (`query`): a IA reescreve o texto na busca (ancora venue/cidade,
+ *   generaliza gênero musical), mas o CRITÉRIO de ranqueamento é a intenção
+ *   original — busca e critério divergem de propósito quando há reescrita.
  * - Perfil (sem `query`): a IA compõe 1-2 frases de busca a partir do perfil
  *   (categorias + interesses); as MESMAS frases viram o critério de ranqueamento.
  * Os candidatos passam por um filtro estrutural de venue social (pelos `types` do
