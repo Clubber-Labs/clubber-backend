@@ -72,6 +72,61 @@ export async function findInvitedIdsIn(eventId: string, userIds: string[]) {
   return new Set(rows.map((r) => r.invitedId))
 }
 
+const inviteUserSelect = {
+  id: true,
+  name: true,
+  lastname: true,
+  username: true,
+  avatarUrl: true,
+} as const
+
+/**
+ * O convite que trouxe o viewer ao evento. Convidador inativo derruba o
+ * convite inteiro: o card do app nomeia quem convidou, e card com fantasma é
+ * pior que card ausente.
+ */
+export async function findViewerInvite(eventId: string, viewerId: string) {
+  return prisma.eventInvite.findFirst({
+    where: { eventId, invitedId: viewerId, inviter: activeUserWhere() },
+    select: { createdAt: true, inviter: { select: inviteUserSelect } },
+  })
+}
+
+/** Quantos OUTROS foram convidados — mesma régua de ativo do findEventInvites. */
+export async function countOtherInvites(eventId: string, viewerId: string) {
+  return prisma.eventInvite.count({
+    where: {
+      eventId,
+      invitedId: { not: viewerId },
+      invited: activeUserWhere(),
+    },
+  })
+}
+
+/**
+ * Co-convidados que o viewer JÁ SEGUE. A lista completa de convidados é
+ * author-only (GET /events/:eventId/invites); nomear estranhos aqui abriria
+ * esse portão por outra porta. O total sai do countOtherInvites.
+ */
+export async function findFriendCoInvitees(
+  eventId: string,
+  followingIds: string[],
+  limit: number,
+) {
+  if (followingIds.length === 0) return []
+  const rows = await prisma.eventInvite.findMany({
+    where: {
+      eventId,
+      invitedId: { in: followingIds },
+      invited: activeUserWhere(),
+    },
+    orderBy: [{ createdAt: 'asc' }, { invitedId: 'asc' }],
+    take: limit,
+    select: { invited: { select: inviteUserSelect } },
+  })
+  return rows.map((r) => r.invited)
+}
+
 export async function findEventInvites(eventId: string) {
   return prisma.eventInvite.findMany({
     where: { eventId, invited: activeUserWhere() },

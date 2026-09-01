@@ -2,11 +2,14 @@ import { AppError } from '../../lib/errors/app-error'
 import { findEventById } from '../events/events.repository'
 import { notifyFromActor } from '../notifications/notifications.service'
 import {
+  countOtherInvites,
   createInvites,
   findEventInvites,
   findFollowerIds,
+  findFriendCoInvitees,
   findInvitableIds,
   findInvitedIdsIn,
+  findViewerInvite,
 } from './event-invites.repository'
 import type { InviteUsersBody } from './event-invites.schema'
 
@@ -70,6 +73,35 @@ export async function inviteToEvent(
     ),
   )
   return invites
+}
+
+// Quantos co-convidados o card nomeia. O app usa só o primeiro nome + o total,
+// mas o teto evita payload crescer com a lista de convidados.
+const INVITE_OTHERS_LIMIT = 5
+
+/**
+ * Contexto do convite para o detalhe do evento: quem convidou, quando, e a
+ * prova social de quem mais vai. Ausente (null) para quem chegou pelo feed,
+ * pelo mapa ou por link — aí o app mostra o RSVP solto.
+ */
+export async function getViewerInvite(
+  eventId: string,
+  viewerId: string,
+  followingIds: string[],
+) {
+  const invite = await findViewerInvite(eventId, viewerId)
+  if (!invite) return null
+
+  const [othersCount, others] = await Promise.all([
+    countOtherInvites(eventId, viewerId),
+    findFriendCoInvitees(eventId, followingIds, INVITE_OTHERS_LIMIT),
+  ])
+  return {
+    inviter: invite.inviter,
+    createdAt: invite.createdAt,
+    others,
+    othersCount,
+  }
 }
 
 export async function listEventInvites(eventId: string, requesterId: string) {

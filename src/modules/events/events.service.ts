@@ -10,6 +10,7 @@ import {
 } from '../../lib/uploads'
 import { getCheckInSummary } from '../event-check-ins/event-check-ins.service'
 import { checkEventAccess } from '../event-invites/event-invites.access'
+import { getViewerInvite } from '../event-invites/event-invites.service'
 import { findAcceptedFollowingIds } from '../follows/follows.repository'
 import { enqueueEventCreated } from '../notifications/notification-queue'
 import { createRecurringEvent } from '../recurring-events/recurring-events.service'
@@ -337,9 +338,12 @@ export async function getEventById(id: string, requesterId?: string) {
       ? findViewerStatesForEvents(requesterId, [event.id], commentIds)
       : Promise.resolve(null),
   ])
-  const [topMap, checkIns] = await Promise.all([
+  const [topMap, checkIns, viewerInvite] = await Promise.all([
     findTopAttendancesByEvent([event.id], followingIds),
     getCheckInSummary(event.id, followingIds, requesterId),
+    requesterId
+      ? getViewerInvite(event.id, requesterId, followingIds)
+      : Promise.resolve(null),
   ])
   // friendAttendances é o subconjunto de amigos do topAttendances (mesma fonte,
   // sem segunda query) — alinhado com viewport e feed.
@@ -352,7 +356,15 @@ export async function getEventById(id: string, requesterId?: string) {
   const normalized = states
     ? hydrateWithState(event, states.get(event.id))
     : hydrateAnon(event)
-  return { ...normalized, topAttendances, friendAttendances, checkIns }
+  // A chave some quando não há convite (em vez de vir null): o contrato do app
+  // declara viewerInvite opcional e decide a UI pela presença dela.
+  return {
+    ...normalized,
+    topAttendances,
+    friendAttendances,
+    checkIns,
+    ...(viewerInvite && { viewerInvite }),
+  }
 }
 
 // Invalida os caches de leitura de eventos (lista pública + viewport do mapa).

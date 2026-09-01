@@ -469,3 +469,148 @@ describe('visibilidade de contas inativas em convites', () => {
     expect(ids).toEqual([activeGuest.id])
   })
 })
+
+// O card "Fulano te convidou" existe inteiro no app desde sempre, com copy nos
+// três idiomas, mas o backend nunca devolvia o campo que o liga.
+describe('viewerInvite em GET /events/:id', () => {
+  it('devolve quem convidou o viewer e quando', async () => {
+    const author = await makeUser()
+    const guest = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeInvite(event.id, author.id, guest.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, guest.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().viewerInvite).toMatchObject({
+      inviter: { id: author.id, username: author.username },
+      othersCount: 0,
+    })
+    expect(res.json().viewerInvite.createdAt).toBeTruthy()
+  })
+
+  it('omite o campo para quem não foi convidado', async () => {
+    const author = await makeUser()
+    const passerby = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, passerby.id)}` },
+    })
+
+    expect(res.json()).not.toHaveProperty('viewerInvite')
+  })
+
+  it('omite o campo para anônimo', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const res = await app.inject({ method: 'GET', url: `/events/${event.id}` })
+
+    expect(res.json()).not.toHaveProperty('viewerInvite')
+  })
+
+  // `others` nomeia só quem o viewer já segue; `othersCount` conta todos os
+  // outros convidados. É a prova social "junto com Lia e mais 2" sem revelar
+  // quem são os estranhos da lista.
+  it('nomeia só os amigos entre os co-convidados, mas conta todos', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const friend = await makeUser()
+    const stranger1 = await makeUser()
+    const stranger2 = await makeUser()
+    await makeFollow(viewer.id, friend.id)
+    const event = await makeEvent(author.id, { isPublic: false })
+    for (const u of [viewer, friend, stranger1, stranger2]) {
+      await makeInvite(event.id, author.id, u.id)
+    }
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    const invite = res.json().viewerInvite
+    expect(invite.othersCount).toBe(3)
+    expect(invite.others).toHaveLength(1)
+    expect(invite.others[0].id).toBe(friend.id)
+  })
+
+  it('sem amigos entre os convidados, others vem vazio e a contagem fica', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const stranger = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeInvite(event.id, author.id, viewer.id)
+    await makeInvite(event.id, author.id, stranger.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.json().viewerInvite).toMatchObject({
+      others: [],
+      othersCount: 1,
+    })
+  })
+
+  it('o próprio viewer não entra na contagem de outros', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeInvite(event.id, author.id, viewer.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.json().viewerInvite.othersCount).toBe(0)
+  })
+
+  // Mesma régua do GET /events/:eventId/invites, que já filtra invited inativo.
+  it('não conta co-convidado com conta desativada', async () => {
+    const author = await makeUser()
+    const viewer = await makeUser()
+    const gone = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const event = await makeEvent(author.id, { isPublic: false })
+    await makeInvite(event.id, author.id, viewer.id)
+    await makeInvite(event.id, author.id, gone.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.json().viewerInvite.othersCount).toBe(0)
+  })
+
+  // Card com fantasma é pior que card ausente: sem convidador exibível, o app
+  // cai no RSVP solto.
+  it('omite o campo quando quem convidou desativou a conta', async () => {
+    const author = await makeUser()
+    const promoter = await makeUser({ accountStatus: 'DEACTIVATED' })
+    const viewer = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    await makeInvite(event.id, promoter.id, viewer.id)
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.json()).not.toHaveProperty('viewerInvite')
+  })
+})
