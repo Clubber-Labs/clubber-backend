@@ -1043,11 +1043,22 @@ export async function deleteEventImage(imageId: string) {
   return prisma.eventImage.delete({ where: { id: imageId } })
 }
 
+/**
+ * `updateMany` com o eventId no WHERE, e não `update` por id, pelos dois casos
+ * em que o id não casa:
+ *
+ * 1. Imagem de OUTRO evento não é reposicionável por esta query. O service já
+ *    recusa a lista, mas a garantia deixa de depender só dele.
+ * 2. `update` de id inexistente lança P2025, que lib/errors não mapeia — viraria
+ *    500. Se uma imagem sumir entre a validação do service e este update (o
+ *    autor apagando de outra tela), `updateMany` casa zero linhas e o resto da
+ *    reordenação segue.
+ */
 export async function reorderEventImages(eventId: string, order: string[]) {
   await prisma.$transaction(
     order.map((imageId, index) =>
-      prisma.eventImage.update({
-        where: { id: imageId },
+      prisma.eventImage.updateMany({
+        where: { id: imageId, eventId },
         data: { order: index },
       }),
     ),
