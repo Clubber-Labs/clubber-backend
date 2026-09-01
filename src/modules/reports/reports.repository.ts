@@ -38,6 +38,17 @@ const reportInclude = {
       canceledAt: true,
     },
   },
+  spot: {
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      creatorId: true,
+      startsAt: true,
+      visibility: true,
+      canceledAt: true,
+    },
+  },
   comment: {
     select: {
       id: true,
@@ -208,6 +219,15 @@ export async function findExistingPostReport(
   })
 }
 
+export async function findExistingSpotReport(
+  reporterId: string,
+  spotId: string,
+) {
+  return prisma.report.findFirst({
+    where: { reporterId, spotId, status: { in: ['PENDING', 'REVIEWED'] } },
+  })
+}
+
 export async function findExistingUserReport(
   reporterId: string,
   targetUserId: string,
@@ -251,6 +271,16 @@ export async function createPostReport(
   })
 }
 
+export async function createSpotReport(
+  data: CreateReportBody,
+  reporterId: string,
+  spotId: string,
+) {
+  return prisma.report.create({
+    data: { ...data, reporterId, spotId },
+  })
+}
+
 export async function createUserReport(
   data: CreateReportBody,
   reporterId: string,
@@ -290,6 +320,12 @@ export async function findReports(query: ListReportsQuery) {
     where.postId = query.postId ?? { not: null }
   } else if (query.postId) {
     where.postId = query.postId
+  }
+
+  if (query.targetType === 'SPOT') {
+    where.spotId = query.spotId ?? { not: null }
+  } else if (query.spotId) {
+    where.spotId = query.spotId
   }
 
   if (query.targetType === 'USER') {

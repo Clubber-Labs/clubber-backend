@@ -119,18 +119,26 @@ export async function createSpot(creatorId: string, body: CreateSpotBody) {
   return shapeSpot(spot, 1)
 }
 
-export async function getSpot(viewerId: string | null, id: string) {
+/**
+ * O rolê que o viewer pode ver, ou 404. Bloqueio e privacidade ficam atrás de
+ * 404 (não vaza existência). Exportado para quem precisa do mesmo portão sem o
+ * shape do detalhe — a denúncia de rolê entra por aqui.
+ */
+export async function ensureSpotVisible(id: string, viewerId: string | null) {
   const spot = await findSpotDetail(id)
   if (!spot) throw new AppError(404, 'SPOT_NOT_FOUND')
 
-  // Bloqueio e privacidade ficam atrás de 404 (não vaza existência).
   if (viewerId && (await isBlockedEitherWay(viewerId, spot.creatorId))) {
     throw new AppError(404, 'SPOT_NOT_FOUND')
   }
   if (!(await canView(spot, viewerId))) {
     throw new AppError(404, 'SPOT_NOT_FOUND')
   }
+  return spot
+}
 
+export async function getSpot(viewerId: string | null, id: string) {
+  const spot = await ensureSpotVisible(id, viewerId)
   const counts = await countActiveMembersByConversation([spot.conversationId])
   return shapeSpot(spot, counts.get(spot.conversationId) ?? 0)
 }

@@ -22,6 +22,7 @@ export const reportTargetTypeSchema = z.enum([
   'COMMENT',
   'MESSAGE',
   'POST',
+  'SPOT',
   'USER',
 ])
 
@@ -64,6 +65,7 @@ export const listReportsQuerySchema = z.object({
   commentId: z.string().uuid().optional(),
   messageId: z.string().uuid().optional(),
   postId: z.string().uuid().optional(),
+  spotId: z.string().uuid().optional(),
   targetUserId: z.string().uuid().optional(),
 })
 
@@ -87,6 +89,10 @@ export const reportPostParamSchema = z.object({
   postId: z.string().uuid(),
 })
 
+export const reportSpotParamSchema = z.object({
+  spotId: z.string().uuid(),
+})
+
 export const reportUserParamSchema = z.object({
   userId: z.string().uuid(),
 })
@@ -100,4 +106,5 @@ export type ReportEventParams = z.infer<typeof reportEventParamSchema>
 export type ReportCommentParams = z.infer<typeof reportCommentParamSchema>
 export type ReportMessageParams = z.infer<typeof reportMessageParamSchema>
 export type ReportPostParams = z.infer<typeof reportPostParamSchema>
+export type ReportSpotParams = z.infer<typeof reportSpotParamSchema>
 export type ReportUserParams = z.infer<typeof reportUserParamSchema>

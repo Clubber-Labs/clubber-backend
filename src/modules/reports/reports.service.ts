@@ -12,6 +12,8 @@ import { resolveCommentEventId } from '../comments/comments.service'
 import { ensureEventAccess } from '../event-invites/event-invites.access'
 import { deleteEvent, findEventImageKeys } from '../events/events.repository'
 import { deletePost, findPostImageKeys } from '../posts/posts.repository'
+import { cancelSpotById } from '../spots/spots.repository'
+import { ensureSpotVisible } from '../spots/spots.service'
 import { banUser, suspendUser, unsuspendUser } from '../users/users.service'
 import { findRetainedMediaKeys } from './report-evidence.repository'
 import { createMessageReportWithEvidence } from './report-evidence.service'
@@ -20,6 +22,7 @@ import {
   createCommentReport,
   createEventReport,
   createPostReport,
+  createSpotReport,
   createUserReport,
   deleteReportById,
   findActiveConversationParticipant,
@@ -28,6 +31,7 @@ import {
   findExistingEventReport,
   findExistingMessageReport,
   findExistingPostReport,
+  findExistingSpotReport,
   findExistingUserReport,
   findMessageById,
   findReportById,
@@ -130,6 +134,27 @@ export async function reportPost(
   }
 
   return createPostReport(data, reporterId, postId)
+}
+
+export async function reportSpot(
+  data: CreateReportBody,
+  reporterId: string,
+  spotId: string,
+) {
+  // Mesmo portão do GET /spots/:id: rolê que o denunciante não pode ver não
+  // existe para ele, e privacidade fica atrás de 404.
+  const spot = await ensureSpotVisible(spotId, reporterId)
+
+  if (spot.creatorId === reporterId) {
+    throw new AppError(400, 'SELF_REPORT')
+  }
+
+  const existing = await findExistingSpotReport(reporterId, spotId)
+  if (existing) {
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
+  }
+
+  return createSpotReport(data, reporterId, spotId)
 }
 
 export async function reportMessage(
@@ -241,6 +266,16 @@ async function removeReportedPost(postId: string) {
   await deletePost(postId)
 }
 
+/**
+ * Rolê denunciado sai de circulação por cancelamento, não por exclusão: some
+ * do feed, da lista e da descoberta (todas filtram canceledAt), e o grupo de
+ * chat continua de pé — ele é prova das denúncias de mensagem e histórico de
+ * quem participou. Excluir o spot arrastaria a conversa junto.
+ */
+async function removeReportedSpot(spotId: string) {
+  await cancelSpotById(spotId, new Date())
+}
+
 async function removeReportedMessage(reportId: string, messageId: string) {
   const message = await findMessageById(messageId)
   if (!message) {
@@ -267,6 +302,30 @@ async function removeReportedMessage(reportId: string, messageId: string) {
   )
 }
 
+/**
+ * Qual conteúdo a denúncia aponta — um só, ou nenhum quando as FKs já foram
+ * anuladas pelo SetNull da exclusão. Alvo novo entra aqui e o removeReportTarget
+ * inteiro passa a enxergá-lo; espalhar a lista de FKs pelos três pontos que
+ * precisam dela é o que faz um alvo novo ser esquecido em um deles.
+ */
+function contentTargetOf(report: {
+  eventId: string | null
+  commentId: string | null
+  messageId: string | null
+  postId: string | null
+  spotId: string | null
+}): {
+  kind: 'event' | 'comment' | 'message' | 'post' | 'spot'
+  id: string
+} | null {
+  if (report.eventId) return { kind: 'event', id: report.eventId }
+  if (report.commentId) return { kind: 'comment', id: report.commentId }
+  if (report.messageId) return { kind: 'message', id: report.messageId }
+  if (report.postId) return { kind: 'post', id: report.postId }
+  if (report.spotId) return { kind: 'spot', id: report.spotId }
+  return null
+}
+
 export async function removeReportTarget(
   reportId: string,
   requesterId: string,
@@ -277,13 +336,9 @@ export async function removeReportTarget(
     throw new AppError(404, 'REPORT_NOT_FOUND')
   }
 
-  if (
-    report.status === 'RESOLVED_REMOVED' &&
-    !report.eventId &&
-    !report.commentId &&
-    !report.messageId &&
-    !report.postId
-  ) {
+  const target = contentTargetOf(report)
+
+  if (report.status === 'RESOLVED_REMOVED' && !target) {
     return report
   }
 
@@ -291,12 +346,7 @@ export async function removeReportTarget(
     throw new AppError(400, 'INVALID_REPORT_ACTION')
   }
 
-  if (
-    !report.eventId &&
-    !report.commentId &&
-    !report.messageId &&
-    !report.postId
-  ) {
+  if (!target) {
     throw new AppError(409, 'REPORTED_CONTENT_GONE')
   }
 
@@ -308,14 +358,22 @@ export async function removeReportTarget(
     resolutionNote: 'Conteúdo removido pela moderação',
   })
 
-  if (report.eventId) {
-    await removeReportedEvent(report.eventId)
-  } else if (report.commentId) {
-    await removeReportedComment(report.commentId)
-  } else if (report.messageId) {
-    await removeReportedMessage(reportId, report.messageId)
-  } else if (report.postId) {
-    await removeReportedPost(report.postId)
+  switch (target.kind) {
+    case 'event':
+      await removeReportedEvent(target.id)
+      break
+    case 'comment':
+      await removeReportedComment(target.id)
+      break
+    case 'message':
+      await removeReportedMessage(reportId, target.id)
+      break
+    case 'post':
+      await removeReportedPost(target.id)
+      break
+    case 'spot':
+      await removeReportedSpot(target.id)
+      break
   }
 
   // Re-fetch para refletir as FKs nulas após cascade SetNull da deleção de conteúdo
