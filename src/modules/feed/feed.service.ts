@@ -17,6 +17,7 @@ import {
   findMemberPreviewsByConversation,
   findSpotIdsNearPoint,
   findSpotsByIds,
+  SPOT_MEMBER_PREVIEW,
 } from '../spots/spots.repository'
 import { resolveSpotRadiusKm, shapeSpot } from '../spots/spots.service'
 import {
@@ -324,12 +325,6 @@ async function findSpotCandidateIds(
  * não tem), amigos no grupo como friendEngagement, e a razão social vem da
  * relação com o criador (você / amigo / descoberta).
  */
-// Teto da prévia de membros por rolê. O pulso social do card (SpotPulseRow no
-// mobile) enche a linha com quantos avatares couberem: no aparelho mais largo
-// cabem 15 círculos de 36px com sobreposição de 12 — 14 avatares + o "+N".
-// Acima disso é hidratação que nunca aparece.
-export const SPOT_MEMBER_PREVIEW = 14
-
 async function hydrateSpots(
   spotIds: string[],
   userId: string,
@@ -380,11 +375,14 @@ async function hydrateSpots(
     )
     return {
       item: {
-        ...shapeSpot(spot, memberCount),
         // Prévia do pulso social do card; o "+N" do mobile sai do memberCount.
-        // Sem participante ativo vem vazio: o criador pode ter saído do grupo
+        // Sem participante ativo vem vazia: o criador pode ter saído do grupo
         // (nada impede), e reinventá-lo aqui contradiria o memberCount 0.
-        members: memberPreviews.get(spot.conversationId) ?? [],
+        ...shapeSpot(
+          spot,
+          memberCount,
+          memberPreviews.get(spot.conversationId) ?? [],
+        ),
         reason,
         type: 'SPOT' as const,
       },

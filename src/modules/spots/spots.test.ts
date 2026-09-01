@@ -1245,3 +1245,107 @@ describe('POST /spots/:id/members (entrar)', () => {
     expect(res.statusCode).toBe(409)
   })
 })
+
+// O #235 hidratou `members` só no /feed. No mapa e no detalhe o card caía no
+// fallback do app (`spot.members?.length ? spot.members : [spot.creator]`) e
+// mostrava sempre o criador sozinho, mesmo com o grupo cheio.
+describe('prévia de membros do rolê fora do feed', () => {
+  it('GET /spots/:id devolve os membros do grupo', async () => {
+    const creator = await makeUser()
+    const member = await makeUser()
+    const spot = await makeSpot(creator.id, { memberIds: [member.id] })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/spots/${spot.id}`,
+      headers: auth(creator.id),
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().memberCount).toBe(2)
+    // Sem ordem: makeSpot cria criador e membros na MESMA transação, então
+    // joinedAt empata e o desempate cai no userId (uuid aleatório). A ordem é
+    // testada onde ela é determinística — no caso de quem entra depois.
+    expect(
+      res
+        .json()
+        .members.map((m: { id: string }) => m.id)
+        .sort(),
+    ).toEqual([creator.id, member.id].sort())
+  })
+
+  it('GET /spots (mapa) devolve os membros de cada rolê', async () => {
+    const creator = await makeUser()
+    const member = await makeUser()
+    const viewer = await makeUser()
+    const spot = await makeSpot(creator.id, { memberIds: [member.id] })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: BBOX,
+      headers: auth(viewer.id),
+    })
+
+    const found = res.json().find((s: { id: string }) => s.id === spot.id)
+    expect(found.members.map((m: { id: string }) => m.id).sort()).toEqual(
+      [creator.id, member.id].sort(),
+    )
+  })
+
+  it('GET /spots/mine devolve os membros', async () => {
+    const creator = await makeUser()
+    const member = await makeUser()
+    const spot = await makeSpot(creator.id, { memberIds: [member.id] })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: auth(creator.id),
+    })
+
+    const found = res.json().find((s: { id: string }) => s.id === spot.id)
+    expect(found.members.map((m: { id: string }) => m.id).sort()).toEqual(
+      [creator.id, member.id].sort(),
+    )
+  })
+
+  it('quem entra depois aparece na prévia', async () => {
+    const creator = await makeUser()
+    const joiner = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/members`,
+      headers: auth(joiner.id),
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/spots/${spot.id}`,
+      headers: auth(creator.id),
+    })
+
+    expect(res.json().members.map((m: { id: string }) => m.id)).toEqual([
+      creator.id,
+      joiner.id,
+    ])
+  })
+
+  // A prévia é leitura social; as respostas de escrita não a hidratam, e a
+  // chave é OMITIDA em vez de vir [] — vazio significaria grupo sem ninguém.
+  it('a criação não inventa prévia de membros', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody(),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json().memberCount).toBe(1)
+    expect(res.json()).not.toHaveProperty('members')
+  })
+})
