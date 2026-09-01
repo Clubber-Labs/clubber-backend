@@ -1,5 +1,4 @@
 import type { Prisma } from '@prisma/client'
-import { activeUserWhere } from '../../lib/account-visibility'
 import { prisma } from '../../lib/prisma'
 
 // `key` fica de fora: identificador interno do provider, só usado para deletar.
@@ -31,13 +30,6 @@ type NewUserPhotoImage = Omit<
   Prisma.UserPhotoImageUncheckedCreateInput,
   'id' | 'photoId' | 'order' | 'createdAt'
 >
-
-export async function findMuralOwner(userId: string) {
-  return prisma.user.findFirst({
-    where: { id: userId, ...activeUserWhere() },
-    select: { id: true, isPrivate: true },
-  })
-}
 
 /** O evento e, junto, se `userId` confirmou presença ou fez check-in nele. */
 export async function findEventForPhotoLink(eventId: string, userId: string) {

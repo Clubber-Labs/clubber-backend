@@ -1,15 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { AppError } from '../../lib/errors/app-error'
 import type { ProcessedImage } from '../../lib/image-processor'
+import { findVisibleProfileOwner } from '../../lib/profile-visibility'
 import { deleteUploaded, uploadUserPhotoImage } from '../../lib/uploads'
-import { isBlockedEitherWay } from '../blocks/blocks.repository'
 import { hasEventAccess } from '../event-invites/event-invites.access'
-import { findFollow } from '../follows/follows.repository'
 import {
   createUserPhoto,
   deleteUserPhoto,
   findEventForPhotoLink,
-  findMuralOwner,
   findUserPhotoForDeletion,
   findUserPhotos,
   type UserPhotoRow,
@@ -106,27 +104,12 @@ export async function listUserPhotos(
   limit: number,
   cursor?: string,
 ) {
-  const owner = await findMuralOwner(ownerId)
-  if (!owner) {
-    throw new AppError(404, 'USER_NOT_FOUND')
-  }
+  // Mesmo portão da vitrine de eventos do perfil (listUserEvents): conta
+  // inexistente/inativa, perfil privado sem follow ou bloqueio = mural vazio.
+  const owner = await findVisibleProfileOwner(ownerId, viewerId)
+  if (!owner) return { data: [], nextCursor: null }
 
   const isSelf = viewerId === ownerId
-  if (!isSelf) {
-    // Mesma régua das listas de seguidores: perfil privado só abre para follow aceito.
-    if (owner.isPrivate) {
-      const follow = viewerId ? await findFollow(viewerId, ownerId) : null
-      if (follow?.status !== 'ACCEPTED') {
-        throw new AppError(403, 'PRIVATE_PROFILE')
-      }
-    }
-    // Bloqueio em qualquer direção: mural vazio, sem denunciar o bloqueio — a
-    // vitrine de eventos do perfil faz o mesmo (filtra, não erra).
-    if (viewerId && (await isBlockedEitherWay(ownerId, viewerId))) {
-      return { data: [], nextCursor: null }
-    }
-  }
-
   const rows = await findUserPhotos(ownerId, limit, cursor)
   const nextCursor = rows.length === limit ? rows[rows.length - 1].id : null
   const hiddenEventIds = isSelf

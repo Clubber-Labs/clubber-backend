@@ -426,7 +426,10 @@ describe('GET /users/:id/photos', () => {
     expect(res.json().data[0]).toMatchObject({ id: photo.id, event: null })
   })
 
-  it('perfil privado: 403 PRIVATE_PROFILE para não-seguidor, pendente e anônimo', async () => {
+  // Mesma leitura da vitrine de eventos (GET /users/:id/events): quem não pode
+  // ver recebe o mural vazio, não um erro — o app já sabe pelo perfil que é
+  // privado e nem dispara a query.
+  it('perfil privado: mural vazio para não-seguidor, pendente e anônimo', async () => {
     const owner = await makeUser({ isPrivate: true })
     const stranger = await makeUser()
     const pending = await makeUser()
@@ -435,8 +438,8 @@ describe('GET /users/:id/photos', () => {
 
     for (const viewerId of [stranger.id, pending.id, undefined]) {
       const res = await listPhotos(owner.id, viewerId)
-      expect(res.statusCode).toBe(403)
-      expect(res.json().code).toBe('PRIVATE_PROFILE')
+      expect(res.statusCode).toBe(200)
+      expect(res.json()).toEqual({ data: [], nextCursor: null })
     }
   })
 
@@ -468,7 +471,9 @@ describe('GET /users/:id/photos', () => {
     }
   })
 
-  it('retorna 404 para usuário inexistente e para conta desativada', async () => {
+  // O 404 de conta é do GET /users/:id; a listagem, como a vitrine de eventos,
+  // só esvazia — a conta desativada some junto com o perfil.
+  it('mural vazio para usuário inexistente e para conta desativada', async () => {
     const viewer = await makeUser()
     const deactivated = await makeUser({ accountStatus: 'DEACTIVATED' })
     await makeUserPhoto(deactivated.id)
@@ -477,12 +482,12 @@ describe('GET /users/:id/photos', () => {
       '00000000-0000-4000-8000-000000000000',
       viewer.id,
     )
-    expect(missing.statusCode).toBe(404)
-    expect(missing.json().code).toBe('USER_NOT_FOUND')
+    expect(missing.statusCode).toBe(200)
+    expect(missing.json()).toEqual({ data: [], nextCursor: null })
 
     const gone = await listPhotos(deactivated.id, viewer.id)
-    expect(gone.statusCode).toBe(404)
-    expect(gone.json().code).toBe('USER_NOT_FOUND')
+    expect(gone.statusCode).toBe(200)
+    expect(gone.json()).toEqual({ data: [], nextCursor: null })
   })
 })
 
