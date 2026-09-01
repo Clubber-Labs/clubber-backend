@@ -1336,6 +1336,12 @@ model Spot {
   subcategories     String[]        @default([])
   visibility        SpotVisibility  @default(PUBLIC)
   placeId           String
+  /// Identificação do estabelecimento por trás do placeId, como o app já a
+  /// recebeu na sugestão do Places. Guardar evita um Details por leitura, e
+  /// nulo é estado normal: rolê anterior a este campo, ou lugar sem endereço
+  /// formatado. Imutáveis como o resto do local.
+  placeName         String?
+  address           String?
   latitude          Float
   longitude         Float
   startsAt          DateTime
