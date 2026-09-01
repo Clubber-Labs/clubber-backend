@@ -38,7 +38,11 @@ export class FakePlacesService implements IPlacesClient {
   autocompleteCalls = 0
   lastAutocomplete: AutocompleteParams | null = null
   detailsCalls = 0
-  lastDetails: { placeId: string; sessionToken?: string } | null = null
+  lastDetails: {
+    placeId: string
+    sessionToken?: string
+    languageCode?: string
+  } | null = null
   /** Sobrescreva para roteirizar o retorno da Text Search num cenário. */
   override:
     | ((params: { latitude: number; longitude: number }) => PlaceCandidate[])
@@ -76,9 +80,10 @@ export class FakePlacesService implements IPlacesClient {
   async getDetails(
     placeId: string,
     sessionToken?: string,
+    languageCode?: string,
   ): Promise<PlaceDetails | null> {
     this.detailsCalls++
-    this.lastDetails = { placeId, sessionToken }
+    this.lastDetails = { placeId, sessionToken, languageCode }
     if (this.detailsOverride) return this.detailsOverride(placeId)
     return {
       placeId,

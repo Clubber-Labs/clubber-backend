@@ -54,6 +54,8 @@ export type AutocompleteParams = {
    * uma única chamada, em vez de uma por keystroke.
    */
   sessionToken?: string
+  /** BCP-47 do idioma das sugestões — ver SearchTextParams.languageCode. */
+  languageCode?: string
 }
 
 /** Detalhes mínimos (SKU Essentials) do lugar escolhido no autocomplete. */
@@ -73,5 +75,6 @@ export interface IPlacesClient {
   getDetails(
     placeId: string,
     sessionToken?: string,
+    languageCode?: string,
   ): Promise<PlaceDetails | null>
 }

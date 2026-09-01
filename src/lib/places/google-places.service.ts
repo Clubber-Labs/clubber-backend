@@ -103,37 +103,50 @@ export class GooglePlacesService implements IPlacesClient {
     return this.search(body, params.latitude, params.longitude)
   }
 
+  /**
+   * Duas passadas, PERTO antes de LONGE: a primeira restrita ao círculo do
+   * usuário resolve o homônimo prominente ("shanghai club" sugerindo Malásia
+   * antes do bar da esquina); a segunda, só quando a primeira não encheu a
+   * lista, alcança o lugar famoso de fora (caso Berghain Cervejaria vs Berghain
+   * de Berlim). Mesma sessão do sessionToken: a chamada extra não cobra de novo.
+   *
+   * O recorte é geográfico, não político — um `includedRegionCodes` fixo no país
+   * de lançamento resolvia o mesmo homônimo só para quem está nele, e escondia
+   * o bar da esquina de todo mundo que está fora.
+   */
   async autocomplete(params: AutocompleteParams): Promise<PlaceSuggestion[]> {
-    const body = {
+    const { latitude, longitude } = params
+    const base = {
       input: params.input,
-      // Não muda o preço (a cobrança é por sessão, não por abrangência), mas
-      // corta sugestões de outros países — menos sessão desperdiçada.
-      includedRegionCodes: ['br'],
+      ...(params.languageCode && { languageCode: params.languageCode }),
       ...(params.sessionToken && { sessionToken: params.sessionToken }),
-      ...(params.latitude !== undefined &&
-        params.longitude !== undefined && {
-          locationBias: {
-            circle: {
-              center: {
-                latitude: params.latitude,
-                longitude: params.longitude,
-              },
-              radius: params.radiusMeters ?? AUTOCOMPLETE_BIAS_RADIUS_M,
-            },
-          },
-        }),
     }
-    const national = await this.autocompleteRequest(body)
-    if (national.length >= MAX_AUTOCOMPLETE_SUGGESTIONS) return national
+    // Sem coordenadas não existe "perto" para priorizar: uma passada só, aberta.
+    if (latitude === undefined || longitude === undefined) {
+      return (await this.autocompleteRequest(base)).slice(
+        0,
+        MAX_AUTOCOMPLETE_SUGGESTIONS,
+      )
+    }
 
-    // Lista incompleta no Brasil: o global COMPLEMENTA (não substitui) — um
-    // homônimo nacional não pode esconder o lugar real lá fora (caso Berghain
-    // Cervejaria vs Berghain de Berlim). Dentro da mesma sessão do
-    // sessionToken, a chamada extra não gera cobrança nova.
-    const { includedRegionCodes: _drop, ...globalBody } = body
-    const global = await this.autocompleteRequest(globalBody)
-    const seen = new Set(national.map((s) => s.placeId))
-    return [...national, ...global.filter((s) => !seen.has(s.placeId))].slice(
+    const circle = {
+      center: { latitude, longitude },
+      radius: params.radiusMeters ?? AUTOCOMPLETE_BIAS_RADIUS_M,
+    }
+    const near = await this.autocompleteRequest({
+      ...base,
+      locationRestriction: { circle },
+    })
+    if (near.length >= MAX_AUTOCOMPLETE_SUGGESTIONS) return near
+
+    // Bias (não Restriction) na segunda: ela existe para alcançar o que está
+    // fora do círculo, mas o perto continua pesando na ordem.
+    const far = await this.autocompleteRequest({
+      ...base,
+      locationBias: { circle },
+    })
+    const seen = new Set(near.map((s) => s.placeId))
+    return [...near, ...far.filter((s) => !seen.has(s.placeId))].slice(
       0,
       MAX_AUTOCOMPLETE_SUGGESTIONS,
     )
@@ -183,15 +196,17 @@ export class GooglePlacesService implements IPlacesClient {
   async getDetails(
     placeId: string,
     sessionToken?: string,
+    languageCode?: string,
   ): Promise<PlaceDetails | null> {
     placesSearchTotal.inc({ type: 'details' })
     // sessionToken aqui FECHA a sessão iniciada no autocomplete — sem ele o
     // Google cobra cada keystroke da sessão como request avulsa.
-    const query = sessionToken
-      ? `?sessionToken=${encodeURIComponent(sessionToken)}`
-      : ''
+    const query = new URLSearchParams()
+    if (sessionToken) query.set('sessionToken', sessionToken)
+    if (languageCode) query.set('languageCode', languageCode)
+    const qs = query.size > 0 ? `?${query}` : ''
     const res = await this.fetchPlaces(
-      `${BASE}/${encodeURIComponent(placeId)}${query}`,
+      `${BASE}/${encodeURIComponent(placeId)}${qs}`,
       {
         method: 'GET',
         headers: {
