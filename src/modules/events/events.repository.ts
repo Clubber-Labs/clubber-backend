@@ -23,6 +23,8 @@ import {
 import {
   buildCommentInclude,
   commentAuthorSelect,
+  normalizeComment,
+  type NormalizedComment as SharedCommentPayload,
   visibleCommentWhere,
 } from '../comments/comments.repository'
 import type {
@@ -109,7 +111,7 @@ type PrismaSharedEvent = Prisma.EventGetPayload<{
     comments: {
       include: {
         author: { select: typeof authorSelect }
-        _count: { select: { reactions: true } }
+        _count: { select: { reactions: true; replies: true } }
       }
     }
     images: { select: typeof eventImageSelect }
@@ -118,13 +120,7 @@ type PrismaSharedEvent = Prisma.EventGetPayload<{
 
 type AuthorPayload = Prisma.UserGetPayload<{ select: typeof authorSelect }>
 
-export type SharedComment = {
-  id: string
-  content: string
-  createdAt: Date
-  author: AuthorPayload
-  reactionsCount: number
-}
+export type SharedComment = SharedCommentPayload
 
 export type SharedEvent = Omit<PrismaSharedEvent, 'comments'> & {
   recentComments: SharedComment[]
@@ -146,13 +142,7 @@ function normalizeShared(
   const { comments, ...rest } = event
   return {
     ...rest,
-    recentComments: (comments ?? []).map((c) => ({
-      id: c.id,
-      content: c.content,
-      createdAt: c.createdAt,
-      author: c.author,
-      reactionsCount: c._count.reactions,
-    })),
+    recentComments: (comments ?? []).map((c) => normalizeComment(c)),
     status: computeEventStatus(event, now),
   }
 }
