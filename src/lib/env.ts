@@ -151,6 +151,9 @@ const baseSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().optional(),
   GOOGLE_PLACES_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  // Chave pessoal/service account SEM workspace fixo exige o id do workspace em
+  // todo request (400 sem ele). Chave de workspace único dispensa.
+  ANTHROPIC_WORKSPACE_ID: z.string().startsWith('wrkspc_').optional(),
   // Spotify — conta VINCULADA (não é login). Diferente do Google/Apple, aqui há
   // troca de code por token, então o secret é server-side. Sem o par, as rotas
   // de /spotify respondem 500 e a feature fica desligada.
@@ -712,6 +715,7 @@ export const env = {
   GOOGLE_CLIENT_ID: parsed.GOOGLE_CLIENT_ID,
   GOOGLE_PLACES_API_KEY: parsed.GOOGLE_PLACES_API_KEY,
   ANTHROPIC_API_KEY: parsed.ANTHROPIC_API_KEY,
+  ANTHROPIC_WORKSPACE_ID: parsed.ANTHROPIC_WORKSPACE_ID,
   SPOTIFY_CLIENT_ID: parsed.SPOTIFY_CLIENT_ID,
   SPOTIFY_CLIENT_SECRET: parsed.SPOTIFY_CLIENT_SECRET,
   SPOTIFY_REDIRECT_URI: parsed.SPOTIFY_REDIRECT_URI,
