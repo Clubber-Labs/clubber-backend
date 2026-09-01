@@ -325,11 +325,6 @@ async function findSpotCandidateIds(
  * não tem), amigos no grupo como friendEngagement, e a razão social vem da
  * relação com o criador (você / amigo / descoberta).
  */
-// Teto da prévia de membros por rolê. O pulso social do card (SpotPulseRow no
-// mobile) enche a linha com quantos avatares couberem: no aparelho mais largo
-// cabem 15 círculos de 36px com sobreposição de 12 — 14 avatares + o "+N".
-// Acima disso é hidratação que nunca aparece.
-
 async function hydrateSpots(
   spotIds: string[],
   userId: string,

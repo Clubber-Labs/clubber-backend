@@ -191,9 +191,14 @@ export async function countActiveMembersByConversation(
 }
 
 /**
- * Quantos membros a prévia do grupo carrega. Mora aqui (e não no feed, que era
- * o único a hidratá-la) porque agora mapa, detalhe e "meus rolês" leem a mesma
- * prévia — teto diferente por superfície seria "+N" diferente pro mesmo rolê.
+ * Teto da prévia de membros por rolê. O pulso social do card (SpotPulseRow no
+ * mobile) enche a linha com quantos avatares couberem: no aparelho mais largo
+ * cabem 15 círculos de 36px com sobreposição de 12 — 14 avatares + o "+N".
+ * Acima disso é hidratação que nunca aparece.
+ *
+ * Mora aqui (e não no feed, que era o único a hidratá-la) porque mapa, detalhe
+ * e "meus rolês" leem a mesma prévia — teto por superfície seria "+N" diferente
+ * para o mesmo rolê.
  */
 export const SPOT_MEMBER_PREVIEW = 14
 
