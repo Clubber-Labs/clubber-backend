@@ -501,3 +501,152 @@ describe('chave indisponível', () => {
     expect(porId.get(sadia.id)).toBe('legível')
   })
 })
+
+// Mensagem só de mídia tem content nulo: sem os anexos no preview, responder
+// uma foto rendia citação em branco — o app monta o rótulo a partir do KIND do
+// primeiro anexo (attachmentReplyLabel).
+describe('anexos na citação da resposta', () => {
+  async function seedMediaMessage(
+    conversationId: string,
+    senderId: string,
+    kind: 'IMAGE' | 'AUDIO' | 'VIDEO' = 'IMAGE',
+  ) {
+    const message = await makeMessage(conversationId, senderId, {
+      content: null,
+    })
+    await testPrisma.messageAttachment.create({
+      data: {
+        messageId: message.id,
+        kind,
+        url: 'https://cdn.test/foto.webp',
+        key: `chat/${message.id}`,
+        format: 'webp',
+        size: 1024,
+        waveform: [],
+        order: 0,
+      },
+    })
+    return message
+  }
+
+  it('responder mensagem só de mídia devolve o anexo citado', async () => {
+    const [a, b] = [await makeUser(), await makeUser()]
+    const conversation = await makeDirectConversation(a.id, b.id)
+    const original = await seedMediaMessage(conversation.id, a.id)
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(b.id),
+      body: { content: 'que foto boa', replyToId: original.id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(a.id),
+    })
+
+    const { replyTo } = res.json().data[0]
+    expect(replyTo.content).toBeNull()
+    expect(replyTo.attachments).toHaveLength(1)
+    expect(replyTo.attachments[0].kind).toBe('IMAGE')
+    expect(replyTo.attachments[0].url).toBeTruthy()
+  })
+
+  it('preserva o kind do anexo citado (áudio não vira foto)', async () => {
+    const [a, b] = [await makeUser(), await makeUser()]
+    const conversation = await makeDirectConversation(a.id, b.id)
+    const original = await seedMediaMessage(conversation.id, a.id, 'AUDIO')
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(b.id),
+      body: { content: 'ouvi', replyToId: original.id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(a.id),
+    })
+
+    expect(res.json().data[0].replyTo.attachments[0].kind).toBe('AUDIO')
+  })
+
+  // A key é interna (serve só para assinar a URL) e não pode vazar no payload —
+  // mesma regra que shapeMessage já aplica aos anexos da própria mensagem.
+  it('não vaza a key do anexo citado', async () => {
+    const [a, b] = [await makeUser(), await makeUser()]
+    const conversation = await makeDirectConversation(a.id, b.id)
+    const original = await seedMediaMessage(conversation.id, a.id)
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(b.id),
+      body: { content: 'resposta', replyToId: original.id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(a.id),
+    })
+
+    expect(res.json().data[0].replyTo.attachments[0]).not.toHaveProperty('key')
+  })
+
+  it('mensagem citada só de texto devolve attachments vazio', async () => {
+    const [a, b] = [await makeUser(), await makeUser()]
+    const conversation = await makeDirectConversation(a.id, b.id)
+    const original = await makeMessage(conversation.id, a.id, {
+      content: 'só texto',
+    })
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(b.id),
+      body: { content: 'resposta', replyToId: original.id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(a.id),
+    })
+
+    expect(res.json().data[0].replyTo.attachments).toEqual([])
+  })
+
+  // Citada apagada já zerava content; os anexos seguem a mesma regra, senão a
+  // mídia sobreviveria à exclusão dentro da citação.
+  it('citada apagada devolve attachments vazio', async () => {
+    const [a, b] = [await makeUser(), await makeUser()]
+    const conversation = await makeDirectConversation(a.id, b.id)
+    const original = await seedMediaMessage(conversation.id, a.id)
+
+    await app.inject({
+      method: 'POST',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(b.id),
+      body: { content: 'resposta', replyToId: original.id },
+    })
+    await testPrisma.message.update({
+      where: { id: original.id },
+      data: { deletedAt: new Date() },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/conversations/${conversation.id}/messages`,
+      headers: auth(a.id),
+    })
+
+    const { replyTo } = res.json().data[0]
+    expect(replyTo.content).toBeNull()
+    expect(replyTo.attachments).toEqual([])
+  })
+})

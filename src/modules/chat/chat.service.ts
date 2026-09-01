@@ -95,6 +95,8 @@ function shapeReplyPreview(replyTo: MessageRow['replyTo']) {
     senderId: replyTo.senderId,
     sender: replyTo.sender,
     content: deleted ? null : replyTo.content,
+    // Mesma regra do content: mídia não sobrevive à exclusão dentro da citação.
+    attachments: deleted ? [] : shapeAttachments(replyTo.attachments),
     deletedAt: replyTo.deletedAt,
   }
 }
