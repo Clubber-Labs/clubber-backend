@@ -48,7 +48,7 @@ describe('AiSuggestionEnhancer.enhance', () => {
     const { client } = stubClient({
       ranked: [
         { placeId: 'b', title: 'Rolê no B', description: 'desc B' },
-        { placeId: 'a', title: 'Rolê no A', description: null },
+        { placeId: 'a', title: 'Rolê no A', description: '' },
       ],
     })
 
@@ -65,7 +65,7 @@ describe('AiSuggestionEnhancer.enhance', () => {
     const b = candidate({ placeId: 'b' })
     const c = candidate({ placeId: 'c' })
     const { client } = stubClient({
-      ranked: [{ placeId: 'a', title: 'só o A', description: null }],
+      ranked: [{ placeId: 'a', title: 'só o A', description: '' }],
     })
 
     const result = await new AiSuggestionEnhancer(client).enhance(
@@ -91,8 +91,8 @@ describe('AiSuggestionEnhancer.enhance', () => {
     const a = candidate({ placeId: 'a' })
     const { client } = stubClient({
       ranked: [
-        { placeId: 'fantasma', title: 'x', description: null },
-        { placeId: 'a', title: 'real', description: null },
+        { placeId: 'fantasma', title: 'x', description: '' },
+        { placeId: 'a', title: 'real', description: '' },
       ],
     })
 
@@ -166,6 +166,54 @@ describe('AiSuggestionEnhancer.enhance', () => {
 
     const payload = JSON.parse(sent?.content ?? '{}')
     expect(payload.criterion).toBe('bar com música ao vivo')
+  })
+})
+
+describe('AiSuggestionEnhancer — description obrigatória', () => {
+  // O `null` na description era uma saída de emergência do prompt; com as
+  // regras restritivas de copy a IA passou a usá-la como padrão e as sugestões
+  // ficaram sem descrição. O contrato de saída (schema enviado à API) fecha a
+  // porta: a gramática do structured output não oferece `null` ao modelo.
+  it('o schema de saída enviado à API exige description como string', async () => {
+    const { client, parse } = stubClient({ ranked: [] })
+
+    await new AiSuggestionEnhancer(client).enhance([candidate()], ctx)
+
+    const body = parse.mock.calls[0]?.[0] as {
+      output_config: { format: { schema: unknown } }
+    }
+    const items = (
+      body.output_config.format.schema as {
+        properties: {
+          ranked: { items: { properties: { description: unknown } } }
+        }
+      }
+    ).properties.ranked.items
+    expect(items.properties.description).toEqual({ type: 'string' })
+  })
+
+  it('o prompt pede a description sempre — sem saída null nem veto ao tipo do lugar', async () => {
+    const { client, parse } = stubClient({ ranked: [] })
+
+    await new AiSuggestionEnhancer(client).enhance([candidate()], ctx)
+
+    const system = (parse.mock.calls[0]?.[0] as { system: string }).system
+    expect(system).not.toContain('use null')
+    expect(system).not.toContain('nunca presuma o tipo do lugar')
+    expect(system).toContain('SEMPRE escreva a "description"')
+  })
+
+  it('description em branco vinda da IA vira null (o front esconde o balão)', async () => {
+    const { client } = stubClient({
+      ranked: [{ placeId: 'p1', title: 'Bora?', description: '   ' }],
+    })
+
+    const result = await new AiSuggestionEnhancer(client).enhance(
+      [candidate()],
+      ctx,
+    )
+
+    expect(result[0].suggestedDescription).toBeNull()
   })
 })
 
