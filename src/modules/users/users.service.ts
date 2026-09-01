@@ -24,6 +24,7 @@ import {
   spotifyArtistUrl,
 } from '../spotify-link/spotify-link.service'
 import { matchArtists } from '../spotify-link/spotify-match'
+import { countUserPhotos } from '../user-photos/user-photos.repository'
 import {
   anonymizeUserTx,
   clearExpiredSuspension,
@@ -264,12 +265,13 @@ export async function getUserById(id: string, viewerId?: string) {
       ? (await withViewerFollowInfo([{ id }], viewerId))[0]
       : { followStatus: null, followsYou: false }
 
-  // Paralelo: as duas são independentes e cada uma é um round-trip ao banco.
-  const [eventsCount, artistMatch] = await Promise.all([
+  // Paralelo: são independentes e cada uma é um round-trip ao banco.
+  const [eventsCount, photosCount, artistMatch] = await Promise.all([
     // A vitrine do perfil lista o que a pessoa criou E aquilo em que confirmou
     // presença; o contador conta a mesma coisa, do mesmo predicado. Agregado de
     // propósito — contador de perfil é metadado, como seguidores.
     countProfileEvents(id, isSelf),
+    countUserPhotos(id),
     viewerId && !isSelf ? resolveArtistMatch(viewerId, user) : null,
   ])
 
@@ -280,6 +282,7 @@ export async function getUserById(id: string, viewerId?: string) {
     kind: 'full' as const,
     ...toApiUser(user),
     eventsCount,
+    photosCount,
     followStatus,
     followsYou,
     artistMatch,
@@ -332,16 +335,18 @@ export async function getMe(userId: string) {
   // cliente decidir se exige reconfirmação de senha na exclusão.
   const { password, ...rest } = user
   // Paralelo: evita round-trip sequencial ao banco
-  const [preferredUser, consent, eventsCount] = await Promise.all([
+  const [preferredUser, consent, eventsCount, photosCount] = await Promise.all([
     Promise.resolve(toApiUser(rest, { own: true })),
     getConsentSummary(userId),
     // Dono do próprio perfil: as presenças entram mesmo com a visibilidade de
     // atividades desligada.
     countProfileEvents(userId, true),
+    countUserPhotos(userId),
   ])
   return {
     ...preferredUser,
     eventsCount,
+    photosCount,
     hasPassword: password !== null,
     consent,
     // Teto do raio de recomendação de spots — o client usa como max do slider
@@ -553,9 +558,11 @@ export async function anonymizeAccount(
     return false
   }
 
-  const keys = [storage.avatarKey, ...storage.eventImageKeys].filter(
-    (k): k is string => Boolean(k),
-  )
+  const keys = [
+    storage.avatarKey,
+    ...storage.eventImageKeys,
+    ...storage.userPhotoImageKeys,
+  ].filter((k): k is string => Boolean(k))
   for (const key of keys) {
     await deleteUploaded(key, logger)
   }

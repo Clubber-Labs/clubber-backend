@@ -79,6 +79,7 @@ import { socialAuthRoutes } from './modules/social-auth/social-auth.routes'
 import { spotifyLinkRoutes } from './modules/spotify-link/spotify-link.routes'
 import { startSpotifyTasteReconciler } from './modules/spotify-link/spotify-taste.reconciler'
 import { spotsRoutes } from './modules/spots/spots.routes'
+import { userPhotosRoutes } from './modules/user-photos/user-photos.routes'
 import { startAccountDeletionReconciler } from './modules/users/account-deletion.reconciler'
 import { startSuspensionReconciler } from './modules/users/suspension.reconciler'
 import { usersRoutes } from './modules/users/users.routes'
@@ -225,6 +226,7 @@ app.register(eventStatsRoutes)
 app.register(recurringEventsRoutes)
 app.register(featuredEventsRoutes)
 app.register(usersRoutes)
+app.register(userPhotosRoutes)
 app.register(consentRoutes)
 app.register(adminConsentRoutes)
 app.register(followsRoutes)

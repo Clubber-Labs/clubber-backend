@@ -72,6 +72,7 @@ afterEach(async () => {
     testPrisma.reaction.deleteMany(),
     testPrisma.comment.deleteMany(),
     testPrisma.post.deleteMany(),
+    testPrisma.userPhoto.deleteMany(),
     testPrisma.eventInvite.deleteMany(),
     testPrisma.eventInviteLink.deleteMany(),
     testPrisma.eventAttendance.deleteMany(),

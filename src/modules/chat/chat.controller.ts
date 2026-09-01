@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { AppError } from '../../lib/errors/app-error'
+import { firstIssueField } from '../../lib/errors/zod-issue'
 import { assertAudioMimetype, assertImageMimetype } from '../../lib/uploads'
 import {
   type AddParticipantBody,
@@ -145,13 +146,6 @@ function multipartFieldValue(
   const one = Array.isArray(field) ? field[0] : field
   const value = (one as { value?: unknown } | undefined)?.value
   return typeof value === 'string' ? value : undefined
-}
-
-/** Campo do primeiro issue do Zod — vira o `field` do AppError, preservando
- * qual metadado falhou sem expor a mensagem livre (não-traduzível) do schema. */
-function firstIssueField(error: { issues: { path: PropertyKey[] }[] }) {
-  const segment = error.issues[0]?.path[0]
-  return segment === undefined ? undefined : String(segment)
 }
 
 function parseAudioMeta(fields: Record<string, unknown>): AudioMessageMeta {

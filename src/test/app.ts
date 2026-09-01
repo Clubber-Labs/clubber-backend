@@ -44,6 +44,7 @@ import { shareRoutes } from '../modules/share/share.routes'
 import { socialAuthRoutes } from '../modules/social-auth/social-auth.routes'
 import { spotifyLinkRoutes } from '../modules/spotify-link/spotify-link.routes'
 import { spotsRoutes } from '../modules/spots/spots.routes'
+import { userPhotosRoutes } from '../modules/user-photos/user-photos.routes'
 import { usersRoutes } from '../modules/users/users.routes'
 import { localePlugin } from '../plugins/locale'
 import { metricsPlugin } from '../plugins/metrics'
@@ -94,6 +95,7 @@ export function buildApp() {
   app.register(recurringEventsRoutes)
   app.register(featuredEventsRoutes)
   app.register(usersRoutes)
+  app.register(userPhotosRoutes)
   app.register(followsRoutes)
   app.register(attendanceRoutes)
   app.register(postsRoutes)

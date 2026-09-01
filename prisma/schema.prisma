@@ -119,6 +119,7 @@ model User {
   attendances          EventAttendance[]
   checkIns             EventCheckIn[]
   posts                Post[]
+  userPhotos           UserPhoto[]
   comments             Comment[]
   reactions            Reaction[]
   commentReactions     CommentReaction[]
@@ -636,6 +637,7 @@ model Event {
   attendances      EventAttendance[]
   checkIns         EventCheckIn[]
   posts            Post[]
+  userPhotos       UserPhoto[]
   comments         Comment[]
   reactions        Reaction[]
   invites          EventInvite[]
@@ -1046,6 +1048,45 @@ model PostImage {
 
   @@index([postId, order])
   @@map("post_images")
+}
+
+/// Entrada do mural do perfil: um conjunto de fotos publicado de uma vez, com
+/// legenda opcional e vínculo opcional a um evento de que o dono participou.
+/// Não é Post: não entra no feed, não tem reação nem comentário.
+model UserPhoto {
+  id        String   @id @default(uuid())
+  userId    String
+  caption   String?
+  /// SetNull: apagar o evento não apaga a memória; ela só perde o vínculo.
+  eventId   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event  Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  images UserPhotoImage[]
+
+  @@index([userId, createdAt, id])
+  // Fixup do SetNull ao apagar o evento: sem índice em eventId, o delete varre a tabela.
+  @@index([eventId])
+  @@map("user_photos")
+}
+
+model UserPhotoImage {
+  id        String    @id @default(uuid())
+  url       String
+  key       String
+  format    String
+  size      Int
+  width     Int
+  height    Int
+  order     Int       @default(0)
+  photoId   String
+  photo     UserPhoto @relation(fields: [photoId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+
+  @@index([photoId, order])
+  @@map("user_photo_images")
 }
 
 model FeaturedEvent {
