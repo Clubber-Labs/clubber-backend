@@ -40,6 +40,7 @@ import {
   consumeGenerationQuota,
   countActiveMembersByConversation,
   createSpotWithConversation,
+  findMemberPreviewsByConversation,
   findOwnActiveSpots,
   findSpotDetail,
   findSpotForMutation,
@@ -48,7 +49,9 @@ import {
   findSpotIdsNearPoint,
   findSpotsByIds,
   renewSpotById,
+  SPOT_MEMBER_PREVIEW,
   type SpotDetail,
+  type SpotMemberPreview,
   updateSpotById,
 } from './spots.repository'
 import type {
@@ -79,10 +82,37 @@ function gridCell(value: number, radiusKm: number): string {
 const MAX_ACTIVE_SPOTS = 5
 const SPOT_WINDOW_MS = 24 * 60 * 60 * 1000 // 24h por janela (criação e renovação)
 
-/** Shape público do rolê (tira creatorId) — fonte única, usada aqui e no feed. */
-export function shapeSpot(spot: SpotDetail, memberCount: number) {
+/**
+ * Shape público do rolê (tira creatorId) — fonte única, usada aqui e no feed.
+ *
+ * `members` é a prévia do grupo para o pulso social do card. Quando não é
+ * hidratada (respostas de escrita), a chave é OMITIDA em vez de vir []: vazio
+ * significa "grupo sem ninguém ativo", que é estado possível e diferente de
+ * "não carregado".
+ */
+export function shapeSpot(
+  spot: SpotDetail,
+  memberCount: number,
+  members?: SpotMemberPreview[],
+) {
   const { creatorId: _creatorId, ...rest } = spot
-  return { ...rest, memberCount }
+  return { ...rest, memberCount, ...(members && { members }) }
+}
+
+/** Contagem + prévia de membros em lote, para uma lista de rolês. */
+async function withMemberPreviews(spots: SpotDetail[]) {
+  const conversationIds = spots.map((s) => s.conversationId)
+  const [counts, previews] = await Promise.all([
+    countActiveMembersByConversation(conversationIds),
+    findMemberPreviewsByConversation(conversationIds, SPOT_MEMBER_PREVIEW),
+  ])
+  return spots.map((s) =>
+    shapeSpot(
+      s,
+      counts.get(s.conversationId) ?? 0,
+      previews.get(s.conversationId) ?? [],
+    ),
+  )
 }
 
 /** Viewer pode ver o spot? público, ou criador, ou amigo mútuo (FRIENDS). */
@@ -139,8 +169,18 @@ export async function ensureSpotVisible(id: string, viewerId: string | null) {
 
 export async function getSpot(viewerId: string | null, id: string) {
   const spot = await ensureSpotVisible(id, viewerId)
-  const counts = await countActiveMembersByConversation([spot.conversationId])
-  return shapeSpot(spot, counts.get(spot.conversationId) ?? 0)
+  const [counts, previews] = await Promise.all([
+    countActiveMembersByConversation([spot.conversationId]),
+    findMemberPreviewsByConversation(
+      [spot.conversationId],
+      SPOT_MEMBER_PREVIEW,
+    ),
+  ])
+  return shapeSpot(
+    spot,
+    counts.get(spot.conversationId) ?? 0,
+    previews.get(spot.conversationId) ?? [],
+  )
 }
 
 /**
@@ -224,11 +264,7 @@ export async function listSpots(
     ids = []
   }
 
-  const spots = await findSpotsByIds(ids)
-  const counts = await countActiveMembersByConversation(
-    spots.map((s) => s.conversationId),
-  )
-  return spots.map((s) => shapeSpot(s, counts.get(s.conversationId) ?? 0))
+  return withMemberPreviews(await findSpotsByIds(ids))
 }
 
 /**
@@ -238,11 +274,7 @@ export async function listSpots(
  * vencimento mais próximo (limitado pelo teto de spots ativos).
  */
 export async function listOwnSpots(creatorId: string) {
-  const spots = await findOwnActiveSpots(creatorId, new Date())
-  const counts = await countActiveMembersByConversation(
-    spots.map((s) => s.conversationId),
-  )
-  return spots.map((s) => shapeSpot(s, counts.get(s.conversationId) ?? 0))
+  return withMemberPreviews(await findOwnActiveSpots(creatorId, new Date()))
 }
 
 /**

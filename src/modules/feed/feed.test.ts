@@ -14,7 +14,7 @@ import {
   makeUserSubcategoryPreference,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
-import { SPOT_MEMBER_PREVIEW } from './feed.service'
+import { SPOT_MEMBER_PREVIEW } from '../spots/spots.repository'
 
 let app: FastifyInstance
 

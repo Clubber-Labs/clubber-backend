@@ -190,6 +190,13 @@ export async function countActiveMembersByConversation(
   return new Map(rows.map((r) => [r.conversationId, r._count._all]))
 }
 
+/**
+ * Quantos membros a prévia do grupo carrega. Mora aqui (e não no feed, que era
+ * o único a hidratá-la) porque agora mapa, detalhe e "meus rolês" leem a mesma
+ * prévia — teto diferente por superfície seria "+N" diferente pro mesmo rolê.
+ */
+export const SPOT_MEMBER_PREVIEW = 14
+
 export type SpotMemberPreview = Prisma.UserGetPayload<{
   select: typeof creatorSelect
 }>
