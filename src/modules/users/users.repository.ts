@@ -556,12 +556,12 @@ export async function clearExpiredSuspension(id: string, now: Date) {
 }
 
 /**
- * Chaves de storage a limpar na anonimização (avatar + imagens dos eventos do
- * usuário). Coletadas ANTES da transação porque o storage é externo e
- * não-transacional, e as linhas somem na transação.
+ * Chaves de storage a limpar na anonimização (avatar, imagens dos eventos e
+ * fotos do mural do usuário). Coletadas ANTES da transação porque o storage é
+ * externo e não-transacional, e as linhas somem na transação.
  */
 export async function findAnonymizationStorageKeys(userId: string) {
-  const [user, eventImages] = await Promise.all([
+  const [user, eventImages, userPhotoImages] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
       select: { avatarKey: true },
@@ -570,10 +570,15 @@ export async function findAnonymizationStorageKeys(userId: string) {
       where: { event: { authorId: userId } },
       select: { key: true },
     }),
+    prisma.userPhotoImage.findMany({
+      where: { photo: { userId } },
+      select: { key: true },
+    }),
   ])
   return {
     avatarKey: user?.avatarKey ?? null,
     eventImageKeys: eventImages.map((i) => i.key),
+    userPhotoImageKeys: userPhotoImages.map((i) => i.key),
   }
 }
 
@@ -643,9 +648,10 @@ export async function anonymizeUserTx(
     const followingIds = following.map((f) => f.followingId)
     const followerIds = followers.map((f) => f.followerId)
 
-    // Conteúdo próprio standalone (cascateia filhos pelo evento/post).
+    // Conteúdo próprio standalone (cascateia filhos pelo evento/post/mural).
     await tx.event.deleteMany({ where: { authorId: userId } })
     await tx.post.deleteMany({ where: { authorId: userId } })
+    await tx.userPhoto.deleteMany({ where: { userId } })
     // Interações do usuário (não-conteúdo) em espaços alheios.
     await tx.reaction.deleteMany({ where: { userId } })
     await tx.commentReaction.deleteMany({ where: { userId } })

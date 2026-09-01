@@ -679,6 +679,44 @@ export async function makeBlock(blockerId: string, blockedId: string) {
   })
 }
 
+export async function makeCheckIn(userId: string, eventId: string) {
+  return testPrisma.eventCheckIn.create({ data: { userId, eventId } })
+}
+
+/** Entrada do mural com `imagesCount` imagens já "no storage" (keys fictícias). */
+export async function makeUserPhoto(
+  userId: string,
+  overrides: {
+    caption?: string | null
+    eventId?: string | null
+    imagesCount?: number
+    createdAt?: Date
+  } = {},
+) {
+  const id = uid()
+  const imagesCount = overrides.imagesCount ?? 1
+  return testPrisma.userPhoto.create({
+    data: {
+      userId,
+      caption: overrides.caption ?? null,
+      eventId: overrides.eventId ?? null,
+      ...(overrides.createdAt && { createdAt: overrides.createdAt }),
+      images: {
+        create: Array.from({ length: imagesCount }, (_, order) => ({
+          url: `https://cdn.test/${id}-${order}.webp`,
+          key: `users/${userId}/photos/${id}/${order}`,
+          format: 'webp',
+          size: 1024,
+          width: 1080,
+          height: 1350,
+          order,
+        })),
+      },
+    },
+    include: { images: { orderBy: { order: 'asc' } } },
+  })
+}
+
 export async function makeAnalyticsMetric(
   eventId: string,
   type: 'VIEW' | 'SHARE',

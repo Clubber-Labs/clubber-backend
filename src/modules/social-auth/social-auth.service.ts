@@ -3,6 +3,7 @@ import { Prisma, type SocialProvider } from '@prisma/client'
 import { AppError } from '../../lib/errors/app-error'
 import { unblock } from '../../lib/moderation-denylist'
 import { countProfileEvents } from '../events/events.repository'
+import { countUserPhotos } from '../user-photos/user-photos.repository'
 import {
   clearExpiredSuspension,
   findOwnUserById,
@@ -93,11 +94,16 @@ async function loadUserAndDecorate(userId: string) {
   // (derivado, sem vazar o hash) pra o cliente decidir o fluxo de exclusão.
   const { password, ...rest } = user
   const profileIncomplete = !user.phone || !user.birthdate
+  const [eventsCount, photosCount] = await Promise.all([
+    // Acabou de autenticar: é o próprio dono.
+    countProfileEvents(user.id, true),
+    countUserPhotos(user.id),
+  ])
   return {
     user: {
       ...rest,
-      // Acabou de autenticar: é o próprio dono.
-      eventsCount: await countProfileEvents(user.id, true),
+      eventsCount,
+      photosCount,
       hasPassword: password !== null,
     },
     profileIncomplete,

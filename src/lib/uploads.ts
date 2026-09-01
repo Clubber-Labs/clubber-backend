@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream'
 import { AppError } from './errors/app-error'
-import { imageProcessorService } from './image-processor'
+import { imageProcessorService, type ProcessedImage } from './image-processor'
 import { logger } from './logger'
 import { getStorage, type StorageDeliveryType } from './storage'
 
@@ -88,6 +88,31 @@ export async function uploadPostImage(buffer: Buffer, postId: string) {
     `posts/${postId}`,
   )
   return { ...result, format: processed.format, size: processed.size }
+}
+
+// Mural do perfil: processamento e upload separados de propósito. O multipart
+// traz várias imagens e o handler processa cada uma conforme chega; o upload
+// só acontece depois de TODAS as validações, para nunca sobrar blob órfão.
+export function processUserPhotoImage(buffer: Buffer) {
+  return imageProcessorService.processEventGallery(buffer)
+}
+
+export async function uploadUserPhotoImage(
+  image: ProcessedImage,
+  userId: string,
+  photoId: string,
+) {
+  const result = await getStorage().upload(
+    { buffer: image.buffer, filename: 'image.webp', mimetype: 'image/webp' },
+    `users/${userId}/photos/${photoId}`,
+  )
+  return {
+    ...result,
+    format: image.format,
+    size: image.size,
+    width: image.width,
+    height: image.height,
+  }
 }
 
 export async function uploadMessageImage(
