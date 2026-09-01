@@ -135,6 +135,46 @@ describe('GET /users/:id', () => {
     expect(res.json().followStatus).toBe('ACCEPTED')
   })
 
+  it('retorna followedAt com a data do follow quando o viewer segue', async () => {
+    const viewer = await makeUser()
+    const target = await makeUser()
+    const follow = await makeFollow(viewer.id, target.id, 'ACCEPTED')
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/users/${target.id}`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().followedAt).toBe(follow.createdAt.toISOString())
+  })
+
+  it('retorna followedAt null sem follow, com follow pendente, sem autenticação e no próprio perfil', async () => {
+    const viewer = await makeUser()
+    const stranger = await makeUser()
+    const requested = await makeUser({ isPrivate: true })
+    await makeFollow(viewer.id, requested.id, 'PENDING')
+
+    const cases = [
+      { url: `/users/${stranger.id}`, viewerId: viewer.id },
+      { url: `/users/${requested.id}`, viewerId: viewer.id },
+      { url: `/users/${stranger.id}`, viewerId: undefined },
+      { url: `/users/${viewer.id}`, viewerId: viewer.id },
+    ]
+    for (const { url, viewerId } of cases) {
+      const res = await app.inject({
+        method: 'GET',
+        url,
+        ...(viewerId && {
+          headers: { authorization: `Bearer ${token(app, viewerId)}` },
+        }),
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.json().followedAt).toBeNull()
+    }
+  })
+
   it('retorna followStatus PENDING quando solicitação está pendente', async () => {
     const viewer = await makeUser()
     const target = await makeUser({ isPrivate: true })

@@ -259,10 +259,10 @@ export async function getUserById(id: string, viewerId?: string) {
   const isSelf = viewerId === id
   // Os dois sentidos, mesmo motivo da busca: o botão de mensagem só libera se
   // o perfil for público OU o follow for mútuo (canChatWith).
-  const { followStatus, followsYou } =
+  const { followStatus, followsYou, followedAt } =
     viewerId && !isSelf
       ? (await withViewerFollowInfo([{ id }], viewerId))[0]
-      : { followStatus: null, followsYou: false }
+      : { followStatus: null, followsYou: false, followedAt: null }
 
   // Paralelo: as duas são independentes e cada uma é um round-trip ao banco.
   const [eventsCount, artistMatch] = await Promise.all([
@@ -282,6 +282,7 @@ export async function getUserById(id: string, viewerId?: string) {
     eventsCount,
     followStatus,
     followsYou,
+    followedAt,
     artistMatch,
   }
 }
