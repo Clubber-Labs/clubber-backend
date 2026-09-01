@@ -216,6 +216,28 @@ describe('POST /users/me/photos', () => {
     expect(fakeStorage.uploads).toHaveLength(0)
   })
 
+  // O teto do multipart estoura dentro do loop de request.parts(): garante que
+  // o 413 do handler global chega inteiro por esse caminho também.
+  it('retorna 413 FILE_TOO_LARGE para imagem acima de 5 MB e não sobe nenhum blob', async () => {
+    const user = await makeUser()
+
+    const res = await publish(user.id, [
+      {
+        name: 'images',
+        filename: 'grande.png',
+        mimetype: 'image/png',
+        buffer: Buffer.alloc(5 * 1024 * 1024 + 1),
+      },
+    ])
+
+    expect(res.statusCode).toBe(413)
+    expect(res.json()).toMatchObject({
+      code: 'FILE_TOO_LARGE',
+      params: { maxMb: 5 },
+    })
+    expect(fakeStorage.uploads).toHaveLength(0)
+  })
+
   it('retorna 400 VALIDATION_ERROR com legenda acima do limite e não sobe nenhum blob', async () => {
     const user = await makeUser()
 
