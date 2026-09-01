@@ -23,8 +23,8 @@ import {
 import {
   buildCommentInclude,
   commentAuthorSelect,
+  type NormalizedComment,
   normalizeComment,
-  type NormalizedComment as SharedCommentPayload,
   visibleCommentWhere,
 } from '../comments/comments.repository'
 import type {
@@ -120,17 +120,15 @@ type PrismaSharedEvent = Prisma.EventGetPayload<{
 
 type AuthorPayload = Prisma.UserGetPayload<{ select: typeof authorSelect }>
 
-export type SharedComment = SharedCommentPayload
-
 export type SharedEvent = Omit<PrismaSharedEvent, 'comments'> & {
-  recentComments: SharedComment[]
+  // Mesma forma da listagem de comentários. O `userLiked` de cada um nasce
+  // false aqui — este payload é cacheável e viewer-agnóstico; quem preenche é a
+  // hidratação por viewer (mergeViewerState).
+  recentComments: NormalizedComment[]
   status: EventStatus
 }
 
-export type NormalizedComment = SharedComment & { userLiked: boolean }
-
-export type NormalizedEvent = Omit<SharedEvent, 'recentComments'> & {
-  recentComments: NormalizedComment[]
+export type NormalizedEvent = SharedEvent & {
   userLiked: boolean
   userAttendance: string | null
 }
