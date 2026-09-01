@@ -32,11 +32,10 @@ const SHARED_RULES = `Você cura "rolês" (encontros sociais) num app social com
 1. Ordene os lugares do melhor ao pior pela ADERÊNCIA ao "criterion" — o quanto o lugar entrega o que foi pedido (o estilo/vibe que casa com a intenção). Match INCIDENTAL é fraco: um lugar que casa só de raspão (ex.: restaurante de família que POR ACASO tem música ao vivo, quando se pediu "bar com música ao vivo") vai pro fim ou é descartado. POPULARIDADE NÃO compensa match fraco — NUNCA promova um lugar genérico e popular sobre um que casa melhor com a intenção.
 2. NOTORIEDADE (userRatingCount maior) é só desempate entre lugares de aderência MUITO parecida. Distância (distanceMeters) é desempate final fraco — nunca enterre um lugar ótimo só por ser mais longe. NÃO use nota, preço nem horário (não vêm no payload).
 3. Você pode DESCARTAR (omitir) os lugares que claramente não atendem ao "criterion". Mas se todos forem fracos, prefira manter os 2-3 menos ruins a devolver lista vazia. SEMPRE descarte conteúdo adulto/sexual (casa de swing, balada liberal, strip club, termas, prostituição) — o app é de público jovem, NUNCA o recomende mesmo que o nome combine com a busca.
-4. Para cada lugar mantido escreva um "title" (máx. 60 chars) e uma "description" de 1 frase (ou null), no idioma e no tom do bloco que FECHA estas instruções. Valem para os dois campos, em qualquer idioma:
+4. Para cada lugar mantido escreva um "title" (máx. 60 chars) e uma "description" de 1 frase, no idioma e no tom do bloco que FECHA estas instruções. Valem para os dois campos, em qualquer idioma:
    - NUNCA mencione nota, avaliação, reputação, popularidade, nº de visitantes, preço nem horário — isso é métrica, não convite.
-   - Você conhece só o NOME e a DISTÂNCIA do lugar. A distância pode virar convite ("está logo ali"); qualquer outro fato você não tem — não invente o que o lugar é nem o que ele serve.
-   - O mesmo tom precisa servir para balada, café, parque e restaurante: nunca presuma o tipo do lugar.
-   - Sem nada genuinamente convidativo a dizer, use null na description.
+   - Você conhece o NOME, a DISTÂNCIA e o "criterion". O nome costuma dizer o tipo do lugar (bar, parque, café) — pode se apoiar nisso; não invente o que o nome não dá (cardápio, atrações, decoração).
+   - SEMPRE escreva a "description": ela vende o plano de ir junto, e isso sempre rende uma frase — a companhia, o encaixe com o "criterion", a distância ("está logo ali"). Nunca deixe em branco.
 Responda APENAS no formato estruturado, repetindo o placeId de cada lugar mantido.`
 
 // A voz de cada idioma, escrita nativamente — não traduzida. O bloco vai NA
@@ -79,7 +78,9 @@ const outputSchema = z.object({
     z.object({
       placeId: z.string(),
       title: z.string(),
-      description: z.string().nullable(),
+      // Sem `.nullable()` de propósito: o structured output vira gramática, e
+      // sem `null` na gramática o modelo não tem como pular a description.
+      description: z.string(),
     }),
   ),
 })
@@ -146,11 +147,12 @@ export class AiSuggestionEnhancer implements ISuggestionEnhancer {
         const candidate = byId.get(item.placeId)
         if (!candidate) continue
         byId.delete(item.placeId)
+        const description = item.description.trim()
         result.push({
           ...candidate,
           suggestedTitle: clamp(item.title, TITLE_MAX),
-          suggestedDescription: item.description
-            ? clamp(item.description, DESCRIPTION_MAX)
+          suggestedDescription: description
+            ? clamp(description, DESCRIPTION_MAX)
             : null,
         })
       }
