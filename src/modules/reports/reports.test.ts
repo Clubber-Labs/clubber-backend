@@ -9,6 +9,7 @@ import {
   makeMessage,
   makePost,
   makeReport,
+  makeSpot,
   makeUser,
 } from '../../test/factories'
 import { testPrisma } from '../../test/prisma'
@@ -1134,5 +1135,243 @@ describe('Expiração de suspensão', () => {
       select: { accountStatus: true },
     })
     expect(stored?.accountStatus).toBe('ACTIVE')
+  })
+})
+
+// Antes disso o rolê era inalcançável pela moderação: o menu do card do app
+// oferecia "denunciar usuário" com o id do criador, e o conteúdo do rolê
+// (título, descrição, local) nunca chegava a quem revisa.
+describe('POST /spots/:spotId/report', () => {
+  it('cria denúncia de rolê com targetType SPOT', async () => {
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'HATE_SPEECH', details: 'Título ofensivo' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      spotId: spot.id,
+      reporterId: reporter.id,
+      reason: 'HATE_SPEECH',
+      status: 'PENDING',
+    })
+    // O criador NÃO é o alvo: o alvo é o rolê.
+    expect(res.json().targetUserId).toBeNull()
+  })
+
+  it('aceita o alias plural /spots/:spotId/reports', async () => {
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/reports`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('retorna 400 ao denunciar o próprio rolê', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers: { authorization: `Bearer ${token(app, creator.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('SELF_REPORT')
+  })
+
+  it('retorna 409 na segunda denúncia aberta do mesmo rolê', async () => {
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const headers = { authorization: `Bearer ${token(app, reporter.id)}` }
+
+    await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers,
+      body: { reason: 'HARASSMENT' },
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers,
+      body: { reason: 'HARASSMENT' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('REPORT_ALREADY_OPEN')
+  })
+
+  it('retorna 404 para rolê inexistente', async () => {
+    const reporter = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/00000000-0000-4000-8000-000000000000/report',
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  // Mesma régua do GET /spots/:id: privacidade fica atrás de 404, não vaza
+  // existência de rolê de amigos para quem não é amigo.
+  it('retorna 404 em rolê FRIENDS sem amizade mútua', async () => {
+    const creator = await makeUser()
+    const stranger = await makeUser()
+    const spot = await makeSpot(creator.id, { visibility: 'FRIENDS' })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers: { authorization: `Bearer ${token(app, stranger.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const creator = await makeUser()
+    const spot = await makeSpot(creator.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+
+  // Denúncia é gatilho de moderação: sem teto, vira vetor de flood na fila de
+  // quem revisa. Mesmo teto dos outros alvos (createReportRouteConfig).
+  it('aplica o rate limit de 20 por minuto', async () => {
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const headers = { authorization: `Bearer ${token(app, reporter.id)}` }
+    const body = { reason: 'OTHER' }
+
+    // A 1ª cria (201) e as demais batem no 409 de denúncia já aberta — o que
+    // importa é que o limitador conta a requisição, não o status dela.
+    for (let i = 0; i < 20; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/spots/${spot.id}/report`,
+        headers,
+        body,
+      })
+      expect(res.statusCode).not.toBe(429)
+    }
+
+    const blocked = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers,
+      body,
+    })
+    expect(blocked.statusCode).toBe(429)
+  })
+})
+
+describe('moderação de denúncia de rolê', () => {
+  it('filtra por targetType=SPOT em GET /reports', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const event = await makeEvent(creator.id)
+    await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reports?targetType=SPOT',
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toHaveLength(1)
+    expect(res.json().data[0].spotId).toBe(spot.id)
+  })
+
+  // Cancelar é o primitivo de "tirar de circulação" do rolê: some do feed, da
+  // lista e da descoberta, e o grupo de chat (prova das outras denúncias) fica.
+  it('DELETE /reports/:id/target cancela o rolê denunciado', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'HATE_SPEECH' },
+    })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/reports/${created.json().id}/target`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().status).toBe('RESOLVED_REMOVED')
+    const after = await testPrisma.spot.findUnique({ where: { id: spot.id } })
+    expect(after?.canceledAt).not.toBeNull()
+  })
+
+  it('rolê cancelado pela moderação some da listagem', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const creator = await makeUser()
+    const reporter = await makeUser()
+    const spot = await makeSpot(creator.id)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/spots/${spot.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'HATE_SPEECH' },
+    })
+    await app.inject({
+      method: 'DELETE',
+      url: `/reports/${created.json().id}/target`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/spots/mine',
+      headers: { authorization: `Bearer ${token(app, creator.id)}` },
+    })
+
+    expect(res.json().map((s: { id: string }) => s.id)).not.toContain(spot.id)
   })
 })

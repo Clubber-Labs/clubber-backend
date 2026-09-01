@@ -10,6 +10,7 @@ import type {
   ReportMessageParams,
   ReportParams,
   ReportPostParams,
+  ReportSpotParams,
   ReportUserParams,
   ResolveReportBody,
 } from './reports.schema'
@@ -24,6 +25,7 @@ import {
   reportEvent,
   reportMessage,
   reportPost,
+  reportSpot,
   reportUser,
   resolveReport,
 } from './reports.service'
@@ -99,6 +101,16 @@ export async function postPostReport(
   const body = request.body as CreateReportBody
   const report = await reportPost(body, request.user.sub, postId)
   request.log.info({ userId: request.user.sub, postId }, 'User reported post')
+  return reply.status(201).send(report)
+}
+
+export async function postSpotReport(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { spotId } = request.params as ReportSpotParams
+  const body = request.body as CreateReportBody
+  const report = await reportSpot(body, request.user.sub, spotId)
   return reply.status(201).send(report)
 }
 

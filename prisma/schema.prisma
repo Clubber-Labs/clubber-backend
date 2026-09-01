@@ -922,6 +922,9 @@ model Report {
   postId String?
   post   Post?   @relation(fields: [postId], references: [id], onDelete: SetNull)
 
+  spotId String?
+  spot   Spot?   @relation(fields: [spotId], references: [id], onDelete: SetNull)
+
   reviewerId String?
   reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
@@ -931,11 +934,13 @@ model Report {
   @@unique([reporterId, commentId, status], map: "reports_reporter_comment_status_unique")
   @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
   @@unique([reporterId, postId, status], map: "reports_reporter_post_status_unique")
+  @@unique([reporterId, spotId, status], map: "reports_reporter_spot_status_unique")
   @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
   @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
   @@index([reporterId, postId, status], map: "reports_reporter_post_status_idx")
+  @@index([reporterId, spotId, status], map: "reports_reporter_spot_status_idx")
   @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
   @@index([reviewerId], map: "reports_reviewer_idx")
   // Fixup do cascade de messages (SetNull): sem índice liderando em messageId,
@@ -1347,6 +1352,8 @@ model Spot {
 
   conversationId String       @unique
   conversation   Conversation @relation(fields: [conversationId], references: [id])
+
+  reports Report[]
 
   @@index([creatorId])
   // Lembrete: spots ativos vencendo ainda não lembrados.
