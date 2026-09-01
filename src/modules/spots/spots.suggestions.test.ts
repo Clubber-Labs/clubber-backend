@@ -305,7 +305,10 @@ describe('POST /spots/suggestions', () => {
   it('modo texto passa a intenção pela IA — a query ancorada é o que vai ao Places', async () => {
     const user = await makeUser()
     // A IA reconhece o venue famoso e ancora com a cidade.
-    fakeQueryComposer.nextIntentQuery = 'Green Valley Balneário Camboriú'
+    fakeQueryComposer.nextIntent = {
+      query: 'Green Valley Balneário Camboriú',
+      anchored: true,
+    }
 
     const res = await app.inject({
       method: 'POST',
@@ -324,7 +327,10 @@ describe('POST /spots/suggestions', () => {
   it('texto ancorado pela IA não corta por distância — venue nomeado longe entra (caso Green Valley)', async () => {
     const user = await makeUser() // modo texto dispensa preferências
     // A IA ancorou o venue citado com a cidade: o "longe" é o próprio pedido.
-    fakeQueryComposer.nextIntentQuery = 'Green Valley Balneário Camboriú'
+    fakeQueryComposer.nextIntent = {
+      query: 'Green Valley Balneário Camboriú',
+      anchored: true,
+    }
     // A ~200km (Camboriú visto de Curitiba): no modo perfil cairia no teto.
     fakePlaces.override = (p) => [
       {
@@ -351,8 +357,9 @@ describe('POST /spots/suggestions', () => {
 
   it('texto que a IA não ancorou mantém o teto de distância (genérico ou IA degradada)', async () => {
     const user = await makeUser()
-    // Sem nextIntentQuery o composer devolve o texto inalterado — mesmo caminho
-    // do texto genérico e da falha/timeout da IA (fallback do composeIntentQuery).
+    // Sem nextIntent o composer devolve o texto inalterado sem ancorar — mesmo
+    // caminho do texto genérico e da falha/timeout da IA (fallback do
+    // composeIntentQuery).
     fakePlaces.override = (p) => [
       { ...baseCandidate(p, 'perto'), distanceMeters: 3000 },
       { ...baseCandidate(p, 'longe'), distanceMeters: 200_000 },
@@ -371,6 +378,35 @@ describe('POST /spots/suggestions', () => {
       .suggestions.map((s: { placeId: string }) => s.placeId)
     expect(ids).toContain('perto')
     expect(ids).not.toContain('longe')
+  })
+
+  it('reescrita de gênero (sem ancorar) busca a query nova, mantém o teto e ranqueia pela intenção original', async () => {
+    const user = await makeUser()
+    // Caso megafunk: a IA generaliza o subgênero na QUERY, mas isso não é
+    // ancoragem — o teto de distância continua valendo.
+    fakeQueryComposer.nextIntent = { query: 'balada de funk', anchored: false }
+    fakePlaces.override = (p) => [
+      { ...baseCandidate(p, 'perto'), distanceMeters: 3000 },
+      { ...baseCandidate(p, 'longe'), distanceMeters: 200_000 },
+    ]
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5, query: 'balada com megafunk' },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(fakePlaces.lastText?.textQuery).toBe('balada de funk')
+    const ids = res
+      .json()
+      .suggestions.map((s: { placeId: string }) => s.placeId)
+    expect(ids).toContain('perto')
+    expect(ids).not.toContain('longe')
+    // O ranqueamento continua fiel ao subgênero pedido: a query generalizada é
+    // só pra encher o pool — o criterion do enhancer é o texto do usuário.
+    expect(fakeEnhancer.lastCriterion).toBe('balada com megafunk')
   })
 
   it('limita a quantidade de sugestões devolvidas (cap)', async () => {

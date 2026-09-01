@@ -385,9 +385,10 @@ const MAX_SUGGESTIONS = 8
 
 /**
  * Gera sugestões de spot (botão "gerar"): candidatos efêmeros do Places (sempre
- * Text Search) em torno do ponto, no raio escolhido. Dois modos que convergem num
- * CRITÉRIO único de busca/ranqueamento:
- * - Texto livre (`query`): o próprio texto é a busca e o critério (ignora perfil).
+ * Text Search) em torno do ponto, no raio escolhido. Dois modos:
+ * - Texto livre (`query`): a IA reescreve o texto na busca (ancora venue/cidade,
+ *   generaliza gênero musical), mas o CRITÉRIO de ranqueamento é a intenção
+ *   original — busca e critério divergem de propósito quando há reescrita.
  * - Perfil (sem `query`): a IA compõe 1-2 frases de busca a partir do perfil
  *   (categorias + interesses); as MESMAS frases viram o critério de ranqueamento.
  * Os candidatos passam por um filtro estrutural de venue social (pelos `types` do
@@ -456,23 +457,23 @@ export async function generateSuggestions(
   // Cache hit também consome (decisão de produto); Places E IA só no cache miss.
   let suggestions = await cache.get<EnhancedCandidate[]>(key)
   if (!suggestions) {
-    // Critério único: o texto livre OU as frases que a IA compõe do perfil. As
-    // frases servem a dois propósitos — são as buscas do Places E o critério de
-    // ranqueamento (sem recomputar). Composer resiliente: se a IA não devolve
-    // nada, cai nos rótulos de categoria (perfil não-vazio garante ≥1 frase).
+    // Queries de busca: a reescrita do texto livre OU as frases que a IA compõe
+    // do perfil. Composer resiliente: se a IA não devolve nada, cai nos rótulos
+    // de categoria (perfil não-vazio garante ≥1 frase).
     let searchQueries: string[]
     let intentAnchored = false
     if (intent) {
-      // A IA ancora venue/cidade citados no texto ("green valley" -> "Green
-      // Valley Balneário Camboriú") — com viés local, o Google preferiria
-      // homônimos próximos. Genérico passa inalterado; falha devolve o original.
+      // A IA ancora venue/cidade citados ("green valley" -> "Green Valley
+      // Balneário Camboriú") e generaliza gênero musical em busca de venue
+      // ("balada com megafunk" -> "balada de funk"). `anchored` vem explícito
+      // da IA: inferir por diferença de string trataria a reescrita de gênero
+      // como destino e desligaria o teto de distância indevidamente.
       const composed = await getProfileQueryComposer().composeIntentQuery(
         intent,
         locale,
       )
-      // Query realmente reescrita (não só caixa) = a IA ancorou um destino.
-      intentAnchored = composed.toLowerCase() !== intent.toLowerCase()
-      searchQueries = [composed]
+      intentAnchored = composed.anchored
+      searchQueries = [composed.query]
     } else {
       const composed = await getProfileQueryComposer().composeProfileQueries(
         { categories: profileCategoryLabels, interests: profileInterestLabels },
@@ -483,7 +484,10 @@ export async function generateSuggestions(
           ? composed
           : profileCategoryLabels.slice(0, MAX_PROFILE_QUERIES)
     }
-    const criterion = searchQueries.join('; ')
+    // Critério de ranqueamento: no modo texto é a INTENÇÃO original — a query
+    // generalizada só enche o pool ("balada de funk" busca; "balada com
+    // megafunk" ranqueia). No modo perfil, as próprias frases compostas.
+    const criterion = intent ?? searchQueries.join('; ')
 
     // Uma Text Search por frase, em paralelo, mescladas e deduplicadas por placeId
     // (o mesmo lugar pode casar mais de uma frase). Vale para os dois modos —
@@ -506,9 +510,9 @@ export async function generateSuggestions(
     }
     // Teto de distância: corta o que ficou absurdamente longe do alcance pedido.
     // Única exceção: a IA ancorou a intenção num destino citado no texto ("rolê
-    // na green valley" → Camboriú) — aí o longe É o pedido. Texto genérico e IA
-    // degradada (sem chave/timeout/erro → composed === intent) mantêm o teto:
-    // os fallbacks do enhancer preservam a ordem crua do Places, sem distância.
+    // na green valley" → Camboriú) — aí o longe É o pedido. Reescrita de gênero,
+    // texto genérico e IA degradada (fallbacks devolvem anchored: false) mantêm
+    // o teto: os fallbacks do enhancer preservam a ordem crua do Places.
     const merged = [...byId.values()]
     const within = intentAnchored
       ? merged

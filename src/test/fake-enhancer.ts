@@ -15,6 +15,7 @@ import type {
 export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
   calls = 0
   lastLocale: Locale | null = null
+  lastCriterion: string | null = null
 
   async enhance(
     candidates: PlaceCandidate[],
@@ -22,6 +23,7 @@ export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
   ): Promise<EnhancedCandidate[]> {
     this.calls++
     this.lastLocale = context.locale
+    this.lastCriterion = context.criterion
     return [...candidates].reverse().map((c) => ({
       ...c,
       suggestedTitle: `IA: ${c.name}`,
@@ -32,6 +34,7 @@ export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
   reset(): void {
     this.calls = 0
     this.lastLocale = null
+    this.lastCriterion = null
   }
 }
 

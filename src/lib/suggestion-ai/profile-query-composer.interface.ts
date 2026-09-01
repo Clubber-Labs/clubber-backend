@@ -13,6 +13,17 @@ export type SuggestionProfile = {
 }
 
 /**
+ * Intenção reescrita para a Text Search. `anchored` vem da IA como decisão
+ * explícita — só ancoragem de venue/cidade citados desliga o teto de distância
+ * no service. Inferir isso comparando strings quebraria com qualquer outra
+ * reescrita (ex.: gênero generalizado), liberando resultados a centenas de km.
+ */
+export type ComposedIntent = {
+  query: string
+  anchored: boolean
+}
+
+/**
  * Compõe as frases de busca (Text Search) a partir do perfil do usuário — é a IA
  * que transforma o gosto em uma busca semântica ("baladas de música eletrônica"),
  * fazendo o gênero virar busca de verdade em vez de ser ignorado pelo tipo do
@@ -26,10 +37,11 @@ export interface IProfileQueryComposer {
   ): Promise<string[]>
   /**
    * Reescreve a intenção de texto livre numa query melhor para a Text Search.
-   * O caso que motivou: venue famoso citado pelo nome ("green valley") — o
-   * Google, com viés local, prefere homônimos próximos; a IA ancora com a
-   * cidade ("Green Valley Balneário Camboriú"). Texto genérico passa inalterado
-   * e qualquer falha devolve o original — nunca quebra a geração.
+   * Dois casos: venue/cidade citados ("green valley" → "Green Valley Balneário
+   * Camboriú", anchored) e gênero musical, que vira busca de venue com o
+   * subgênero generalizado pro gênero-mãe ("balada com megafunk" → "balada de
+   * funk", NÃO anchored). Texto genérico passa inalterado e qualquer falha
+   * devolve o original sem ancorar — nunca quebra a geração.
    */
-  composeIntentQuery(intent: string, locale: Locale): Promise<string>
+  composeIntentQuery(intent: string, locale: Locale): Promise<ComposedIntent>
 }
