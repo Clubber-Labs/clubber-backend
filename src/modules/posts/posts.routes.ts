@@ -7,7 +7,9 @@ import {
 import { rateLimit } from '../../lib/rate-limit'
 import {
   deletePost,
+  deletePostImageHandler,
   getPosts,
+  patchPostImagesOrder,
   postPost,
   uploadPostImageHandler,
 } from './posts.controller'
@@ -15,7 +17,9 @@ import {
   createPostSchema,
   eventIdParamSchema,
   paginationSchema,
+  postImageParamSchema,
   postParamSchema,
+  reorderPostImagesSchema,
 } from './posts.schema'
 
 export async function postsRoutes(app: FastifyInstance) {
@@ -64,5 +68,25 @@ export async function postsRoutes(app: FastifyInstance) {
       config: { rateLimit: rateLimit(20) },
     },
     uploadPostImageHandler,
+  )
+
+  // Remover imagem da galeria do post (apenas o autor)
+  api.delete(
+    '/events/:eventId/posts/:postId/images/:imageId',
+    {
+      schema: { params: postImageParamSchema },
+      onRequest: [app.authenticate],
+    },
+    deletePostImageHandler,
+  )
+
+  // Reordenar define a capa: o cliente lê images[0] como principal do post.
+  api.patch(
+    '/events/:eventId/posts/:postId/images',
+    {
+      schema: { params: postParamSchema, body: reorderPostImagesSchema },
+      onRequest: [app.authenticate],
+    },
+    patchPostImagesOrder,
   )
 }

@@ -10,15 +10,38 @@ import {
   createPost,
   createPostImage,
   deletePost,
+  deletePostImage,
   findPostById,
+  findPostImage,
+  findPostImageIds,
   findPostImageKeys,
   findPostsByEvent,
+  reorderPostImages,
 } from './posts.repository'
 import type { CreatePostBody } from './posts.schema'
 
 type Logger = {
   info: (obj: object | string, msg?: string) => void
   error: (obj: object | string, msg?: string) => void
+}
+
+/**
+ * Portão das mutações de galeria: o par (evento, post) é o que autoriza, não o
+ * post sozinho — id de outro evento na URL não pode alcançar o post daqui.
+ */
+async function assertOwnPost(
+  eventId: string,
+  postId: string,
+  requesterId: string,
+) {
+  const post = await findPostById(postId)
+  if (!post || post.eventId !== eventId) {
+    throw new AppError(404, 'POST_NOT_FOUND')
+  }
+  if (post.authorId !== requesterId) {
+    throw new AppError(403, 'NOT_POST_AUTHOR')
+  }
+  return post
 }
 
 export async function addPost(
@@ -37,13 +60,7 @@ export async function addPostImage(
   requesterId: string,
   logger: Logger,
 ) {
-  const post = await findPostById(postId)
-  if (!post || post.eventId !== eventId) {
-    throw new AppError(404, 'POST_NOT_FOUND')
-  }
-  if (post.authorId !== requesterId) {
-    throw new AppError(403, 'NOT_POST_AUTHOR')
-  }
+  await assertOwnPost(eventId, postId, requesterId)
 
   const current = await countPostImages(postId)
   if (current >= MAX_GALLERY_IMAGES) {
@@ -68,6 +85,49 @@ export async function addPostImage(
   }
 }
 
+export async function removePostImage(
+  eventId: string,
+  postId: string,
+  imageId: string,
+  requesterId: string,
+  logger: Logger,
+) {
+  await assertOwnPost(eventId, postId, requesterId)
+
+  const image = await findPostImage(postId, imageId)
+  if (!image) {
+    throw new AppError(404, 'POST_IMAGE_NOT_FOUND')
+  }
+
+  await deletePostImage(imageId)
+  // O cascade só apagaria a linha; o blob no provider é pago e some aqui.
+  await deleteUploaded(image.key, logger)
+}
+
+export async function reorderPostImagesService(
+  eventId: string,
+  postId: string,
+  order: string[],
+  requesterId: string,
+) {
+  await assertOwnPost(eventId, postId, requesterId)
+
+  // A lista tem que ser um rearranjo exato do conjunto atual: id repetido,
+  // faltando ou de outro post deixaria imagem sem posição definida — ou
+  // reposicionaria a imagem de um post alheio.
+  const current = await findPostImageIds(postId)
+  const requested = new Set(order)
+  if (
+    requested.size !== order.length ||
+    requested.size !== current.length ||
+    !current.every((imageId) => requested.has(imageId))
+  ) {
+    throw new AppError(400, 'IMAGE_ORDER_MISMATCH')
+  }
+
+  return reorderPostImages(postId, order)
+}
+
 export async function listPostsByEvent(
   eventId: string,
   requesterId: string,
@@ -90,16 +150,7 @@ export async function removePost(
   requesterId: string,
   logger: Logger,
 ) {
-  const post = await findPostById(postId)
-  if (!post) {
-    throw new AppError(404, 'POST_NOT_FOUND')
-  }
-  if (post.eventId !== eventId) {
-    throw new AppError(404, 'POST_NOT_FOUND')
-  }
-  if (post.authorId !== requesterId) {
-    throw new AppError(403, 'NOT_POST_AUTHOR')
-  }
+  await assertOwnPost(eventId, postId, requesterId)
   // Limpa os blobs antes de apagar a linha (o cascade remove só as linhas
   // PostImage, não os assets no provider).
   const images = await findPostImageKeys(postId)

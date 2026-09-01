@@ -5,13 +5,17 @@ import type {
   CreatePostBody,
   EventIdParam,
   PaginationQuery,
+  PostImageParam,
   PostParam,
+  ReorderPostImagesBody,
 } from './posts.schema'
 import {
   addPost,
   addPostImage,
   listPostsByEvent,
   removePost,
+  removePostImage,
+  reorderPostImagesService,
 } from './posts.service'
 
 export async function postPost(request: FastifyRequest, reply: FastifyReply) {
@@ -42,6 +46,38 @@ export async function getPosts(request: FastifyRequest, reply: FastifyReply) {
     'Requested posts for event',
   )
   return reply.send(result)
+}
+
+export async function deletePostImageHandler(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { eventId, postId, imageId } = request.params as PostImageParam
+  await removePostImage(eventId, postId, imageId, request.user.sub, request.log)
+  request.log.info(
+    { userId: request.user.sub, eventId, postId, imageId },
+    'User deleted an image from post',
+  )
+  return reply.status(204).send()
+}
+
+export async function patchPostImagesOrder(
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  const { eventId, postId } = request.params as PostParam
+  const { order } = request.body as ReorderPostImagesBody
+  const images = await reorderPostImagesService(
+    eventId,
+    postId,
+    order,
+    request.user.sub,
+  )
+  request.log.info(
+    { userId: request.user.sub, eventId, postId },
+    'User reordered post images',
+  )
+  return reply.send(images)
 }
 
 export async function deletePost(request: FastifyRequest, reply: FastifyReply) {

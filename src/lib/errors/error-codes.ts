@@ -156,6 +156,7 @@ export const ERROR_CODES = [
   'NOT_COMMENT_AUTHOR',
   'COMMENT_REPLY_DEPTH',
   'POST_IMAGE_LIMIT',
+  'POST_IMAGE_NOT_FOUND',
 
   // Denúncias / moderação
   'SELF_REPORT',

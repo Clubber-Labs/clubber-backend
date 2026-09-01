@@ -94,6 +94,41 @@ export async function createPostImage(
   })
 }
 
+export async function findPostImage(postId: string, imageId: string) {
+  return prisma.postImage.findFirst({ where: { id: imageId, postId } })
+}
+
+export async function findPostImageIds(postId: string) {
+  const images = await prisma.postImage.findMany({
+    where: { postId },
+    select: { id: true },
+  })
+  return images.map((image) => image.id)
+}
+
+export async function findPostImages(postId: string) {
+  return prisma.postImage.findMany({
+    where: { postId },
+    ...postImagesInclude,
+  })
+}
+
+export async function deletePostImage(imageId: string) {
+  return prisma.postImage.delete({ where: { id: imageId } })
+}
+
+export async function reorderPostImages(postId: string, order: string[]) {
+  await prisma.$transaction(
+    order.map((imageId, index) =>
+      prisma.postImage.update({
+        where: { id: imageId },
+        data: { order: index },
+      }),
+    ),
+  )
+  return findPostImages(postId)
+}
+
 export async function findPostImageKeys(postId: string) {
   return prisma.postImage.findMany({
     where: { postId },
