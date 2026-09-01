@@ -111,6 +111,27 @@ const reportInclude = {
       },
     },
   },
+  // A foto denunciada e de quem é: o painel julga sem uma busca a mais.
+  userPhoto: {
+    select: {
+      id: true,
+      caption: true,
+      createdAt: true,
+      user: {
+        select: {
+          id: true,
+          name: true,
+          lastname: true,
+          username: true,
+          avatarUrl: true,
+        },
+      },
+      images: {
+        orderBy: { order: 'asc' },
+        select: { id: true, url: true, order: true },
+      },
+    },
+  },
   reviewer: {
     select: {
       id: true,
@@ -144,6 +165,13 @@ export async function findReportPostById(postId: string) {
       authorId: true,
       eventId: true,
     },
+  })
+}
+
+export async function findReportUserPhotoById(photoId: string) {
+  return prisma.userPhoto.findUnique({
+    where: { id: photoId },
+    select: { id: true, userId: true },
   })
 }
 
@@ -228,6 +256,19 @@ export async function findExistingSpotReport(
   })
 }
 
+export async function findExistingUserPhotoReport(
+  reporterId: string,
+  userPhotoId: string,
+) {
+  return prisma.report.findFirst({
+    where: {
+      reporterId,
+      userPhotoId,
+      status: { in: ['PENDING', 'REVIEWED'] },
+    },
+  })
+}
+
 export async function findExistingUserReport(
   reporterId: string,
   targetUserId: string,
@@ -281,6 +322,16 @@ export async function createSpotReport(
   })
 }
 
+export async function createUserPhotoReport(
+  data: CreateReportBody,
+  reporterId: string,
+  userPhotoId: string,
+) {
+  return prisma.report.create({
+    data: { ...data, reporterId, userPhotoId },
+  })
+}
+
 export async function createUserReport(
   data: CreateReportBody,
   reporterId: string,
@@ -326,6 +377,12 @@ export async function findReports(query: ListReportsQuery) {
     where.spotId = query.spotId ?? { not: null }
   } else if (query.spotId) {
     where.spotId = query.spotId
+  }
+
+  if (query.targetType === 'USER_PHOTO') {
+    where.userPhotoId = query.userPhotoId ?? { not: null }
+  } else if (query.userPhotoId) {
+    where.userPhotoId = query.userPhotoId
   }
 
   if (query.targetType === 'USER') {

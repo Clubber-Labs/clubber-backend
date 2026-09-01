@@ -2,6 +2,7 @@ import type { ReportStatus } from '@prisma/client'
 import { cache } from '../../lib/cache'
 import { AppError } from '../../lib/errors/app-error'
 import { logger } from '../../lib/logger'
+import { findVisibleProfileOwner } from '../../lib/profile-visibility'
 import { deleteChatMedia, deleteUploaded } from '../../lib/uploads'
 import {
   findMessageAttachments,
@@ -14,6 +15,10 @@ import { deleteEvent, findEventImageKeys } from '../events/events.repository'
 import { deletePost, findPostImageKeys } from '../posts/posts.repository'
 import { cancelSpotById } from '../spots/spots.repository'
 import { ensureSpotVisible } from '../spots/spots.service'
+import {
+  deleteUserPhoto,
+  findUserPhotoForDeletion,
+} from '../user-photos/user-photos.repository'
 import { banUser, suspendUser, unsuspendUser } from '../users/users.service'
 import { findRetainedMediaKeys } from './report-evidence.repository'
 import { createMessageReportWithEvidence } from './report-evidence.service'
@@ -23,6 +28,7 @@ import {
   createEventReport,
   createPostReport,
   createSpotReport,
+  createUserPhotoReport,
   createUserReport,
   deleteReportById,
   findActiveConversationParticipant,
@@ -32,12 +38,14 @@ import {
   findExistingMessageReport,
   findExistingPostReport,
   findExistingSpotReport,
+  findExistingUserPhotoReport,
   findExistingUserReport,
   findMessageById,
   findReportById,
   findReportPostById,
   findReports,
   findReportTargetUserById,
+  findReportUserPhotoById,
   updateReportResolution,
 } from './reports.repository'
 import type {
@@ -155,6 +163,30 @@ export async function reportSpot(
   }
 
   return createSpotReport(data, reporterId, spotId)
+}
+
+export async function reportUserPhoto(
+  data: CreateReportBody,
+  reporterId: string,
+  photoId: string,
+) {
+  const photo = await findReportUserPhotoById(photoId)
+  // Mesmo portão do GET /users/:id/photos: mural que o denunciante não vê não
+  // existe para ele — privacidade e bloqueio ficam atrás de 404.
+  if (!photo || !(await findVisibleProfileOwner(photo.userId, reporterId))) {
+    throw new AppError(404, 'USER_PHOTO_NOT_FOUND')
+  }
+
+  if (photo.userId === reporterId) {
+    throw new AppError(400, 'SELF_REPORT')
+  }
+
+  const existing = await findExistingUserPhotoReport(reporterId, photoId)
+  if (existing) {
+    throw new AppError(409, 'REPORT_ALREADY_OPEN')
+  }
+
+  return createUserPhotoReport(data, reporterId, photoId)
 }
 
 export async function reportMessage(
@@ -276,6 +308,14 @@ async function removeReportedSpot(spotId: string) {
   await cancelSpotById(spotId, new Date())
 }
 
+async function removeReportedUserPhoto(photoId: string) {
+  const photo = await findUserPhotoForDeletion(photoId)
+  await Promise.all(
+    (photo?.images ?? []).map((img) => deleteUploaded(img.key, logger)),
+  )
+  await deleteUserPhoto(photoId)
+}
+
 async function removeReportedMessage(reportId: string, messageId: string) {
   const message = await findMessageById(messageId)
   if (!message) {
@@ -314,8 +354,9 @@ function contentTargetOf(report: {
   messageId: string | null
   postId: string | null
   spotId: string | null
+  userPhotoId: string | null
 }): {
-  kind: 'event' | 'comment' | 'message' | 'post' | 'spot'
+  kind: 'event' | 'comment' | 'message' | 'post' | 'spot' | 'userPhoto'
   id: string
 } | null {
   if (report.eventId) return { kind: 'event', id: report.eventId }
@@ -323,6 +364,7 @@ function contentTargetOf(report: {
   if (report.messageId) return { kind: 'message', id: report.messageId }
   if (report.postId) return { kind: 'post', id: report.postId }
   if (report.spotId) return { kind: 'spot', id: report.spotId }
+  if (report.userPhotoId) return { kind: 'userPhoto', id: report.userPhotoId }
   return null
 }
 
@@ -373,6 +415,9 @@ export async function removeReportTarget(
       break
     case 'spot':
       await removeReportedSpot(target.id)
+      break
+    case 'userPhoto':
+      await removeReportedUserPhoto(target.id)
       break
   }
 
