@@ -23,6 +23,12 @@ export type SearchTextParams = {
   longitude: number
   radiusMeters?: number
   limit?: number
+  /**
+   * BCP-47 do idioma da resposta. Sem ele o Google escolhe sozinho, e o nome
+   * que a IA recebe (e reescreve na copy) pode não bater com o idioma do
+   * aparelho. Não muda a SKU nem o preço da Text Search.
+   */
+  languageCode?: string
 }
 
 /**

@@ -1,3 +1,5 @@
+import type { Locale } from '../i18n/locale'
+import { t } from '../i18n/translate'
 import type { PlaceCandidate } from '../places'
 import type {
   EnhanceContext,
@@ -7,8 +9,8 @@ import type {
 
 /** Copy determinística por template — usada sem ANTHROPIC_API_KEY e como
  * fallback quando o Haiku falha. Também reutilizada na impl Haiku. */
-export function templateTitle(name: string): string {
-  return `Bora um rolê no ${name}?`
+export function templateTitle(name: string, locale: Locale): string {
+  return t('spots.suggestionFallbackTitle', locale, { name })
 }
 
 /**
@@ -18,11 +20,11 @@ export function templateTitle(name: string): string {
 export class TemplateSuggestionEnhancer implements ISuggestionEnhancer {
   async enhance(
     candidates: PlaceCandidate[],
-    _context: EnhanceContext,
+    context: EnhanceContext,
   ): Promise<EnhancedCandidate[]> {
     return candidates.map((c) => ({
       ...c,
-      suggestedTitle: templateTitle(c.name),
+      suggestedTitle: templateTitle(c.name, context.locale),
       suggestedDescription: null,
     }))
   }

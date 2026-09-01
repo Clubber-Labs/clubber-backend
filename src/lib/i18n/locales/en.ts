@@ -190,4 +190,7 @@ export const en: Dictionary = {
       helpCenter: 'Help center',
     },
   },
+  spots: {
+    suggestionFallbackTitle: 'Down for {{name}}?',
+  },
 }

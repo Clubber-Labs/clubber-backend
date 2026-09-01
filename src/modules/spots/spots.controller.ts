@@ -61,7 +61,11 @@ export async function postSuggestions(
   reply: FastifyReply,
 ) {
   const body = request.body as SuggestionsBody
-  const result = await generateSuggestions(request.user.sub, body)
+  const result = await generateSuggestions(
+    request.user.sub,
+    body,
+    request.locale,
+  )
   return reply.send(result)
 }
 

@@ -39,11 +39,14 @@ function baseCandidate(
   }
 }
 
-function suggest(userId: string, point = POINT) {
+function suggest(userId: string, point = POINT, acceptLanguage?: string) {
   return app.inject({
     method: 'POST',
     url: '/spots/suggestions',
-    headers: auth(userId),
+    headers: {
+      ...auth(userId),
+      ...(acceptLanguage && { 'accept-language': acceptLanguage }),
+    },
     body: point,
   })
 }
@@ -600,5 +603,61 @@ describe('PATCH /users/me/spot-prefs', () => {
       body: { spotRadiusKm: 20 },
     })
     expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('POST /spots/suggestions — idioma', () => {
+  it('leva o idioma do aparelho para a IA, para os rótulos e para o Places', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    const res = await suggest(user.id, POINT, 'en-US')
+
+    expect(res.statusCode).toBe(200)
+    expect(fakeQueryComposer.lastLocale).toBe('en')
+    expect(fakeEnhancer.lastLocale).toBe('en')
+    // O rótulo que alimenta a busca também acompanha — era 'Festa' fixo.
+    expect(fakeQueryComposer.lastProfile?.categories).toEqual(['Parties'])
+    // Sem languageCode o Google escolhe o idioma do nome por conta própria.
+    expect(fakePlaces.lastText?.languageCode).toBe('en')
+  })
+
+  it('idioma sem dicionário cai no inglês, não no português', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    await suggest(user.id, POINT, 'fr-CA')
+
+    expect(fakeEnhancer.lastLocale).toBe('en')
+  })
+
+  it('sem Accept-Language, segue em pt-BR', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    await suggest(user.id)
+
+    expect(fakeEnhancer.lastLocale).toBe('pt-BR')
+    expect(fakeQueryComposer.lastProfile?.categories).toEqual(['Festa'])
+  })
+
+  // O valor cacheado é a copy JÁ escrita, num idioma. Sem o locale na chave,
+  // dois usuários da mesma célula com o mesmo perfil dividem a entrada e o
+  // segundo lê o texto do primeiro. Cache miss por idioma é o que impede isso —
+  // e as duas entradas precisam coexistir, senão os idiomas se despejam.
+  it('não serve a copy de um idioma para outro', async () => {
+    const user = await makeUser()
+    await makeUserCategoryPreference(user.id, 'PARTY')
+
+    await suggest(user.id, POINT, 'pt-BR')
+    expect(fakeEnhancer.calls).toBe(1)
+
+    await suggest(user.id, POINT, 'en')
+    expect(fakeEnhancer.calls).toBe(2)
+    expect(fakeEnhancer.lastLocale).toBe('en')
+
+    // De volta ao primeiro idioma: entrada ainda quente, sem Places nem IA.
+    await suggest(user.id, POINT, 'pt-BR')
+    expect(fakeEnhancer.calls).toBe(2)
   })
 })

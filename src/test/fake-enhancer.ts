@@ -1,3 +1,4 @@
+import type { Locale } from '../lib/i18n/locale'
 import type { PlaceCandidate } from '../lib/places'
 import type {
   EnhanceContext,
@@ -13,12 +14,14 @@ import type {
  */
 export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
   calls = 0
+  lastLocale: Locale | null = null
 
   async enhance(
     candidates: PlaceCandidate[],
-    _context: EnhanceContext,
+    context: EnhanceContext,
   ): Promise<EnhancedCandidate[]> {
     this.calls++
+    this.lastLocale = context.locale
     return [...candidates].reverse().map((c) => ({
       ...c,
       suggestedTitle: `IA: ${c.name}`,
@@ -28,6 +31,7 @@ export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
 
   reset(): void {
     this.calls = 0
+    this.lastLocale = null
   }
 }
 

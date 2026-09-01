@@ -39,7 +39,7 @@ function stubClient(ranked: unknown, onCall?: (body: unknown) => void) {
   }
 }
 
-const ctx = { criterion: 'arte' }
+const ctx = { criterion: 'arte', locale: 'pt-BR' as const }
 
 describe('AiSuggestionEnhancer.enhance', () => {
   it('honra a ordem da IA e escreve a copy', async () => {
@@ -161,9 +161,66 @@ describe('AiSuggestionEnhancer.enhance', () => {
 
     await new AiSuggestionEnhancer(client).enhance([candidate()], {
       criterion: 'bar com música ao vivo',
+      locale: 'pt-BR' as const,
     })
 
     const payload = JSON.parse(sent?.content ?? '{}')
     expect(payload.criterion).toBe('bar com música ao vivo')
+  })
+})
+
+describe('AiSuggestionEnhancer — idioma da copy', () => {
+  it('manda o bloco de voz do locale pedido, e só ele', async () => {
+    const { client, parse } = stubClient({ ranked: [] })
+
+    await new AiSuggestionEnhancer(client).enhance([candidate()], {
+      criterion: 'arte',
+      locale: 'es',
+    })
+
+    const system = (parse.mock.calls[0]?.[0] as { system: string }).system
+    expect(system).toContain('escribe en español')
+    expect(system).not.toContain('write in English')
+    expect(system).not.toContain('escreva em português do Brasil')
+  })
+
+  it('as regras de produto vão nos três idiomas — só a voz muda', async () => {
+    const systems = await Promise.all(
+      (['pt-BR', 'en', 'es'] as const).map(async (locale) => {
+        const { client, parse } = stubClient({ ranked: [] })
+        await new AiSuggestionEnhancer(client).enhance([candidate()], {
+          criterion: 'arte',
+          locale,
+        })
+        return (parse.mock.calls[0]?.[0] as { system: string }).system
+      }),
+    )
+
+    // Se uma regra vivesse dentro do bloco de idioma, ela sumiria em dois dos
+    // três prompts — é o que esta separação existe para impedir.
+    for (const system of systems) {
+      expect(system).toContain('SEMPRE descarte conteúdo adulto/sexual')
+      expect(system).toContain('NUNCA mencione nota')
+      expect(system).toContain('SEGURANÇA')
+    }
+  })
+
+  // Cair de IA para template é degradação de qualidade; não pode ser também
+  // degradação de idioma — quem pediu em inglês continua lendo inglês.
+  it('o fallback por falha da IA respeita o idioma do pedido', async () => {
+    const parse = vi.fn(async () => {
+      throw new Error('LLM fora')
+    })
+    const client = { messages: { parse } } as unknown as Pick<
+      Anthropic,
+      'messages'
+    >
+
+    const result = await new AiSuggestionEnhancer(client).enhance(
+      [candidate({ name: 'Bar do Zé' })],
+      { criterion: 'arte', locale: 'en' },
+    )
+
+    expect(result[0].suggestedTitle).toBe('Down for Bar do Zé?')
   })
 })
