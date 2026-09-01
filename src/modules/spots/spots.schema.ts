@@ -21,6 +21,11 @@ export const createSpotSchema = z
     visibility: spotVisibilitySchema.default('PUBLIC'),
     // Âncora do estabelecimento (place_id do Google Places) + coordenadas.
     placeId: z.string().min(1),
+    // Nome e endereço do lugar, reenviados a partir da sugestão do Places que o
+    // app já recebeu — sem eles o card mostra só a distância. Independentes: o
+    // Places dá fallback ao nome, mas formattedAddress pode vir nulo.
+    placeName: z.string().min(1).max(200).optional(),
+    address: z.string().max(300).optional(),
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
     startsAt: z.coerce.date(),
@@ -34,8 +39,12 @@ export const createSpotSchema = z
 
 // Edição parcial: só título e descrição (horário/categorias/local são imutáveis
 // no PR de domínio). Exige ao menos um campo.
+//
+// `strictObject` porque `object` DESCARTA chave desconhecida: mandar um campo
+// imutável junto de um editável respondia 200 ignorando-o em silêncio, e o
+// cliente acreditava ter mudado o local. Falhar alto é o contrato honesto.
 export const updateSpotSchema = z
-  .object({
+  .strictObject({
     title: z.string().min(3).optional(),
     description: z.string().nullable().optional(),
   })

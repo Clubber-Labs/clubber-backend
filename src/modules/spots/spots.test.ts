@@ -1349,3 +1349,115 @@ describe('prévia de membros do rolê fora do feed', () => {
     expect(res.json()).not.toHaveProperty('members')
   })
 })
+
+// A faixa do card mostrava só a distância: o app já recebia nome e endereço na
+// sugestão do Places, mandava de volta só o placeId, e o backend não tinha onde
+// guardar o resto. Custo zero de API — o dado já era pago e descartado.
+describe('estabelecimento por trás do placeId', () => {
+  it('guarda e devolve placeName e address na criação', async () => {
+    const user = await makeUser()
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({
+        placeName: 'Bar do Zé',
+        address: 'R. XV de Novembro, 100 - Centro, Curitiba',
+      }),
+    })
+
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({
+      placeName: 'Bar do Zé',
+      address: 'R. XV de Novembro, 100 - Centro, Curitiba',
+    })
+  })
+
+  it('devolve o estabelecimento no detalhe e na listagem', async () => {
+    const user = await makeUser()
+    const created = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({ placeName: 'Bar do Zé', address: 'Rua A, 1' }),
+    })
+    const id = created.json().id
+
+    const [detail, list] = await Promise.all([
+      app.inject({
+        method: 'GET',
+        url: `/spots/${id}`,
+        headers: auth(user.id),
+      }),
+      app.inject({ method: 'GET', url: BBOX, headers: auth(user.id) }),
+    ])
+
+    expect(detail.json()).toMatchObject({
+      placeName: 'Bar do Zé',
+      address: 'Rua A, 1',
+    })
+    const found = list.json().find((s: { id: string }) => s.id === id)
+    expect(found).toMatchObject({ placeName: 'Bar do Zé', address: 'Rua A, 1' })
+  })
+
+  // O Places devolve formattedAddress possivelmente nulo; nome sempre tem
+  // fallback. Um sem o outro é estado legítimo, não erro de par.
+  it('aceita nome sem endereço', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({ placeName: 'Bar do Zé' }),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ placeName: 'Bar do Zé', address: null })
+  })
+
+  // Rolê criado antes desta mudança (e cliente que não manda os campos) segue
+  // válido — o app já degrada para só a distância.
+  it('rolê sem estabelecimento continua válido, com os campos nulos', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody(),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ placeName: null, address: null })
+  })
+
+  // O local é imutável no rolê (como horário e categorias). O caso que importa
+  // é o estabelecimento vindo JUNTO de um campo editável: com `object`, o Zod
+  // descartava a chave e respondia 200 — o cliente achava ter mudado o local.
+  it('rejeita mudar o estabelecimento junto do título', async () => {
+    const user = await makeUser()
+    const created = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({ placeName: 'Bar do Zé' }),
+    })
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/spots/${created.json().id}`,
+      headers: auth(user.id),
+      body: { title: 'Título novo', placeName: 'Outro bar' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    const after = await testPrisma.spot.findUnique({
+      where: { id: created.json().id },
+    })
+    expect(after?.placeName).toBe('Bar do Zé')
+    // A edição inteira é recusada — não aplica o título e ignora o resto.
+    expect(after?.title).not.toBe('Título novo')
+  })
+})
