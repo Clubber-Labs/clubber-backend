@@ -126,8 +126,8 @@ async function ensureCanViewFollowList(userId: string, requesterId: string) {
  * Anexa a relação do REQUISITANTE com cada usuário da lista, nos DOIS sentidos.
  * É o que permite ao cliente decidir se pode abrir conversa sem tentar o POST:
  * perfil privado exige follow mútuo (canChatWith), e um sentido só não responde.
- * Definição única de `followStatus`/`followsYou` — busca e perfil (users.service)
- * usam este helper para não divergir das listas de follows.
+ * Definição única de `followStatus`/`followsYou`/`followedAt` — busca e perfil
+ * (users.service) usam este helper para não divergir das listas de follows.
  */
 export async function withViewerFollowInfo<T extends { id: string }>(
   users: T[],
@@ -139,11 +139,17 @@ export async function withViewerFollowInfo<T extends { id: string }>(
     findFollowStatusesByFollowing(viewerId, otherIds),
   ])
 
-  return users.map((u) => ({
-    ...u,
-    followStatus: u.id === viewerId ? null : (outgoing.get(u.id) ?? null),
-    followsYou: incoming.get(u.id) === 'ACCEPTED',
-  }))
+  return users.map((u) => {
+    const follow = u.id === viewerId ? undefined : outgoing.get(u.id)
+    return {
+      ...u,
+      followStatus: follow?.status ?? null,
+      followsYou: incoming.get(u.id) === 'ACCEPTED',
+      // Desde quando segue — só com o follow aceito. É o createdAt do pedido:
+      // o aceite atualiza a linha sem guardar a própria data.
+      followedAt: follow?.status === 'ACCEPTED' ? follow.createdAt : null,
+    }
+  })
 }
 
 export async function listFollowers(
