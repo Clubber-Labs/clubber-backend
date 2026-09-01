@@ -16,6 +16,7 @@ import {
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
+import { reorderEventImages } from './events.repository'
 
 if (!nullableRedis) {
   throw new Error(
@@ -3033,5 +3034,31 @@ describe('recentComments com o mesmo shape da listagem de comentários', () => {
 
     expect(res.json().recentComments).toHaveLength(1)
     expect(res.json().recentComments[0].id).toBe(root.json().id)
+  })
+})
+
+// Espelha o teste da galeria de post: a rota valida a lista antes, então o que
+// se exercita aqui é a query sozinha — o que sobra dela quando o id não casa.
+describe('reorderEventImages (repositório)', () => {
+  it('não reposiciona imagem de outro evento nem estoura com id sumido', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const outro = await makeEvent(author.id)
+
+    const minha = await makeEventImage(event.id, { order: 0 })
+    const alheia = await makeEventImage(outro.id, { order: 0 })
+    // Some entre a validação do service e a escrita (autor apagando de outra
+    // tela): com `update` por id isso lançava P2025 e virava 500.
+    const sumida = '00000000-0000-4000-8000-000000000000'
+
+    await expect(
+      reorderEventImages(event.id, [alheia.id, sumida, minha.id]),
+    ).resolves.toBeDefined()
+
+    // A alheia continua no lugar dela, apesar de ter vindo na posição 0.
+    const after = await testPrisma.eventImage.findUnique({
+      where: { id: alheia.id },
+    })
+    expect(after?.order).toBe(0)
   })
 })
