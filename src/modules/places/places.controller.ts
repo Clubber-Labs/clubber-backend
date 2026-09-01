@@ -11,13 +11,13 @@ export async function getAutocomplete(
   reply: FastifyReply,
 ) {
   const query = request.query as PlacesAutocompleteQuery
-  const result = await autocompletePlaces(query)
+  const result = await autocompletePlaces(query, request.locale)
   return reply.send(result)
 }
 
 export async function getDetails(request: FastifyRequest, reply: FastifyReply) {
   const { placeId } = request.params as PlaceDetailsParams
   const { sessionToken } = request.query as PlaceDetailsQuery
-  const details = await getPlaceDetails(placeId, sessionToken)
+  const details = await getPlaceDetails(placeId, request.locale, sessionToken)
   return reply.send(details)
 }

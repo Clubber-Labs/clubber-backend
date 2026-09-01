@@ -153,7 +153,7 @@ describe('GooglePlacesService.autocomplete', () => {
       sessionToken: 'sess-123',
     })
 
-    // Mock vazio dispara o fallback global — cada chamada conta na métrica.
+    // Mock vazio dispara a segunda passada — cada chamada conta na métrica.
     expect(await searchCount('autocomplete')).toBe(before + 2)
 
     const [url, init] = spy.mock.calls[0] as [string, RequestInit]
@@ -161,10 +161,15 @@ describe('GooglePlacesService.autocomplete', () => {
     const body = JSON.parse(init.body as string)
     expect(body.input).toBe('bar do z')
     expect(body.sessionToken).toBe('sess-123')
-    expect(body.locationBias.circle.center.latitude).toBe(CENTER.latitude)
-    expect(body.locationBias.circle.radius).toBe(20000)
-    // Sem isso, "shanghai club" sugere Malásia/Vietnã antes do bar da cidade.
-    expect(body.includedRegionCodes).toEqual(['br'])
+    // Primeira passada RESTRITA ao círculo: é o que impede "shanghai club" de
+    // sugerir Malásia antes do bar da cidade — e vale em qualquer país, ao
+    // contrário do filtro por país que só servia a quem estava no Brasil.
+    expect(body.locationRestriction.circle.center.latitude).toBe(
+      CENTER.latitude,
+    )
+    expect(body.locationRestriction.circle.radius).toBe(20000)
+    expect(body.locationBias).toBeUndefined()
+    expect(body.includedRegionCodes).toBeUndefined()
     const fieldMask = (init.headers as Record<string, string>)[
       'X-Goog-FieldMask'
     ]
@@ -182,8 +187,11 @@ describe('GooglePlacesService.autocomplete', () => {
     const [, init] = spy.mock.calls[0] as [string, RequestInit]
     const body = JSON.parse(init.body as string)
     expect(body.locationBias).toBeUndefined()
+    expect(body.locationRestriction).toBeUndefined()
     expect(body.sessionToken).toBeUndefined()
-    expect(body.includedRegionCodes).toEqual(['br'])
+    expect(body.includedRegionCodes).toBeUndefined()
+    // Sem "perto" para priorizar, a segunda passada não teria o que somar.
+    expect(spy).toHaveBeenCalledTimes(1)
   })
 
   it('sem radiusMeters, o viés cobre a região (50km), não o raio da Text Search', async () => {
@@ -196,7 +204,7 @@ describe('GooglePlacesService.autocomplete', () => {
 
     const [, init] = spy.mock.calls[0] as [string, RequestInit]
     const body = JSON.parse(init.body as string)
-    expect(body.locationBias.circle.radius).toBe(50000)
+    expect(body.locationRestriction.circle.radius).toBe(50000)
   })
 
   it('mapeia placeId, nome e endereço das predições e ignora queryPrediction', async () => {
@@ -236,7 +244,7 @@ describe('GooglePlacesService.autocomplete', () => {
     }
   }
 
-  it('lista cheia no Brasil: não faz a chamada global', async () => {
+  it('lista cheia perto: não faz a segunda passada', async () => {
     const spy = mockFetchJson({
       suggestions: [
         suggestion('br1', 'Bar A'),
@@ -256,9 +264,9 @@ describe('GooglePlacesService.autocomplete', () => {
     expect(spy).toHaveBeenCalledTimes(1)
   })
 
-  it('lista incompleta no Brasil: completa com o global sem duplicar (caso Berghain)', async () => {
-    // Homônimo nacional ("Berghain Cervejaria" em Timbó/SC) não pode esconder
-    // o lugar real lá fora — o global complementa, com o Brasil na frente.
+  it('lista incompleta perto: completa com o longe sem duplicar (caso Berghain)', async () => {
+    // Homônimo perto ("Berghain Cervejaria" em Timbó/SC) não pode esconder o
+    // lugar real lá fora — a segunda passada complementa, com o perto na frente.
     const spy = vi
       .spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(
@@ -288,11 +296,12 @@ describe('GooglePlacesService.autocomplete', () => {
     const second = JSON.parse(
       (spy.mock.calls[1][1] as RequestInit).body as string,
     )
-    expect(first.includedRegionCodes).toEqual(['br'])
-    expect(second.includedRegionCodes).toBeUndefined()
+    expect(first.locationRestriction).toBeDefined()
+    expect(second.locationRestriction).toBeUndefined()
+    // Bias na segunda: alcança o de fora do círculo sem perder o peso do perto.
+    expect(second.locationBias.circle).toEqual(first.locationRestriction.circle)
     // Mesma sessão: a chamada extra do complemento não gera cobrança nova.
     expect(second.sessionToken).toBe('sess-123')
-    expect(second.locationBias).toEqual(first.locationBias)
 
     expect(suggestions.map((s) => s.placeId)).toEqual([
       'br_cervejaria',
@@ -300,7 +309,7 @@ describe('GooglePlacesService.autocomplete', () => {
     ])
   })
 
-  it('sem match no Brasil, a lista vem só do global', async () => {
+  it('sem match perto, a lista vem só da segunda passada', async () => {
     vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(jsonResponse({ suggestions: [] }))
       .mockResolvedValueOnce(
@@ -378,5 +387,61 @@ describe('GooglePlacesService.getDetails', () => {
     await expect(
       new GooglePlacesService('key').getDetails('p1'),
     ).rejects.toMatchObject({ statusCode: 502 })
+  })
+})
+
+describe('GooglePlacesService.autocomplete — alcance geográfico', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function prediction(placeId: string, name: string) {
+    return {
+      placePrediction: {
+        placeId,
+        structuredFormat: { mainText: { text: name } },
+      },
+    }
+  }
+
+  // A regressão que motivou a mudança: com filtro fixo no país de lançamento,
+  // esta lista vinha cheia de homônimos brasileiros e a segunda passada nem
+  // acontecia — o bar da esquina de quem está fora nunca aparecia.
+  it('quem está fora do país de lançamento vê o que está perto de si', async () => {
+    const NEW_YORK = { latitude: 40.73, longitude: -73.99 }
+    const spy = mockFetchJson({
+      suggestions: [prediction('nyc_bar', 'Blue Note NYC')],
+    })
+
+    const suggestions = await new GooglePlacesService('key').autocomplete({
+      input: 'blue note',
+      ...NEW_YORK,
+    })
+
+    const body = JSON.parse(
+      (spy.mock.calls[0][1] as RequestInit).body as string,
+    )
+    expect(body.locationRestriction.circle.center).toEqual({
+      latitude: NEW_YORK.latitude,
+      longitude: NEW_YORK.longitude,
+    })
+    expect(body.includedRegionCodes).toBeUndefined()
+    expect(suggestions[0].placeId).toBe('nyc_bar')
+  })
+
+  it('manda o languageCode nas duas passadas', async () => {
+    const spy = mockFetchJson({ suggestions: [] })
+
+    await new GooglePlacesService('key').autocomplete({
+      input: 'bar',
+      ...CENTER,
+      languageCode: 'en',
+    })
+
+    expect(spy).toHaveBeenCalledTimes(2)
+    for (const call of spy.mock.calls) {
+      const body = JSON.parse((call[1] as RequestInit).body as string)
+      expect(body.languageCode).toBe('en')
+    }
   })
 })

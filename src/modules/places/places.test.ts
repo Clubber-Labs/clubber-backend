@@ -119,6 +119,7 @@ describe('GET /places/:placeId', () => {
     expect(fakePlaces.lastDetails).toEqual({
       placeId: 'fake_p1',
       sessionToken: 'sess-1',
+      languageCode: 'pt-BR',
     })
   })
 
@@ -133,5 +134,31 @@ describe('GET /places/:placeId', () => {
     })
 
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('seletor de local — idioma', () => {
+  it('leva o idioma do aparelho para o autocomplete e para os detalhes', async () => {
+    const user = await makeUser()
+    const headers = {
+      authorization: `Bearer ${token(app, user.id)}`,
+      'accept-language': 'es',
+    }
+
+    await app.inject({
+      method: 'GET',
+      url: '/places/autocomplete?q=bar&sessionToken=s1',
+      headers,
+    })
+    expect(fakePlaces.lastAutocomplete?.languageCode).toBe('es')
+
+    // As duas metades do mesmo seletor: sugestão e detalhe do escolhido. Se só
+    // uma levasse o idioma, o nome viria num idioma e o endereço noutro.
+    await app.inject({
+      method: 'GET',
+      url: '/places/abc123?sessionToken=s1',
+      headers,
+    })
+    expect(fakePlaces.lastDetails?.languageCode).toBe('es')
   })
 })
