@@ -90,6 +90,7 @@ export class GooglePlacesService implements IPlacesClient {
     const body = {
       textQuery: params.textQuery,
       maxResultCount: params.limit ?? DEFAULT_LIMIT,
+      ...(params.languageCode && { languageCode: params.languageCode }),
       // locationBias (não Restriction): o ponto é só viés — a Text Search pode
       // trazer um lugar excelente além do raio quando casa com a intenção.
       locationBias: {

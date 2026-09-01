@@ -1,3 +1,4 @@
+import type { Locale } from '../i18n/locale'
 import {
   type IProfileQueryComposer,
   MAX_PROFILE_QUERIES,
@@ -16,11 +17,14 @@ export function fallbackProfileQueries(profile: SuggestionProfile): string[] {
 
 /** Composer determinístico (sem IA): usa os próprios rótulos do perfil. */
 export class TemplateProfileQueryComposer implements IProfileQueryComposer {
-  async composeProfileQueries(profile: SuggestionProfile): Promise<string[]> {
+  async composeProfileQueries(
+    profile: SuggestionProfile,
+    _locale: Locale,
+  ): Promise<string[]> {
     return fallbackProfileQueries(profile)
   }
 
-  async composeIntentQuery(intent: string): Promise<string> {
+  async composeIntentQuery(intent: string, _locale: Locale): Promise<string> {
     return intent
   }
 }

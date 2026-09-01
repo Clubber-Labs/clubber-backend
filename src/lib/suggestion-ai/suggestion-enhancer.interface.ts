@@ -1,3 +1,4 @@
+import type { Locale } from '../i18n/locale'
 import type { PlaceCandidate } from '../places'
 
 /** Candidato do Places enriquecido com copy convidativa para o balão. */
@@ -14,6 +15,12 @@ export type EnhanceContext = {
    * ranqueador sempre ordena por aderência a este critério.
    */
   criterion: string
+  /**
+   * Idioma da copy — o do aparelho de quem pediu (request.locale). Vale também
+   * para o fallback por template: degradar de IA para template não pode
+   * degradar de idioma.
+   */
+  locale: Locale
 }
 
 /**

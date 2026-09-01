@@ -1,10 +1,12 @@
 // Teto de frases por geração: cada frase é uma Text Search billable. As mais
 // específicas (interesses) vêm primeiro, então o corte preserva o sinal mais fino.
+import type { Locale } from '../i18n/locale'
+
 export const MAX_PROFILE_QUERIES = 2
 
-/** Perfil destilado para compor a busca: rótulos pt-BR (não enums/chaves). */
+/** Perfil destilado para compor a busca: rótulos humanos (não enums/chaves). */
 export type SuggestionProfile = {
-  /** Rótulos das categorias preferidas (ex.: "Gastronomia", "Balada"). */
+  /** Rótulos das categorias preferidas, no locale do pedido. */
   categories: string[]
   /** Rótulos dos interesses finos — subcategorias de venue + gêneros musicais. */
   interests: string[]
@@ -18,7 +20,10 @@ export type SuggestionProfile = {
  * espelha o padrão do enhancer e do Places.
  */
 export interface IProfileQueryComposer {
-  composeProfileQueries(profile: SuggestionProfile): Promise<string[]>
+  composeProfileQueries(
+    profile: SuggestionProfile,
+    locale: Locale,
+  ): Promise<string[]>
   /**
    * Reescreve a intenção de texto livre numa query melhor para a Text Search.
    * O caso que motivou: venue famoso citado pelo nome ("green valley") — o
@@ -26,5 +31,5 @@ export interface IProfileQueryComposer {
    * cidade ("Green Valley Balneário Camboriú"). Texto genérico passa inalterado
    * e qualquer falha devolve o original — nunca quebra a geração.
    */
-  composeIntentQuery(intent: string): Promise<string>
+  composeIntentQuery(intent: string, locale: Locale): Promise<string>
 }

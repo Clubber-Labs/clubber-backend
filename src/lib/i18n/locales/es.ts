@@ -190,4 +190,7 @@ export const es: Dictionary = {
       helpCenter: 'Centro de ayuda',
     },
   },
+  spots: {
+    suggestionFallbackTitle: '¿Armamos plan en {{name}}?',
+  },
 }

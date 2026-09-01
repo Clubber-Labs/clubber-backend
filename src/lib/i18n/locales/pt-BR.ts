@@ -206,6 +206,13 @@ const emails = {
   },
 } as const
 
+// Copy da sugestão quando a IA está fora (sem chave/timeout/erro). Cada idioma
+// é escrito nativamente, no mesmo registro de convite do prompt: degradar de IA
+// para template não pode degradar de idioma.
+const spots = {
+  suggestionFallbackTitle: 'Bora um rolê no {{name}}?',
+} as const
+
 export const ptBR = {
   categories,
   subcategories,
@@ -213,4 +220,5 @@ export const ptBR = {
   notifications,
   chatPush,
   emails,
+  spots,
 } as const

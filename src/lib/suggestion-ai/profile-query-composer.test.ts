@@ -30,10 +30,13 @@ describe('HaikuProfileQueryComposer.composeProfileQueries', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeProfileQueries({
-      categories: ['Gastronomia', 'Balada'],
-      interests: ['Japonesa', 'Eletrônica'],
-    })
+    ).composeProfileQueries(
+      {
+        categories: ['Gastronomia', 'Balada'],
+        interests: ['Japonesa', 'Eletrônica'],
+      },
+      'pt-BR',
+    )
 
     expect(result).toEqual(['restaurante japonês', 'baladas de eletrônica'])
   })
@@ -44,10 +47,13 @@ describe('HaikuProfileQueryComposer.composeProfileQueries', () => {
       sent = (body as { messages: { content: string }[] }).messages[0]
     })
 
-    await new HaikuProfileQueryComposer(client).composeProfileQueries({
-      categories: ['Balada'],
-      interests: ['Funk'],
-    })
+    await new HaikuProfileQueryComposer(client).composeProfileQueries(
+      {
+        categories: ['Balada'],
+        interests: ['Funk'],
+      },
+      'pt-BR',
+    )
 
     const payload = JSON.parse(sent?.content ?? '{}')
     expect(payload.categories).toEqual(['Balada'])
@@ -61,7 +67,7 @@ describe('HaikuProfileQueryComposer.composeProfileQueries', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeProfileQueries({ categories: ['Bar'], interests: [] })
+    ).composeProfileQueries({ categories: ['Bar'], interests: [] }, 'pt-BR')
 
     expect(result).toEqual(['bar', 'balada'])
   })
@@ -72,10 +78,13 @@ describe('HaikuProfileQueryComposer.composeProfileQueries', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeProfileQueries({
-      categories: ['Gastronomia'],
-      interests: ['Japonesa'],
-    })
+    ).composeProfileQueries(
+      {
+        categories: ['Gastronomia'],
+        interests: ['Japonesa'],
+      },
+      'pt-BR',
+    )
 
     // Fallback: interesses finos antes, depois categorias.
     expect(result).toEqual(['Japonesa', 'Gastronomia'])
@@ -93,7 +102,7 @@ describe('HaikuProfileQueryComposer.composeProfileQueries', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeProfileQueries({ categories: ['Balada'], interests: [] })
+    ).composeProfileQueries({ categories: ['Balada'], interests: [] }, 'pt-BR')
 
     expect(result).toEqual(['Balada'])
     expect(await fallbackCount('llm_error')).toBe(before + 1)
@@ -103,10 +112,13 @@ describe('HaikuProfileQueryComposer.composeProfileQueries', () => {
 describe('TemplateProfileQueryComposer.composeProfileQueries', () => {
   it('usa os rótulos do perfil (interesses antes), dedup e teto de 2', async () => {
     const result =
-      await new TemplateProfileQueryComposer().composeProfileQueries({
-        categories: ['Gastronomia', 'Balada'],
-        interests: ['Japonesa'],
-      })
+      await new TemplateProfileQueryComposer().composeProfileQueries(
+        {
+          categories: ['Gastronomia', 'Balada'],
+          interests: ['Japonesa'],
+        },
+        'pt-BR',
+      )
 
     expect(result).toEqual(['Japonesa', 'Gastronomia'])
   })
@@ -118,7 +130,7 @@ describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeIntentQuery('quero um rolê na green valley')
+    ).composeIntentQuery('quero um rolê na green valley', 'pt-BR')
 
     expect(result).toBe('Green Valley Balneário Camboriú')
   })
@@ -128,7 +140,7 @@ describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeIntentQuery('bar com música ao vivo')
+    ).composeIntentQuery('bar com música ao vivo', 'pt-BR')
 
     expect(result).toBe('bar com música ao vivo')
   })
@@ -142,7 +154,7 @@ describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
 
     const result = await new HaikuProfileQueryComposer(
       client,
-    ).composeIntentQuery('green valley')
+    ).composeIntentQuery('green valley', 'pt-BR')
 
     expect(result).toBe('green valley')
   })
@@ -152,6 +164,7 @@ describe('TemplateProfileQueryComposer.composeIntentQuery', () => {
   it('sem IA, o texto passa inalterado', async () => {
     const result = await new TemplateProfileQueryComposer().composeIntentQuery(
       'green valley',
+      'pt-BR',
     )
     expect(result).toBe('green valley')
   })

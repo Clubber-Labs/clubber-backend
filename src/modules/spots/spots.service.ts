@@ -2,7 +2,7 @@ import { cache } from '../../lib/cache'
 import { env } from '../../lib/env'
 import { AppError } from '../../lib/errors/app-error'
 import type { EventCategory } from '../../lib/event-categories'
-import { DEFAULT_LOCALE } from '../../lib/i18n/locale'
+import type { Locale } from '../../lib/i18n/locale'
 import { t } from '../../lib/i18n/translate'
 import {
   adultVenueFilteredTotal,
@@ -398,6 +398,7 @@ const MAX_SUGGESTIONS = 8
 export async function generateSuggestions(
   userId: string,
   body: SuggestionsBody,
+  locale: Locale,
 ) {
   const intent = body.query
 
@@ -418,14 +419,10 @@ export async function generateSuggestions(
       throw new AppError(400, 'SPOT_NO_PREFERENCES')
     }
     const subcats = await findUserPreferredSubcategories(userId)
-    // Prompt da IA fixo em pt-BR enquanto o idioma do prompt não for decidido
-    // (plano de i18n) — comportamento de hoje, sem regressão.
     // t() direto (não listCategories): preferência legada em categoria
     // deprecada continua com rótulo humano no prompt.
-    profileCategoryLabels = categories.map((c) =>
-      t(`categories.${c}`, DEFAULT_LOCALE),
-    )
-    profileInterestLabels = interestLabels(subcats, DEFAULT_LOCALE)
+    profileCategoryLabels = categories.map((c) => t(`categories.${c}`, locale))
+    profileInterestLabels = interestLabels(subcats, locale)
     sortedCats = [...categories].sort()
     sortedSubcats = [...subcats].sort()
   }
@@ -441,10 +438,14 @@ export async function generateSuggestions(
     throw new AppError(429, 'DAILY_LIMIT_REACHED', undefined, { limit })
   }
 
-  // Chave de cache: célula geográfica + raio + (intenção OU categorias). A
-  // intenção entra normalizada para casar textos equivalentes na mesma região.
+  // Chave de cache: locale + célula geográfica + raio + (intenção OU
+  // categorias). A intenção entra normalizada para casar textos equivalentes na
+  // mesma região. O locale é dimensão da chave porque o valor cacheado é a copy
+  // JÁ escrita: sem ele, dois usuários da mesma célula dividiriam a entrada e
+  // quem chegasse depois receberia o texto no idioma de quem gerou.
   const key = cache.key(
     'spots:suggestions',
+    locale,
     gridCell(body.latitude, radiusKm),
     gridCell(body.longitude, radiusKm),
     `r:${radiusKm}`,
@@ -465,16 +466,18 @@ export async function generateSuggestions(
       // A IA ancora venue/cidade citados no texto ("green valley" -> "Green
       // Valley Balneário Camboriú") — com viés local, o Google preferiria
       // homônimos próximos. Genérico passa inalterado; falha devolve o original.
-      const composed =
-        await getProfileQueryComposer().composeIntentQuery(intent)
+      const composed = await getProfileQueryComposer().composeIntentQuery(
+        intent,
+        locale,
+      )
       // Query realmente reescrita (não só caixa) = a IA ancorou um destino.
       intentAnchored = composed.toLowerCase() !== intent.toLowerCase()
       searchQueries = [composed]
     } else {
-      const composed = await getProfileQueryComposer().composeProfileQueries({
-        categories: profileCategoryLabels,
-        interests: profileInterestLabels,
-      })
+      const composed = await getProfileQueryComposer().composeProfileQueries(
+        { categories: profileCategoryLabels, interests: profileInterestLabels },
+        locale,
+      )
       searchQueries =
         composed.length > 0
           ? composed
@@ -493,6 +496,7 @@ export async function generateSuggestions(
           longitude: body.longitude,
           radiusMeters,
           limit: SEARCH_LIMIT,
+          languageCode: locale,
         }),
       ),
     )
@@ -526,6 +530,7 @@ export async function generateSuggestions(
 
     const enhanced = await getSuggestionEnhancer().enhance(forAI, {
       criterion,
+      locale,
     })
     // Cap de itens: devolve só as melhores (já ranqueadas pela IA).
     suggestions = enhanced.slice(0, MAX_SUGGESTIONS)

@@ -1,3 +1,4 @@
+import type { Locale } from '../lib/i18n/locale'
 import type {
   IProfileQueryComposer,
   SuggestionProfile,
@@ -16,12 +17,17 @@ export class FakeProfileQueryComposer implements IProfileQueryComposer {
   nextQueries: string[] | null = null
   intentCalls = 0
   lastIntent: string | null = null
+  lastLocale: Locale | null = null
   /** Sobrescreva para fixar a query reescrita do modo texto num cenário. */
   nextIntentQuery: string | null = null
 
-  async composeProfileQueries(profile: SuggestionProfile): Promise<string[]> {
+  async composeProfileQueries(
+    profile: SuggestionProfile,
+    locale: Locale,
+  ): Promise<string[]> {
     this.calls++
     this.lastProfile = profile
+    this.lastLocale = locale
     if (this.nextQueries) return this.nextQueries
     // Default: interesses finos antes, depois categorias; dedup e teto de 2.
     return [...new Set([...profile.interests, ...profile.categories])].slice(
@@ -30,9 +36,10 @@ export class FakeProfileQueryComposer implements IProfileQueryComposer {
     )
   }
 
-  async composeIntentQuery(intent: string): Promise<string> {
+  async composeIntentQuery(intent: string, locale: Locale): Promise<string> {
     this.intentCalls++
     this.lastIntent = intent
+    this.lastLocale = locale
     // Default: passa inalterado (espelha o template sem IA).
     return this.nextIntentQuery ?? intent
   }
@@ -44,6 +51,7 @@ export class FakeProfileQueryComposer implements IProfileQueryComposer {
     this.intentCalls = 0
     this.lastIntent = null
     this.nextIntentQuery = null
+    this.lastLocale = null
   }
 }
 
