@@ -3,15 +3,19 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { block } from '../../lib/moderation-denylist'
 import { buildApp } from '../../test/app'
 import {
+  makeBlock,
   makeComment,
   makeDirectConversation,
   makeEvent,
+  makeFollow,
   makeMessage,
   makePost,
   makeReport,
   makeSpot,
   makeUser,
+  makeUserPhoto,
 } from '../../test/factories'
+import { fakeStorage } from '../../test/fake-storage'
 import { testPrisma } from '../../test/prisma'
 import { reconcileSuspensions } from '../users/suspension.reconciler'
 
@@ -1373,5 +1377,264 @@ describe('moderação de denúncia de rolê', () => {
     })
 
     expect(res.json().map((s: { id: string }) => s.id)).not.toContain(spot.id)
+  })
+})
+
+describe('POST /user-photos/:photoId/report', () => {
+  it('cria denúncia de foto do mural com targetType USER_PHOTO', async () => {
+    const owner = await makeUser()
+    const reporter = await makeUser()
+    const photo = await makeUserPhoto(owner.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'INAPPROPRIATE_CONTENT', details: 'Nudez' },
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      userPhotoId: photo.id,
+      reporterId: reporter.id,
+      reason: 'INAPPROPRIATE_CONTENT',
+      status: 'PENDING',
+    })
+    // O dono NÃO é o alvo: o alvo é a foto.
+    expect(res.json().targetUserId).toBeNull()
+  })
+
+  it('aceita o alias plural /user-photos/:photoId/reports', async () => {
+    const owner = await makeUser()
+    const reporter = await makeUser()
+    const photo = await makeUserPhoto(owner.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/reports`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'SPAM_OR_FRAUD' },
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('retorna 400 ao denunciar a própria foto', async () => {
+    const owner = await makeUser()
+    const photo = await makeUserPhoto(owner.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(400)
+    expect(res.json().code).toBe('SELF_REPORT')
+  })
+
+  it('retorna 409 na segunda denúncia aberta da mesma foto', async () => {
+    const owner = await makeUser()
+    const reporter = await makeUser()
+    const photo = await makeUserPhoto(owner.id)
+    const headers = { authorization: `Bearer ${token(app, reporter.id)}` }
+
+    await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers,
+      body: { reason: 'HARASSMENT' },
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers,
+      body: { reason: 'HARASSMENT' },
+    })
+
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('REPORT_ALREADY_OPEN')
+  })
+
+  it('retorna 404 para foto inexistente', async () => {
+    const reporter = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/user-photos/00000000-0000-4000-8000-000000000000/report',
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(404)
+    expect(res.json().code).toBe('USER_PHOTO_NOT_FOUND')
+  })
+
+  // Mesmo portão do GET /users/:id/photos: quem não vê o mural não denuncia o
+  // que há nele — privacidade e bloqueio ficam atrás de 404, sem confirmar que
+  // a foto existe.
+  it('retorna 404 quando o mural não é visível ao denunciante (privado sem follow, bloqueio)', async () => {
+    const privateOwner = await makeUser({ isPrivate: true })
+    const stranger = await makeUser()
+    const privatePhoto = await makeUserPhoto(privateOwner.id)
+
+    const blockingOwner = await makeUser()
+    const blocked = await makeUser()
+    await makeBlock(blockingOwner.id, blocked.id)
+    const blockedPhoto = await makeUserPhoto(blockingOwner.id)
+
+    for (const { photoId, reporterId } of [
+      { photoId: privatePhoto.id, reporterId: stranger.id },
+      { photoId: blockedPhoto.id, reporterId: blocked.id },
+    ]) {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/user-photos/${photoId}/report`,
+        headers: { authorization: `Bearer ${token(app, reporterId)}` },
+        body: { reason: 'OTHER' },
+      })
+      expect(res.statusCode).toBe(404)
+      expect(res.json().code).toBe('USER_PHOTO_NOT_FOUND')
+    }
+  })
+
+  it('seguidor aceito denuncia foto de perfil privado', async () => {
+    const owner = await makeUser({ isPrivate: true })
+    const follower = await makeUser()
+    await makeFollow(follower.id, owner.id, 'ACCEPTED')
+    const photo = await makeUserPhoto(owner.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers: { authorization: `Bearer ${token(app, follower.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(201)
+  })
+
+  it('retorna 401 sem autenticação', async () => {
+    const owner = await makeUser()
+    const photo = await makeUserPhoto(owner.id)
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      body: { reason: 'OTHER' },
+    })
+
+    expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('moderação de denúncia de foto do mural', () => {
+  it('filtra por targetType=USER_PHOTO em GET /reports e traz o resumo da foto', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const owner = await makeUser()
+    const reporter = await makeUser()
+    const photo = await makeUserPhoto(owner.id, {
+      imagesCount: 2,
+      caption: 'legenda',
+    })
+    const event = await makeEvent(owner.id)
+    await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/reports?targetType=USER_PHOTO',
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().data).toHaveLength(1)
+    const [report] = res.json().data
+    expect(report.userPhotoId).toBe(photo.id)
+    // O painel precisa ver a foto e de quem é sem uma busca a mais.
+    expect(report.userPhoto).toMatchObject({
+      id: photo.id,
+      caption: 'legenda',
+      user: { id: owner.id, username: owner.username },
+    })
+    expect(report.userPhoto.images).toHaveLength(2)
+    expect(report.userPhoto.images[0].url).toBe(photo.images[0].url)
+  })
+
+  it('DELETE /reports/:id/target apaga a foto e os blobs', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const owner = await makeUser()
+    const reporter = await makeUser()
+    const photo = await makeUserPhoto(owner.id, { imagesCount: 2 })
+    const created = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'INAPPROPRIATE_CONTENT' },
+    })
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/reports/${created.json().id}/target`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.json().status).toBe('RESOLVED_REMOVED')
+    // SetNull: a denúncia fica, apontando para lugar nenhum.
+    expect(res.json().userPhotoId).toBeNull()
+    expect(await testPrisma.userPhoto.count({ where: { id: photo.id } })).toBe(
+      0,
+    )
+    for (const image of photo.images) {
+      expect(fakeStorage.deleted).toContain(image.key)
+    }
+  })
+
+  it('foto apagada pelo dono antes da moderação deixa a denúncia sem alvo', async () => {
+    const admin = await makeUser({ role: 'ADMIN' })
+    const owner = await makeUser()
+    const reporter = await makeUser()
+    const photo = await makeUserPhoto(owner.id)
+    const created = await app.inject({
+      method: 'POST',
+      url: `/user-photos/${photo.id}/report`,
+      headers: { authorization: `Bearer ${token(app, reporter.id)}` },
+      body: { reason: 'OTHER' },
+    })
+
+    const removed = await app.inject({
+      method: 'DELETE',
+      url: `/users/me/photos/${photo.id}`,
+      headers: { authorization: `Bearer ${token(app, owner.id)}` },
+    })
+    expect(removed.statusCode).toBe(204)
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/reports/${created.json().id}`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+    expect(detail.statusCode).toBe(200)
+    expect(detail.json().userPhotoId).toBeNull()
+
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/reports/${created.json().id}/target`,
+      headers: { authorization: `Bearer ${token(app, admin.id)}` },
+    })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().code).toBe('REPORTED_CONTENT_GONE')
   })
 })

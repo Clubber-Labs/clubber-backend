@@ -927,6 +927,9 @@ model Report {
   spotId String?
   spot   Spot?   @relation(fields: [spotId], references: [id], onDelete: SetNull)
 
+  userPhotoId String?
+  userPhoto   UserPhoto? @relation(fields: [userPhotoId], references: [id], onDelete: SetNull)
+
   reviewerId String?
   reviewer   User?   @relation("reportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
 
@@ -937,12 +940,14 @@ model Report {
   @@unique([reporterId, messageId, status], map: "reports_reporter_message_status_unique")
   @@unique([reporterId, postId, status], map: "reports_reporter_post_status_unique")
   @@unique([reporterId, spotId, status], map: "reports_reporter_spot_status_unique")
+  @@unique([reporterId, userPhotoId, status], map: "reports_reporter_user_photo_status_unique")
   @@unique([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_unique")
   @@index([reporterId, eventId, status], map: "reports_reporter_event_status_idx")
   @@index([reporterId, commentId, status], map: "reports_reporter_comment_status_idx")
   @@index([reporterId, messageId, status], map: "reports_reporter_message_status_idx")
   @@index([reporterId, postId, status], map: "reports_reporter_post_status_idx")
   @@index([reporterId, spotId, status], map: "reports_reporter_spot_status_idx")
+  @@index([reporterId, userPhotoId, status], map: "reports_reporter_user_photo_status_idx")
   @@index([reporterId, targetUserId, status], map: "reports_reporter_target_user_status_idx")
   @@index([reviewerId], map: "reports_reviewer_idx")
   // Fixup do cascade de messages (SetNull): sem índice liderando em messageId,
@@ -1064,7 +1069,8 @@ model UserPhoto {
 
   user   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   event  Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  images UserPhotoImage[]
+  images  UserPhotoImage[]
+  reports Report[]
 
   @@index([userId, createdAt, id])
   // Fixup do SetNull ao apagar o evento: sem índice em eventId, o delete varre a tabela.
