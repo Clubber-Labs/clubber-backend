@@ -202,6 +202,11 @@ describe('AiSuggestionEnhancer — idioma da copy', () => {
       expect(system).toContain('SEMPRE descarte conteúdo adulto/sexual')
       expect(system).toContain('NUNCA mencione nota')
       expect(system).toContain('SEGURANÇA')
+      // Eco do criterion na copy: permitido, mas condicionado à aderência —
+      // sem a condição, o piso da regra 3 ganharia copy prometendo o pedido.
+      expect(system).toContain('matéria-prima legítima da copy')
+      expect(system).toContain('aderência FORTE')
+      expect(system).toContain('Varie a estrutura')
     }
   })
 
