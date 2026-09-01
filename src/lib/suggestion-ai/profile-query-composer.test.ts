@@ -169,3 +169,55 @@ describe('TemplateProfileQueryComposer.composeIntentQuery', () => {
     expect(result).toBe('green valley')
   })
 })
+
+describe('HaikuProfileQueryComposer — idioma da query composta', () => {
+  const LOCALES = ['pt-BR', 'en', 'es'] as const
+  const NAMED = {
+    'pt-BR': 'português do Brasil',
+    en: 'inglês',
+    es: 'espanhol',
+  } as const
+
+  function systemOf(parse: ReturnType<typeof stubClient>['parse']): string {
+    return (parse.mock.calls[0]?.[0] as { system: string }).system
+  }
+
+  // A saída daqui não é lida por ninguém — vai como query para o Google —,
+  // então o locale só tem um jeito de fazer efeito: nomear o idioma dentro do
+  // prompt. Se a interpolação sumir, a busca volta a sair em português para
+  // todo mundo sem nada quebrar: nenhum tipo cai e nenhuma resposta muda de
+  // forma. Daí as duas direções: nomear o pedido E não nomear os outros.
+  it('o prompt do perfil nomeia o idioma pedido e nenhum outro', async () => {
+    for (const locale of LOCALES) {
+      const { client, parse } = stubClient({ queries: ['bar'] })
+
+      await new HaikuProfileQueryComposer(client).composeProfileQueries(
+        { categories: ['Balada'], interests: ['Funk'] },
+        locale,
+      )
+
+      const system = systemOf(parse)
+      expect(system).toContain(NAMED[locale])
+      for (const other of LOCALES.filter((l) => l !== locale)) {
+        expect(system).not.toContain(NAMED[other])
+      }
+    }
+  })
+
+  it('o prompt da intenção nomeia o idioma pedido e nenhum outro', async () => {
+    for (const locale of LOCALES) {
+      const { client, parse } = stubClient({ query: 'bar' })
+
+      await new HaikuProfileQueryComposer(client).composeIntentQuery(
+        'bar com música ao vivo',
+        locale,
+      )
+
+      const system = systemOf(parse)
+      expect(system).toContain(NAMED[locale])
+      for (const other of LOCALES.filter((l) => l !== locale)) {
+        expect(system).not.toContain(NAMED[other])
+      }
+    }
+  })
+})
