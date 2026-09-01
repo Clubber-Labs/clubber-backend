@@ -43,7 +43,7 @@ export function buildCommentInclude(viewerId?: string): Prisma.CommentInclude {
   }
 }
 
-type PrismaComment = Prisma.CommentGetPayload<{
+export type PrismaComment = Prisma.CommentGetPayload<{
   include: {
     author: { select: typeof authorSelect }
     _count: { select: { reactions: true; replies: true } }
@@ -51,14 +51,31 @@ type PrismaComment = Prisma.CommentGetPayload<{
   }
 }>
 
+/**
+ * A linha como chega do Prisma. `reactions` é opcional porque o include
+ * compartilhado do evento roda SEM viewer (o payload é cacheável e o userLiked
+ * é hidratado depois) e por isso não seleciona a reação do viewer.
+ */
+export type CommentRow = Omit<PrismaComment, 'reactions'> & {
+  reactions?: PrismaComment['reactions']
+}
+
 export type NormalizedComment = Omit<PrismaComment, 'reactions' | '_count'> & {
   reactionsCount: number
   repliesCount: number
   userLiked: boolean
 }
 
-function normalizeComment(
-  comment: PrismaComment,
+/**
+ * Forma canônica de um comentário no payload. Card de evento, feed e a listagem
+ * de comentários passam por aqui: o app tipa os três com o mesmo EventComment, e
+ * shape diferente por superfície é campo obrigatório chegando undefined.
+ *
+ * Sem viewerId (caminho compartilhado/cacheável do evento) userLiked sai false —
+ * quem hidrata é a camada de viewer state.
+ */
+export function normalizeComment(
+  comment: CommentRow,
   viewerId?: string,
 ): NormalizedComment {
   const { reactions, _count, ...rest } = comment

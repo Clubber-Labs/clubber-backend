@@ -14,6 +14,7 @@ import { prisma } from '../../lib/prisma'
 import { findEventIdsByDistance, type LatLng } from '../../lib/spatial'
 import {
   buildCommentInclude,
+  normalizeComment,
   visibleCommentWhere,
 } from '../comments/comments.repository'
 import { findTopAttendancesByEvent } from '../events/events.repository'
@@ -435,14 +436,7 @@ export async function hydrateEvents(
       ...rest,
       friendAttendances: friendTop.map((a) => ({ user: a.user })),
       topAttendances: top.map((a) => ({ user: a.user })),
-      recentComments: comments.map((c) => ({
-        id: c.id,
-        content: c.content,
-        createdAt: c.createdAt,
-        author: c.author,
-        reactionsCount: c._count.reactions,
-        userLiked: c.reactions.length > 0,
-      })),
+      recentComments: comments.map((c) => normalizeComment(c, viewerId)),
       userLiked,
       userAttendance,
       reason,

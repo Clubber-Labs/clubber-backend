@@ -2958,3 +2958,80 @@ describe('coerência de _count.attendances entre as superfícies', () => {
     expect(find(feed)._count.attendances).toBe(2)
   })
 })
+
+// O app tipa EventComment com authorId, repliesCount e parentId obrigatórios, e
+// usa o MESMO tipo no card e na listagem de comentários. O recentComments do
+// card entregava um shape mais pobre que o de GET .../comments.
+describe('recentComments com o mesmo shape da listagem de comentários', () => {
+  it('traz authorId, parentId e repliesCount em lista, detalhe e feed', async () => {
+    const viewer = await makeUser()
+    const author = await makeUser()
+    await makeFollow(viewer.id, author.id)
+    const event = await makeEvent(author.id, { isPublic: true })
+
+    const root = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, viewer.id)}` },
+      body: { content: 'resposta', parentId: root.json().id },
+    })
+
+    const auth = { authorization: `Bearer ${token(app, viewer.id)}` }
+    const [list, detail, feed] = await Promise.all([
+      app.inject({ method: 'GET', url: '/events', headers: auth }),
+      app.inject({ method: 'GET', url: `/events/${event.id}`, headers: auth }),
+      app.inject({ method: 'GET', url: '/feed', headers: auth }),
+    ])
+
+    const fromList = list
+      .json()
+      .data.find((e: { id: string }) => e.id === event.id).recentComments[0]
+    const fromDetail = detail.json().recentComments[0]
+    const fromFeed = feed
+      .json()
+      .data.find((e: { id: string }) => e.id === event.id).recentComments[0]
+
+    for (const comment of [fromList, fromDetail, fromFeed]) {
+      expect(comment).toMatchObject({
+        id: root.json().id,
+        authorId: author.id,
+        parentId: null,
+        repliesCount: 1,
+      })
+    }
+  })
+
+  // A resposta não pode aparecer solta no card, mas tem que contar no pai —
+  // mesma régua do visibleCommentWhere.
+  it('não lista a resposta como comentário recente', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id, { isPublic: true })
+    const root = await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'raiz' },
+    })
+    await app.inject({
+      method: 'POST',
+      url: `/events/${event.id}/comments`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+      body: { content: 'resposta', parentId: root.json().id },
+    })
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/events/${event.id}`,
+      headers: { authorization: `Bearer ${token(app, author.id)}` },
+    })
+
+    expect(res.json().recentComments).toHaveLength(1)
+    expect(res.json().recentComments[0].id).toBe(root.json().id)
+  })
+})
