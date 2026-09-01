@@ -8,9 +8,9 @@ import type {
 
 /**
  * Enhancer fake para testes: determinístico e verificável. Inverte a ordem dos
- * candidatos (prova que o service usa o ranqueamento da IA) e marca a copy com
- * prefixo "IA:". Conta chamadas (`calls`) para verificar cache hit. Injetado via
- * setSuggestionEnhancer no setup.ts.
+ * candidatos (prova que o service usa o ranqueamento da IA) e marca os fatos
+ * com prefixo "IA:". Conta chamadas (`calls`) para verificar cache hit.
+ * Injetado via setSuggestionEnhancer no setup.ts.
  */
 export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
   calls = 0
@@ -24,11 +24,14 @@ export class FakeSuggestionEnhancer implements ISuggestionEnhancer {
     this.calls++
     this.lastLocale = context.locale
     this.lastCriterion = context.criterion
-    return [...candidates].reverse().map((c) => ({
-      ...c,
-      suggestedTitle: `IA: ${c.name}`,
-      suggestedDescription: `Sugestão para ${c.name}`,
-    }))
+    return [...candidates].reverse().map((c) => {
+      const { reviews: _reviews, ...rest } = c
+      return {
+        ...rest,
+        about: `IA: ${c.name}`,
+        highlights: [`Fato sobre ${c.name}`],
+      }
+    })
   }
 
   reset(): void {

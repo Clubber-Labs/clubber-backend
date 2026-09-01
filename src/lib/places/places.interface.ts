@@ -14,6 +14,13 @@ export type PlaceCandidate = {
   priceLevel: string | null
   openNow: boolean | null
   distanceMeters: number
+  /**
+   * Textos crus de reviews (até 5, SÓ o texto — autor nunca sai do adapter:
+   * minimização de dado pessoal). Presente apenas quando a busca pediu
+   * `includeReviews`; é insumo do enhancer e NUNCA pode vazar na resposta da
+   * API (EnhancedCandidate omite o campo).
+   */
+  reviews?: string[]
 }
 
 /** Busca por intenção em texto livre (Text Search). O ponto é só viés, não trava. */
@@ -29,6 +36,12 @@ export type SearchTextParams = {
    * aparelho. Não muda a SKU nem o preço da Text Search.
    */
   languageCode?: string
+  /**
+   * Pede `places.reviews` no field mask — sobe a chamada de SKU Enterprise para
+   * Enterprise+Atmosphere (~US$35→40/1000), então só o fluxo de sugestões (que
+   * usa reviews como evidência na IA) deve ligar isto.
+   */
+  includeReviews?: boolean
 }
 
 /**

@@ -72,8 +72,14 @@ describe('POST /spots/suggestions', () => {
     expect(body.suggestions.length).toBeGreaterThan(0)
     // O perfil vira frase de busca composta pela IA (aqui, o rótulo da categoria).
     expect(fakePlaces.lastText?.textQuery).toBe('Festa')
-    // A camada de IA escreveu a copy de cada candidato.
-    expect(body.suggestions[0].suggestedTitle).toMatch(/^IA:/)
+    // A camada de IA preencheu os fatos do estabelecimento de cada candidato.
+    expect(body.suggestions[0].about).toMatch(/^IA:/)
+    expect(body.suggestions[0].highlights).toHaveLength(1)
+    // reviews são insumo interno da IA — nunca vazam na resposta.
+    expect('reviews' in body.suggestions[0]).toBe(false)
+    // Sem ANTHROPIC_API_KEY (caso do .env.test) a busca não pede reviews:
+    // o SKU maior do Places só é pago quando há IA pra consumi-las.
+    expect(fakePlaces.lastText?.includeReviews).toBe(false)
     expect(body.remaining).toBe(4) // 5 free - 1
     expect(fakePlaces.calls).toBe(1)
   })
@@ -93,11 +99,9 @@ describe('POST /spots/suggestions', () => {
       'fake_text_Música',
       'fake_text_Festa',
     ])
-    // E a copy veio da IA em todos.
+    // E os fatos vieram da IA em todos.
     expect(
-      suggestions.every((s: { suggestedTitle: string }) =>
-        s.suggestedTitle.startsWith('IA:'),
-      ),
+      suggestions.every((s: { about: string }) => s.about.startsWith('IA:')),
     ).toBe(true)
   })
 

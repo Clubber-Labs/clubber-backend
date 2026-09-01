@@ -1,10 +1,17 @@
 import type { Locale } from '../i18n/locale'
 import type { PlaceCandidate } from '../places'
 
-/** Candidato do Places enriquecido com copy convidativa para o balão. */
-export type EnhancedCandidate = PlaceCandidate & {
-  suggestedTitle: string
-  suggestedDescription: string | null
+/**
+ * Candidato do Places enriquecido com FATOS do estabelecimento que ajudam o
+ * usuário a escolher — quem dá título e descrição ao rolê é o próprio usuário.
+ * `reviews` fica de fora de propósito: é insumo interno da IA e não pode vazar
+ * na resposta da API (payload e ToS do Places).
+ */
+export type EnhancedCandidate = Omit<PlaceCandidate, 'reviews'> & {
+  /** 1 frase factual sobre o que o lugar é (≤140 chars); null no modo degradado. */
+  about: string | null
+  /** Até 5 fatos curtos (≤55 chars) com o que pesa pra escolher; [] sem evidência. */
+  highlights: string[]
 }
 
 export type EnhanceContext = {

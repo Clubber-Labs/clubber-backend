@@ -52,6 +52,51 @@ describe('GooglePlacesService.searchText', () => {
     expect(fieldMask).toContain('places.userRatingCount')
     expect(fieldMask).toContain('places.priceLevel')
     expect(fieldMask).toContain('places.currentOpeningHours.openNow')
+    // Sem includeReviews o mask NÃO pede reviews — é o que segura a chamada na
+    // SKU Enterprise em vez de Enterprise+Atmosphere.
+    expect(fieldMask).not.toContain('places.reviews')
+  })
+
+  it('includeReviews adiciona places.reviews ao FieldMask e mapeia só o texto', async () => {
+    const spy = mockFetch([
+      {
+        id: 't1',
+        displayName: { text: 'Bar do Zé' },
+        location: { latitude: -23.5614, longitude: -46.6559 },
+        reviews: [
+          {
+            text: { text: 'sempre tem banda' },
+            authorAttribution: { displayName: 'Fulano' },
+            rating: 5,
+          },
+          { text: { text: '' } },
+          { text: { text: 'área externa boa' } },
+          { text: { text: 'r3' } },
+          { text: { text: 'r4' } },
+          { text: { text: 'r5 além do teto' } },
+        ],
+      },
+    ])
+
+    const [place] = await new GooglePlacesService('key').searchText({
+      textQuery: 'bar',
+      ...CENTER,
+      includeReviews: true,
+    })
+
+    const [, init] = spy.mock.calls[0] as [string, RequestInit]
+    const fieldMask = (init.headers as Record<string, string>)[
+      'X-Goog-FieldMask'
+    ]
+    expect(fieldMask).toContain('places.reviews')
+    // Só o texto sai do adapter (autor/nota da review morrem aqui), texto vazio
+    // cai fora e o teto é de 5 por lugar.
+    expect(place.reviews).toEqual([
+      'sempre tem banda',
+      'área externa boa',
+      'r3',
+      'r4',
+    ])
   })
 
   it('mapeia types, rating, contagem, faixa de preço e aberto-agora', async () => {
