@@ -11,6 +11,7 @@ import {
 import { fakeStorage } from '../../test/fake-storage'
 import { multipartFormData, tinyPngBuffer } from '../../test/image-fixture'
 import { testPrisma } from '../../test/prisma'
+import { reorderPostImages } from './posts.repository'
 
 let app: FastifyInstance
 
@@ -656,5 +657,49 @@ describe('PATCH /events/:eventId/posts/:postId/images', () => {
     })
 
     expect(res.statusCode).toBe(403)
+  })
+})
+
+// A validação do service é a primeira linha de defesa; esta é a segunda, no
+// próprio SQL. Testada direto no repositório porque é justamente a garantia que
+// vale QUANDO a checagem de cima não pegou.
+describe('reorderPostImages (repositório)', () => {
+  it('não reposiciona imagem de outro post nem estoura com id sumido', async () => {
+    const author = await makeUser()
+    const event = await makeEvent(author.id)
+    const post = await makePost(author.id, event.id)
+    const outro = await makePost(author.id, event.id)
+
+    const mine = await testPrisma.postImage.create({
+      data: {
+        postId: post.id,
+        url: 'https://cdn.test/a.webp',
+        key: `posts/${post.id}/a`,
+        format: 'webp',
+        size: 1024,
+        order: 0,
+      },
+    })
+    const alheia = await testPrisma.postImage.create({
+      data: {
+        postId: outro.id,
+        url: 'https://cdn.test/b.webp',
+        key: `posts/${outro.id}/b`,
+        format: 'webp',
+        size: 1024,
+        order: 0,
+      },
+    })
+    const sumida = '00000000-0000-4000-8000-000000000000'
+
+    await expect(
+      reorderPostImages(post.id, [alheia.id, sumida, mine.id]),
+    ).resolves.toBeDefined()
+
+    // A alheia continua no lugar dela, apesar de ter vindo na posição 0.
+    const after = await testPrisma.postImage.findUnique({
+      where: { id: alheia.id },
+    })
+    expect(after?.order).toBe(0)
   })
 })
