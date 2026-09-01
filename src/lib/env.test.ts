@@ -1,5 +1,27 @@
 import { describe, expect, it } from 'vitest'
-import { isInternalRedisHost } from './env'
+import { anthropicWorkspaceIdSchema, isInternalRedisHost } from './env'
+
+// `ANTHROPIC_WORKSPACE_ID=` vazio (copiado do .env.example) tem que valer como
+// "não configurado", igual ao ANTHROPIC_API_KEY= da linha de cima — não derrubar
+// o boot.
+describe('anthropicWorkspaceIdSchema', () => {
+  it('aceita ausente e trata string vazia como ausente', () => {
+    expect(anthropicWorkspaceIdSchema.parse(undefined)).toBeUndefined()
+    expect(anthropicWorkspaceIdSchema.parse('')).toBeUndefined()
+  })
+
+  it('aceita id no formato do Console', () => {
+    expect(
+      anthropicWorkspaceIdSchema.parse('wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ'),
+    ).toBe('wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ')
+  })
+
+  it('rejeita valor fora do formato com mensagem legível no boot', () => {
+    const result = anthropicWorkspaceIdSchema.safeParse('sk-ant-api03-x')
+    expect(result.success).toBe(false)
+    expect(result.error?.issues[0]?.message).toContain('wrkspc_')
+  })
+})
 
 // Esta função decide QUANDO NÃO exigir TLS no Redis de produção. Um falso
 // positivo aqui libera o texto decifrado do chat a trafegar em claro por uma
