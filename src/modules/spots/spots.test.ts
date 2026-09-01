@@ -1433,6 +1433,46 @@ describe('estabelecimento por trás do placeId', () => {
     expect(res.json()).toMatchObject({ placeName: null, address: null })
   })
 
+  // Ausente, vazio e só-espaço são a MESMA informação ("o Places não deu o
+  // campo"), e precisam virar o mesmo null: guardar '' faria um `address == null`
+  // no cliente cair no ramo errado e renderizar um endereço em branco.
+  it('normaliza estabelecimento vazio ou só com espaços para null', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({ placeName: '   ', address: '' }),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ placeName: null, address: null })
+
+    const found = await testPrisma.spot.findUnique({
+      where: { id: res.json().id },
+      select: { placeName: true, address: true },
+    })
+    expect(found).toEqual({ placeName: null, address: null })
+  })
+
+  it('remove espaços das pontas do estabelecimento', async () => {
+    const user = await makeUser()
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/spots',
+      headers: auth(user.id),
+      body: spotBody({ placeName: '  Bar do Zé  ', address: '  Rua A, 1  ' }),
+    })
+
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({
+      placeName: 'Bar do Zé',
+      address: 'Rua A, 1',
+    })
+  })
+
   // O local é imutável no rolê (como horário e categorias). O caso que importa
   // é o estabelecimento vindo JUNTO de um campo editável: com `object`, o Zod
   // descartava a chave e respondia 200 — o cliente achava ter mudado o local.
