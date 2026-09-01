@@ -125,27 +125,59 @@ describe('TemplateProfileQueryComposer.composeProfileQueries', () => {
 })
 
 describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
-  it('ancora venue famoso com a cidade (caso Green Valley)', async () => {
-    const { client } = stubClient({ query: 'Green Valley Balneário Camboriú' })
+  it('ancora venue famoso com a cidade e marca anchored (caso Green Valley)', async () => {
+    const { client } = stubClient({
+      query: 'Green Valley Balneário Camboriú',
+      anchored: true,
+    })
 
     const result = await new HaikuProfileQueryComposer(
       client,
     ).composeIntentQuery('quero um rolê na green valley', 'pt-BR')
 
-    expect(result).toBe('Green Valley Balneário Camboriú')
+    expect(result).toEqual({
+      query: 'Green Valley Balneário Camboriú',
+      anchored: true,
+    })
   })
 
-  it('IA sem saída útil devolve o texto original', async () => {
-    const { client } = stubClient({ query: '   ' })
+  it('reescrita de gênero devolve a query nova SEM ancorar', async () => {
+    const { client } = stubClient({ query: 'balada de funk', anchored: false })
+
+    const result = await new HaikuProfileQueryComposer(
+      client,
+    ).composeIntentQuery('balada com megafunk', 'pt-BR')
+
+    expect(result).toEqual({ query: 'balada de funk', anchored: false })
+  })
+
+  it('o prompt manda gênero virar busca de venue e subgênero virar o gênero-mãe', async () => {
+    const { client, parse } = stubClient({ query: 'bar', anchored: false })
+
+    await new HaikuProfileQueryComposer(client).composeIntentQuery(
+      'balada techno',
+      'pt-BR',
+    )
+
+    const system = (parse.mock.calls[0]?.[0] as { system: string }).system
+    expect(system).toContain('SUBGÊNERO vira o gênero-mãe')
+    expect(system).toContain('loja, escola ou curso')
+    // A ancoragem é decisão do modelo, mas a semântica fica gravada no prompt:
+    // reescrita de gênero nunca desliga o teto de distância.
+    expect(system).toContain('NÃO é ancoragem')
+  })
+
+  it('IA sem saída útil devolve o texto original sem ancorar', async () => {
+    const { client } = stubClient({ query: '   ', anchored: true })
 
     const result = await new HaikuProfileQueryComposer(
       client,
     ).composeIntentQuery('bar com música ao vivo', 'pt-BR')
 
-    expect(result).toBe('bar com música ao vivo')
+    expect(result).toEqual({ query: 'bar com música ao vivo', anchored: false })
   })
 
-  it('falha da IA devolve o texto original (nunca quebra a geração)', async () => {
+  it('falha da IA devolve o texto original sem ancorar (nunca quebra a geração)', async () => {
     const parse = vi.fn().mockRejectedValue(new Error('down'))
     const client = { messages: { parse } } as unknown as Pick<
       Anthropic,
@@ -156,17 +188,17 @@ describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
       client,
     ).composeIntentQuery('green valley', 'pt-BR')
 
-    expect(result).toBe('green valley')
+    expect(result).toEqual({ query: 'green valley', anchored: false })
   })
 })
 
 describe('TemplateProfileQueryComposer.composeIntentQuery', () => {
-  it('sem IA, o texto passa inalterado', async () => {
+  it('sem IA, o texto passa inalterado e nunca ancora', async () => {
     const result = await new TemplateProfileQueryComposer().composeIntentQuery(
       'green valley',
       'pt-BR',
     )
-    expect(result).toBe('green valley')
+    expect(result).toEqual({ query: 'green valley', anchored: false })
   })
 })
 

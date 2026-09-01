@@ -1,5 +1,6 @@
 import type { Locale } from '../i18n/locale'
 import {
+  type ComposedIntent,
   type IProfileQueryComposer,
   MAX_PROFILE_QUERIES,
   type SuggestionProfile,
@@ -24,7 +25,10 @@ export class TemplateProfileQueryComposer implements IProfileQueryComposer {
     return fallbackProfileQueries(profile)
   }
 
-  async composeIntentQuery(intent: string, _locale: Locale): Promise<string> {
-    return intent
+  async composeIntentQuery(
+    intent: string,
+    _locale: Locale,
+  ): Promise<ComposedIntent> {
+    return { query: intent, anchored: false }
   }
 }
