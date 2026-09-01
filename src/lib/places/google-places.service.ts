@@ -49,6 +49,13 @@ const FIELD_MASK = [
   'places.currentOpeningHours.openNow',
 ].join(',')
 
+// places.reviews é SKU Enterprise+Atmosphere: entra no mask só sob demanda
+// (includeReviews) para não encarecer as demais chamadas de Text Search.
+const FIELD_MASK_WITH_REVIEWS = `${FIELD_MASK},places.reviews`
+
+/** Quantas reviews saem do adapter por lugar (o Google manda até 5). */
+const MAX_REVIEWS_PER_PLACE = 5
+
 type GooglePlace = {
   id: string
   displayName?: { text?: string }
@@ -59,6 +66,7 @@ type GooglePlace = {
   userRatingCount?: number
   priceLevel?: string
   currentOpeningHours?: { openNow?: boolean }
+  reviews?: { text?: { text?: string } }[]
 }
 
 type GoogleSuggestion = {
@@ -100,7 +108,12 @@ export class GooglePlacesService implements IPlacesClient {
         },
       },
     }
-    return this.search(body, params.latitude, params.longitude)
+    return this.search(
+      body,
+      params.latitude,
+      params.longitude,
+      params.includeReviews ? FIELD_MASK_WITH_REVIEWS : FIELD_MASK,
+    )
   }
 
   /**
@@ -257,6 +270,7 @@ export class GooglePlacesService implements IPlacesClient {
     body: unknown,
     centerLat: number,
     centerLng: number,
+    fieldMask: string = FIELD_MASK,
   ): Promise<PlaceCandidate[]> {
     // Conta a chamada (billable) — acompanha o volume e o custo da Text Search.
     placesSearchTotal.inc({ type: 'text' })
@@ -267,7 +281,7 @@ export class GooglePlacesService implements IPlacesClient {
         headers: {
           'Content-Type': 'application/json',
           'X-Goog-Api-Key': this.apiKey,
-          'X-Goog-FieldMask': FIELD_MASK,
+          'X-Goog-FieldMask': fieldMask,
         },
         body: JSON.stringify(body),
         // Sem timeout, lentidão do Places deixaria o handler pendurado (Fastify
@@ -301,6 +315,11 @@ export class GooglePlacesService implements IPlacesClient {
       userRatingCount: p.userRatingCount ?? null,
       priceLevel: p.priceLevel ?? null,
       openNow: p.currentOpeningHours?.openNow ?? null,
+      // Só o texto de cada review — autor e metadados morrem aqui (minimização).
+      reviews: (p.reviews ?? [])
+        .slice(0, MAX_REVIEWS_PER_PLACE)
+        .map((r) => r.text?.text ?? '')
+        .filter((t) => t.length > 0),
       distanceMeters: haversineMeters(
         centerLat,
         centerLng,

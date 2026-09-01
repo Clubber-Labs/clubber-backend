@@ -23,6 +23,7 @@ function candidate(over: Partial<PlaceCandidate> = {}): PlaceCandidate {
     priceLevel: null,
     openNow: true,
     distanceMeters: 200,
+    reviews: [],
     ...over,
   }
 }
@@ -42,22 +43,85 @@ function stubClient(ranked: unknown, onCall?: (body: unknown) => void) {
 const ctx = { criterion: 'arte', locale: 'pt-BR' as const }
 
 describe('AiSuggestionEnhancer.enhance', () => {
-  it('honra a ordem da IA e escreve a copy', async () => {
+  it('honra a ordem da IA e devolve os fatos do estabelecimento', async () => {
     const a = candidate({ placeId: 'a', name: 'A' })
     const b = candidate({ placeId: 'b', name: 'B' })
     const { client } = stubClient({
       ranked: [
-        { placeId: 'b', title: 'Rolê no B', description: 'desc B' },
-        { placeId: 'a', title: 'Rolê no A', description: null },
+        {
+          placeId: 'b',
+          about: 'Bar com música ao vivo em dois níveis',
+          highlights: ['Banda de sexta e sábado'],
+        },
+        { placeId: 'a', about: 'Club noturno no centro', highlights: [] },
       ],
     })
 
     const result = await new AiSuggestionEnhancer(client).enhance([a, b], ctx)
 
     expect(result.map((r) => r.placeId)).toEqual(['b', 'a'])
-    expect(result[0].suggestedTitle).toBe('Rolê no B')
-    expect(result[0].suggestedDescription).toBe('desc B')
-    expect(result[1].suggestedDescription).toBeNull()
+    expect(result[0].about).toBe('Bar com música ao vivo em dois níveis')
+    expect(result[0].highlights).toEqual(['Banda de sexta e sábado'])
+    expect(result[1].highlights).toEqual([])
+  })
+
+  it('nunca devolve reviews no candidato enriquecido (insumo interno)', async () => {
+    const a = candidate({ placeId: 'a', reviews: ['ótimo lugar'] })
+    const { client } = stubClient({
+      ranked: [{ placeId: 'a', about: 'Bar', highlights: [] }],
+    })
+
+    const result = await new AiSuggestionEnhancer(client).enhance([a], ctx)
+
+    expect('reviews' in result[0]).toBe(false)
+  })
+
+  it('sanitiza fatos violados: highlight banido some, about banido vira null', async () => {
+    const a = candidate({ placeId: 'a' })
+    const { client } = stubClient({
+      ranked: [
+        {
+          placeId: 'a',
+          // Vazamentos reais da probe: reputação no about, identidade e
+          // depreciação nos highlights — o sanitizador é a garantia final.
+          about: 'Club elogiado como o melhor da cena',
+          highlights: [
+            'Banda de sexta e sábado',
+            'Casa da cena LGBT',
+            'Drinks bem avaliados',
+            'Pista pequena que fica apertada',
+          ],
+        },
+      ],
+    })
+
+    const result = await new AiSuggestionEnhancer(client).enhance([a], ctx)
+
+    expect(result[0].about).toBeNull()
+    expect(result[0].highlights).toEqual(['Banda de sexta e sábado'])
+  })
+
+  it('aplica os tetos do contrato: about 140, highlight 55, máx. 5 itens', async () => {
+    const a = candidate({ placeId: 'a' })
+    const { client } = stubClient({
+      ranked: [
+        {
+          placeId: 'a',
+          about: 'x'.repeat(200),
+          highlights: Array.from({ length: 7 }, (_, i) =>
+            `fato ${i} `.padEnd(80, 'y'),
+          ),
+        },
+      ],
+    })
+
+    const result = await new AiSuggestionEnhancer(client).enhance([a], ctx)
+
+    expect(result[0].about?.length).toBeLessThanOrEqual(140)
+    expect(result[0].highlights).toHaveLength(5)
+    for (const h of result[0].highlights) {
+      expect(h.length).toBeLessThanOrEqual(55)
+    }
   })
 
   it('descarta candidatos que a IA omite (filtra)', async () => {
@@ -65,7 +129,7 @@ describe('AiSuggestionEnhancer.enhance', () => {
     const b = candidate({ placeId: 'b' })
     const c = candidate({ placeId: 'c' })
     const { client } = stubClient({
-      ranked: [{ placeId: 'a', title: 'só o A', description: null }],
+      ranked: [{ placeId: 'a', about: 'só o A', highlights: [] }],
     })
 
     const result = await new AiSuggestionEnhancer(client).enhance(
@@ -76,7 +140,7 @@ describe('AiSuggestionEnhancer.enhance', () => {
     expect(result.map((r) => r.placeId)).toEqual(['a'])
   })
 
-  it('piso: se a IA descarta tudo, mantém todos com copy de template', async () => {
+  it('piso: se a IA descarta tudo, mantém todos sem fatos (about null)', async () => {
     const a = candidate({ placeId: 'a', name: 'A' })
     const b = candidate({ placeId: 'b', name: 'B' })
     const { client } = stubClient({ ranked: [] })
@@ -84,15 +148,16 @@ describe('AiSuggestionEnhancer.enhance', () => {
     const result = await new AiSuggestionEnhancer(client).enhance([a, b], ctx)
 
     expect(result.map((r) => r.placeId)).toEqual(['a', 'b'])
-    expect(result[0].suggestedTitle).toBe('Bora um rolê no A?')
+    expect(result[0].about).toBeNull()
+    expect(result[0].highlights).toEqual([])
   })
 
   it('ignora placeId alucinado que não está nos candidatos', async () => {
     const a = candidate({ placeId: 'a' })
     const { client } = stubClient({
       ranked: [
-        { placeId: 'fantasma', title: 'x', description: null },
-        { placeId: 'a', title: 'real', description: null },
+        { placeId: 'fantasma', about: 'x', highlights: [] },
+        { placeId: 'a', about: 'real', highlights: [] },
       ],
     })
 
@@ -101,7 +166,7 @@ describe('AiSuggestionEnhancer.enhance', () => {
     expect(result.map((r) => r.placeId)).toEqual(['a'])
   })
 
-  it('falha da IA cai no template e registra a métrica de fallback', async () => {
+  it('falha da IA cai no fallback sem fatos e registra a métrica', async () => {
     const before = await fallbackCount('llm_error')
     const a = candidate({ placeId: 'a', name: 'A' })
     const parse = vi.fn(async () => {
@@ -114,12 +179,13 @@ describe('AiSuggestionEnhancer.enhance', () => {
     const result = await new AiSuggestionEnhancer(client).enhance([a], ctx)
 
     expect(result).toHaveLength(1)
-    expect(result[0].suggestedTitle).toBe('Bora um rolê no A?')
-    // O fallback silencioso agora é observável (alarme de IA offline).
+    expect(result[0].about).toBeNull()
+    expect(result[0].highlights).toEqual([])
+    // O fallback silencioso é observável (alarme de IA offline).
     expect(await fallbackCount('llm_error')).toBe(before + 1)
   })
 
-  it('manda só os sinais de ranqueamento (distância, notoriedade); nota/preço/aberto ficam fora', async () => {
+  it('manda distância, notoriedade e reviews truncadas; nota/preço/aberto ficam fora', async () => {
     let sent: { content: string } | undefined
     const { client } = stubClient({ ranked: [] }, (body) => {
       const messages = (body as { messages: { content: string }[] }).messages
@@ -135,22 +201,23 @@ describe('AiSuggestionEnhancer.enhance', () => {
           priceLevel: 'PRICE_LEVEL_EXPENSIVE',
           distanceMeters: 350,
           openNow: false,
+          reviews: ['r1', 'r2', 'x'.repeat(400), 'r4', 'r5'],
         }),
       ],
       ctx,
     )
 
     const payload = JSON.parse(sent?.content ?? '{}')
-    // Entram no ranqueamento: distância (desempate fraco) e notoriedade.
+    // Entram no ranqueamento: distância, notoriedade e a fatia de reviews
+    // (3 por lugar, 250 chars cada — evidência de aderência e fonte dos fatos).
     expect(payload.places[0].distanceMeters).toBe(350)
     expect(payload.places[0].userRatingCount).toBe(250)
+    expect(payload.places[0].reviews).toHaveLength(3)
+    expect(payload.places[0].reviews[2].length).toBeLessThanOrEqual(250)
     // Fora do ranqueamento (mas seguem no candidato/saída).
     expect(payload.places[0].rating).toBeUndefined()
     expect(payload.places[0].openNow).toBeUndefined()
     expect(payload.places[0].priceLevel).toBeUndefined()
-    // category/subcategory saíram do payload (eram sinal ruidoso inferido).
-    expect(payload.places[0].category).toBeUndefined()
-    expect(payload.places[0].subcategory).toBeUndefined()
   })
 
   it('inclui o criterion no payload (sinal único de ranqueamento)', async () => {
@@ -169,7 +236,7 @@ describe('AiSuggestionEnhancer.enhance', () => {
   })
 })
 
-describe('AiSuggestionEnhancer — idioma da copy', () => {
+describe('AiSuggestionEnhancer — idioma e regras do prompt', () => {
   it('manda o bloco de voz do locale pedido, e só ele', async () => {
     const { client, parse } = stubClient({ ranked: [] })
 
@@ -202,25 +269,10 @@ describe('AiSuggestionEnhancer — idioma da copy', () => {
       expect(system).toContain('SEMPRE descarte conteúdo adulto/sexual')
       expect(system).toContain('NUNCA mencione nota')
       expect(system).toContain('SEGURANÇA')
+      // Decisões de produto das sugestões factuais (probe 2026-09-01).
+      expect(system).toContain('público mais alternativo')
+      expect(system).toContain('NADA QUE PREJUDIQUE O ESTABELECIMENTO')
+      expect(system).toContain('REVIEWS são EVIDÊNCIA')
     }
-  })
-
-  // Cair de IA para template é degradação de qualidade; não pode ser também
-  // degradação de idioma — quem pediu em inglês continua lendo inglês.
-  it('o fallback por falha da IA respeita o idioma do pedido', async () => {
-    const parse = vi.fn(async () => {
-      throw new Error('LLM fora')
-    })
-    const client = { messages: { parse } } as unknown as Pick<
-      Anthropic,
-      'messages'
-    >
-
-    const result = await new AiSuggestionEnhancer(client).enhance(
-      [candidate({ name: 'Bar do Zé' })],
-      { criterion: 'arte', locale: 'en' },
-    )
-
-    expect(result[0].suggestedTitle).toBe('Down for Bar do Zé?')
   })
 })

@@ -444,8 +444,11 @@ export async function generateSuggestions(
   // mesma região. O locale é dimensão da chave porque o valor cacheado é a copy
   // JÁ escrita: sem ele, dois usuários da mesma célula dividiriam a entrada e
   // quem chegasse depois receberia o texto no idioma de quem gerou.
+  // v2: o valor cacheado mudou de forma (suggestedTitle/Description →
+  // about/highlights) — versionar a chave evita servir o contrato antigo
+  // durante o TTL após o deploy.
   const key = cache.key(
-    'spots:suggestions',
+    'spots:suggestions:v2',
     locale,
     gridCell(body.latitude, radiusKm),
     gridCell(body.longitude, radiusKm),
@@ -501,6 +504,10 @@ export async function generateSuggestions(
           radiusMeters,
           limit: SEARCH_LIMIT,
           languageCode: locale,
+          // Reviews (SKU maior) só quando há IA pra consumi-las como evidência;
+          // no modo template seriam custo morto. Nunca chegam à resposta da
+          // API: o enhancer as descarta ao montar o EnhancedCandidate.
+          includeReviews: Boolean(env.ANTHROPIC_API_KEY),
         }),
       ),
     )
