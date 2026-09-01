@@ -10,27 +10,29 @@ const userSelect = {
   avatarUrl: true,
 } as const
 
+const attachmentSelect = {
+  id: true,
+  kind: true,
+  url: true,
+  // key (publicId): interno, usado só para gerar a URL assinada no read.
+  // NÃO é exposto na resposta — shapeMessage o descarta.
+  key: true,
+  format: true,
+  size: true,
+  durationMs: true,
+  waveform: true,
+  width: true,
+  height: true,
+  thumbnailUrl: true,
+  thumbnailKey: true,
+  order: true,
+} as const
+
 const messageInclude = {
   sender: { select: userSelect },
   attachments: {
     orderBy: { order: 'asc' as const },
-    select: {
-      id: true,
-      kind: true,
-      url: true,
-      // key (publicId): interno, usado só para gerar a URL assinada no read.
-      // NÃO é exposto na resposta — shapeMessage o descarta.
-      key: true,
-      format: true,
-      size: true,
-      durationMs: true,
-      waveform: true,
-      width: true,
-      height: true,
-      thumbnailUrl: true,
-      thumbnailKey: true,
-      order: true,
-    },
+    select: attachmentSelect,
   },
   reactions: { select: { userId: true, emoji: true } },
   replyTo: {
@@ -45,6 +47,14 @@ const messageInclude = {
       contentKeyVersion: true,
       deletedAt: true,
       sender: { select: userSelect },
+      // Só o primeiro: a citação de mensagem só de mídia rende UM rótulo
+      // ("Foto", "Áudio") derivado do kind, e o preview se repete em cada
+      // resposta da página — trazer a galeria inteira aqui é payload morto.
+      attachments: {
+        orderBy: { order: 'asc' as const },
+        take: 1,
+        select: attachmentSelect,
+      },
     },
   },
 } as const
