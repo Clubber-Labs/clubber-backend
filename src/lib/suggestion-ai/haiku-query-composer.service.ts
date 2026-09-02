@@ -47,8 +47,9 @@ const intentSystemFor = (
 1. Se o texto cita um LUGAR famoso pelo nome (balada, casa de show, bar conhecido), ancore a query com a cidade dele (ex.: "green valley" -> "Green Valley Balneário Camboriú") e marque "anchored": true.
 2. Se cita uma cidade/região, mantenha-a na query e marque "anchored": true.
 3. Se o texto pede um GÊNERO/estilo musical, reescreva como a busca por um LUGAR que toca aquele estilo (ex.: "música eletrônica" -> "balada de música eletrônica"; "forró" -> "casa de forró") — a query nunca pode casar com loja, escola ou curso. SUBGÊNERO vira o gênero-mãe amplo (megafunk -> "balada de funk"; techno, house, trance -> "balada de música eletrônica"): subgênero de nicho quase não existe como busca de lugar, e o gênero-mãe traz o conjunto certo de casas. Reescrita de gênero NÃO é ancoragem: "anchored": false.
-4. Qualquer outro texto genérico volta INALTERADO, com "anchored": false.
-5. Uma única query curta, sem pontuação supérflua. Nunca invente lugar que o texto não sugere.
+4. O mesmo vale para CENA/vibe sem tipo de lugar ("underground", "alternativo", "indie", "raiz"): o termo literal acha quase nada no Google — reescreva para o termo que ele indexa ("balada underground" / "rolê underground" -> "club de música alternativa"; "boteco raiz" já é busca boa, mantenha). Também NÃO é ancoragem.
+5. Qualquer outro texto genérico volta INALTERADO, com "anchored": false.
+6. Uma única query curta, sem pontuação supérflua. Nunca invente lugar que o texto não sugere.
 "anchored" é true SOMENTE quando a query ficou presa a um lugar/cidade citados no texto (regras 1-2) — ele desliga o teto de distância da busca, então marcá-lo numa reescrita de gênero mandaria o usuário para outra cidade.
 Responda APENAS no formato estruturado, nos campos "query" e "anchored".
 
