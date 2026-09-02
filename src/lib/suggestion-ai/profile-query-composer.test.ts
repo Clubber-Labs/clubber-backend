@@ -167,6 +167,24 @@ describe('HaikuProfileQueryComposer.composeIntentQuery', () => {
     expect(system).toContain('NÃO é ancoragem')
   })
 
+  it('o prompt manda cena/vibe virar termo indexável, nunca a query literal', async () => {
+    const { client, parse } = stubClient({
+      query: 'club de música alternativa',
+      anchored: false,
+    })
+
+    await new HaikuProfileQueryComposer(client).composeIntentQuery(
+      'balada underground',
+      'pt-BR',
+    )
+
+    const system = (parse.mock.calls[0]?.[0] as { system: string }).system
+    // Caso real: "balada underground" literal acha 0-1 lugar; o termo de cena
+    // precisa virar a busca que o Google indexa.
+    expect(system).toContain('CENA/vibe')
+    expect(system).toContain('club de música alternativa')
+  })
+
   it('IA sem saída útil devolve o texto original sem ancorar', async () => {
     const { client } = stubClient({ query: '   ', anchored: true })
 
