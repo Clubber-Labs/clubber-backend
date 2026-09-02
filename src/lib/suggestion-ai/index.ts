@@ -12,16 +12,21 @@ import { TemplateProfileQueryComposer } from './template-query-composer.service'
 // (maxRetries default 2) — pior caso ~30 min com o handler Fastify pendurado.
 // Limitamos os dois: o enhancer (Sonnet, até 2048 tokens) ganha mais folga que
 // o composer (Haiku, saída curta). Qualquer falha — incl. timeout — cai no
-// template determinístico (degradação graciosa), então o teto nunca quebra a
-// geração de sugestões; no pior caso troca IA por template.
-const ENHANCER_TIMEOUT_MS = 25_000
+// fallback determinístico (degradação graciosa), então o teto nunca quebra a
+// geração de sugestões; no pior caso troca fatos por card enxuto.
+// 40s (era 25s): o payload com 5 reviews/lugar (~10k tokens de entrada em 20
+// candidatos) levou a chamada real a 20-30s — 25s derrubava geração legítima
+// pro fallback. Pior caso combinado sobe p/ ~104s (2×40 + 2×12), ainda coberto
+// pela degradação graciosa.
+const ENHANCER_TIMEOUT_MS = 40_000
 const COMPOSER_TIMEOUT_MS = 12_000
 // maxRetries 1: o SDK retenta erros transitórios (429/5xx) E timeouts (também são
 // APITimeoutError). Logo o pior caso por chamada é timeout × (maxRetries + 1); e
 // como o modo perfil chama composer e enhancer em sequência (spots.service), a
-// espera combinada chega a ~74s antes de cair no template — ainda assim ordens de
-// grandeza melhor que os ~30 min do default (maxRetries 2). maxRetries 0 cortaria
-// o teto pela metade (~37s) abrindo mão do retry de transitório — decisão de SLA.
+// espera combinada chega a ~104s antes de cair no fallback — ainda assim ordens
+// de grandeza melhor que os ~30 min do default (maxRetries 2). maxRetries 0
+// cortaria o teto pela metade (~52s) abrindo mão do retry de transitório —
+// decisão de SLA.
 const AI_MAX_RETRIES = 1
 
 let instance: ISuggestionEnhancer | null = null
