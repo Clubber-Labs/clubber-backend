@@ -20,14 +20,17 @@ import { TemplateProfileQueryComposer } from './template-query-composer.service'
 // pela degradação graciosa.
 const ENHANCER_TIMEOUT_MS = 40_000
 const COMPOSER_TIMEOUT_MS = 12_000
-// maxRetries 1: o SDK retenta erros transitórios (429/5xx) E timeouts (também são
-// APITimeoutError). Logo o pior caso por chamada é timeout × (maxRetries + 1); e
-// como o modo perfil chama composer e enhancer em sequência (spots.service), a
-// espera combinada chega a ~104s antes de cair no fallback — ainda assim ordens
-// de grandeza melhor que os ~30 min do default (maxRetries 2). maxRetries 0
-// cortaria o teto pela metade (~52s) abrindo mão do retry de transitório —
-// decisão de SLA.
-const AI_MAX_RETRIES = 1
+// O SDK retenta erros transitórios (429/5xx) E timeouts (também são
+// APITimeoutError), então o pior caso por chamada é timeout × (maxRetries + 1).
+// Enhancer com retry 0: retentar um timeout de 40s raramente salva (a lentidão
+// é do payload, não transitória) e dobraria a espera — o pior caso combinado
+// do modo perfil (composer 2×12s + enhancer 1×40s = ~64s) precisa caber nos
+// 100s em que o Cloudflare corta a espera pela origem (524); com retry seria
+// ~104s e o usuário receberia o 524 ANTES do fallback gracioso responder.
+// Composer mantém retry 1: tentativa de 12s é barata e o retry de transitório
+// (429/5xx, que falha rápido) ainda vale.
+const ENHANCER_MAX_RETRIES = 0
+const COMPOSER_MAX_RETRIES = 1
 
 let instance: ISuggestionEnhancer | null = null
 
@@ -44,7 +47,7 @@ export function getSuggestionEnhancer(): ISuggestionEnhancer {
         new Anthropic({
           apiKey: env.ANTHROPIC_API_KEY,
           timeout: ENHANCER_TIMEOUT_MS,
-          maxRetries: AI_MAX_RETRIES,
+          maxRetries: ENHANCER_MAX_RETRIES,
         }),
       )
     : new TemplateSuggestionEnhancer()
@@ -70,7 +73,7 @@ export function getProfileQueryComposer(): IProfileQueryComposer {
         new Anthropic({
           apiKey: env.ANTHROPIC_API_KEY,
           timeout: COMPOSER_TIMEOUT_MS,
-          maxRetries: AI_MAX_RETRIES,
+          maxRetries: COMPOSER_MAX_RETRIES,
         }),
       )
     : new TemplateProfileQueryComposer()
