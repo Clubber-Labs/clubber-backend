@@ -23,9 +23,10 @@ const MAX_TOKENS = 2048
 const ABOUT_MAX = 140
 const HIGHLIGHT_MAX = 55
 const HIGHLIGHTS_PER_PLACE = 5
-// Fatia de reviews no payload: 3×250 equilibrou riqueza (gênero e público
-// aparecem) com latência na probe — acima disso a chamada flerta com o timeout.
-const REVIEWS_PER_PLACE = 3
+// Fatia de reviews no payload: 5 é o teto que o Places devolve por lugar
+// (decisão de produto: evidência máxima). 5×250 custa ~10k tokens de entrada
+// por chamada de 20 candidatos e exige o teto de latência maior do index.ts.
+const REVIEWS_PER_PLACE = 5
 const REVIEW_MAX_CHARS = 250
 
 // Ranqueamento, evidência, segurança e regras dos fatos: LÓGICA, igual nos três

@@ -201,18 +201,19 @@ describe('AiSuggestionEnhancer.enhance', () => {
           priceLevel: 'PRICE_LEVEL_EXPENSIVE',
           distanceMeters: 350,
           openNow: false,
-          reviews: ['r1', 'r2', 'x'.repeat(400), 'r4', 'r5'],
+          reviews: ['r1', 'r2', 'x'.repeat(400), 'r4', 'r5', 'r6'],
         }),
       ],
       ctx,
     )
 
     const payload = JSON.parse(sent?.content ?? '{}')
-    // Entram no ranqueamento: distância, notoriedade e a fatia de reviews
-    // (3 por lugar, 250 chars cada — evidência de aderência e fonte dos fatos).
+    // Entram no ranqueamento: distância, notoriedade e as reviews (5 por
+    // lugar — o teto do Places —, 250 chars cada: evidência de aderência e
+    // fonte dos fatos).
     expect(payload.places[0].distanceMeters).toBe(350)
     expect(payload.places[0].userRatingCount).toBe(250)
-    expect(payload.places[0].reviews).toHaveLength(3)
+    expect(payload.places[0].reviews).toHaveLength(5)
     expect(payload.places[0].reviews[2].length).toBeLessThanOrEqual(250)
     // Fora do ranqueamento (mas seguem no candidato/saída).
     expect(payload.places[0].rating).toBeUndefined()
