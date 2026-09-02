@@ -432,6 +432,36 @@ describe('POST /spots/suggestions', () => {
     expect(res.json().suggestions.length).toBeLessThanOrEqual(8)
   })
 
+  it('resultado vazio não fica cacheado — a chamada seguinte busca de novo', async () => {
+    const user = await makeUser()
+    // 1ª rodada: o Places não achou nada (caso real: query de cena magra).
+    fakePlaces.override = () => []
+    const res1 = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5, query: 'balada de vaporwave' },
+    })
+    expect(res1.json().suggestions).toEqual([])
+
+    // 2ª rodada, mesma célula+query: o mundo mudou — servir o vazio de minutos
+    // atrás pregaria o "nada" pra célula inteira durante o TTL.
+    fakePlaces.override = (p) => [
+      { ...baseCandidate(p, 'novo'), distanceMeters: 100 },
+    ]
+    const res2 = await app.inject({
+      method: 'POST',
+      url: '/spots/suggestions',
+      headers: auth(user.id),
+      body: { ...POINT, radiusKm: 5, query: 'balada de vaporwave' },
+    })
+
+    expect(
+      res2.json().suggestions.map((s: { placeId: string }) => s.placeId),
+    ).toEqual(['novo'])
+    expect(fakePlaces.calls).toBe(2)
+  })
+
   it('raio amplo compartilha cache entre pontos próximos', async () => {
     const user = await makeUser()
     await makeUserCategoryPreference(user.id, 'PARTY')
