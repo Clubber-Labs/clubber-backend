@@ -458,8 +458,9 @@ export async function generateSuggestions(
       : `${sortedCats.join(',')}|s:${sortedSubcats.join(',')}`,
   )
   // Cache hit também consome (decisão de produto); Places E IA só no cache miss.
+  // Lista vazia nunca é hit válido (nem legada): vazio é sempre regerado.
   let suggestions = await cache.get<EnhancedCandidate[]>(key)
-  if (!suggestions) {
+  if (!suggestions?.length) {
     // Queries de busca: a reescrita do texto livre OU as frases que a IA compõe
     // do perfil. Composer resiliente: se a IA não devolve nada, cai nos rótulos
     // de categoria (perfil não-vazio garante ≥1 frase).
@@ -545,7 +546,12 @@ export async function generateSuggestions(
     })
     // Cap de itens: devolve só as melhores (já ranqueadas pela IA).
     suggestions = enhanced.slice(0, MAX_SUGGESTIONS)
-    await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)
+    // Vazio fica FORA do cache: um zero transitório (query magra, Places
+    // instável) pregaria "nada" pra célula inteira durante o TTL; regerar é
+    // barato e a quota diária já limita a repetição.
+    if (suggestions.length > 0) {
+      await cache.set(key, suggestions, SUGGESTIONS_TTL_SECONDS)
+    }
   }
 
   return { suggestions, remaining: Math.max(0, limit - quota.used) }
