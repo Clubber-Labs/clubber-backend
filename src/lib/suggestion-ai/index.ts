@@ -1,4 +1,4 @@
-import Anthropic from '@anthropic-ai/sdk'
+import Anthropic, { type ClientOptions } from '@anthropic-ai/sdk'
 import { env } from '../env'
 import { AiSuggestionEnhancer } from './ai-enhancer.service'
 import { HaikuProfileQueryComposer } from './haiku-query-composer.service'
@@ -29,6 +29,26 @@ const COMPOSER_TIMEOUT_MS = 12_000
 // decisão de SLA.
 const AI_MAX_RETRIES = 1
 
+/**
+ * Opções comuns dos clients Anthropic. Chave pessoal/service account sem
+ * workspace fixo exige `anthropic-workspace-id` em TODO request (400 sem ele) —
+ * nenhum SDK manda sozinho, então vai como defaultHeaders.
+ */
+export function anthropicClientOptions(params: {
+  apiKey: string
+  workspaceId: string | undefined
+  timeout: number
+}): ClientOptions {
+  return {
+    apiKey: params.apiKey,
+    timeout: params.timeout,
+    maxRetries: AI_MAX_RETRIES,
+    ...(params.workspaceId
+      ? { defaultHeaders: { 'anthropic-workspace-id': params.workspaceId } }
+      : {}),
+  }
+}
+
 let instance: ISuggestionEnhancer | null = null
 
 /**
@@ -41,11 +61,13 @@ export function getSuggestionEnhancer(): ISuggestionEnhancer {
   if (instance) return instance
   instance = env.ANTHROPIC_API_KEY
     ? new AiSuggestionEnhancer(
-        new Anthropic({
-          apiKey: env.ANTHROPIC_API_KEY,
-          timeout: ENHANCER_TIMEOUT_MS,
-          maxRetries: AI_MAX_RETRIES,
-        }),
+        new Anthropic(
+          anthropicClientOptions({
+            apiKey: env.ANTHROPIC_API_KEY,
+            workspaceId: env.ANTHROPIC_WORKSPACE_ID,
+            timeout: ENHANCER_TIMEOUT_MS,
+          }),
+        ),
       )
     : new TemplateSuggestionEnhancer()
   return instance
@@ -67,11 +89,13 @@ export function getProfileQueryComposer(): IProfileQueryComposer {
   if (composerInstance) return composerInstance
   composerInstance = env.ANTHROPIC_API_KEY
     ? new HaikuProfileQueryComposer(
-        new Anthropic({
-          apiKey: env.ANTHROPIC_API_KEY,
-          timeout: COMPOSER_TIMEOUT_MS,
-          maxRetries: AI_MAX_RETRIES,
-        }),
+        new Anthropic(
+          anthropicClientOptions({
+            apiKey: env.ANTHROPIC_API_KEY,
+            workspaceId: env.ANTHROPIC_WORKSPACE_ID,
+            timeout: COMPOSER_TIMEOUT_MS,
+          }),
+        ),
       )
     : new TemplateProfileQueryComposer()
   return composerInstance
